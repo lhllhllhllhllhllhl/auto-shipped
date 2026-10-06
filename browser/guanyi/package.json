@@ -1,0 +1,31 @@
+{
+  "name": "@shangyu/guanyi-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "State-driven, read-only-first Playwright executor for Guanyi C-ERP",
+  "scripts": {
+    "login": "node cli.mjs login",
+    "login-auto": "node cli.mjs login-auto",
+    "login-auto-sms": "node cli.mjs login-auto-sms",
+    "login-auto-sms-task-center": "node cli.mjs login-auto-sms-task-center",
+    "credential:set": "node credential-cli.mjs set",
+    "credential:web": "node credential-web.mjs",
+    "credential:status": "node credential-cli.mjs status",
+    "probe": "node cli.mjs probe",
+    "navigate-import": "node cli.mjs navigate-import",
+    "prepare-import-form": "node cli.mjs prepare-import-form",
+    "probe-task-center": "node cli.mjs probe-task-center",
+    "probe-completed-imports": "node cli.mjs probe-completed-imports",
+    "capture-task-baseline": "node cli.mjs capture-task-baseline",
+    "inspect-file-selection": "node cli.mjs inspect-file-selection",
+    "select-import-file": "node cli.mjs select-import-file",
+    "verify-manifest": "node cli.mjs verify-manifest",
+    "prepare-operation": "node cli.mjs prepare-operation",
+    "test": "node --test *.test.mjs",
+    "check": "node --check cli.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

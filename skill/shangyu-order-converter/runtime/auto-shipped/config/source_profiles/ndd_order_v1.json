@@ -1,0 +1,106 @@
+{
+  "profile_id": "ndd_order_v1",
+  "company_id": "ndd",
+  "source_label": "NDD礼品订单",
+  "order_type": "standard_order",
+  "adapter": "ndd_gift_order_parsed",
+  "version": 1,
+  "enabled": true,
+  "detection": {
+    "sheet_name": "Sheet1",
+    "header_row": 1,
+    "header_order": "any",
+    "required_headers": [
+      "订单编号",
+      "礼品名称",
+      "数量",
+      "订单状态",
+      "配送方式",
+      "收件人姓名",
+      "收件人手机",
+      "完整地址",
+      "订单生成时间",
+      "套餐配套商品信息",
+      "送货时间"
+    ],
+    "known_headers": [
+      "商品小计",
+      "订单编号",
+      "礼品名称",
+      "礼品描述",
+      "礼品价格",
+      "数量",
+      "订单状态",
+      "配送方式",
+      "收件人姓名",
+      "收件人手机",
+      "完整地址",
+      "快递公司",
+      "快递单号",
+      "兑换码",
+      "订单生成时间",
+      "自提点名称",
+      "自提点地址",
+      "提货人姓名",
+      "提货人手机",
+      "礼品规格",
+      "套餐配套商品信息",
+      "送货时间"
+    ],
+    "unknown_header_policy": "warn",
+    "company_identity": {
+      "required": true,
+      "on_missing": "ask_user",
+      "rules": [],
+      "evidence": "真实样本中没有稳定NDD公司字段；必须由员工显式说明NDD后使用本来源配置。"
+    }
+  },
+  "fields": {
+    "source_order_no": "订单编号",
+    "recipient_name": "收件人姓名",
+    "contact": "收件人手机",
+    "address": "完整地址",
+    "product_name": "礼品名称",
+    "source_display_spec": "礼品规格",
+    "quantity": "数量",
+    "carrier": "快递公司",
+    "tracking_no": "快递单号",
+    "source_note": "送货时间",
+    "ordered_at": "订单生成时间"
+  },
+  "consistency_fields": [
+    "recipient_name",
+    "contact",
+    "address",
+    "source_note",
+    "ordered_at",
+    "carrier",
+    "tracking_no"
+  ],
+  "grouping": {
+    "order_key": "订单编号",
+    "one_row_per": "source_order"
+  },
+  "order_row_policy": {
+    "allowed_product_names": ["光明 福利套餐四"],
+    "status_field": "订单状态",
+    "allowed_statuses": ["待发货"],
+    "delivery_field": "配送方式",
+    "allowed_delivery": ["邮寄"]
+  },
+  "bundle_identity_guard": {
+    "bundle_title": "光明满元气鲜食玉米2袋组合",
+    "components": [
+      {
+        "source_component_name": "黄糯玉米8根装",
+        "quantity_per_bundle": 1
+      },
+      {
+        "source_component_name": "白糯玉米8根装",
+        "quantity_per_bundle": 1
+      }
+    ],
+    "on_change": "ask_user",
+    "evidence": "NDD原始样本套餐说明和人工管易成品逐单对照：2026-10-05"
+  }
+}

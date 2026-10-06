@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/clarification-request-v1.json",
+  "title": "Shangyu Clarification Request",
+  "description": "转换脚本发现用途、路由或必需信息不确定时，交给 Agent 的结构化追问请求。",
+  "type": "object",
+  "x-status": "draft",
+  "required": [
+    "schema_version",
+    "code",
+    "scope",
+    "question",
+    "reason",
+    "answer_type",
+    "blocking"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "code": {"type": "string", "minLength": 1},
+    "scope": {"enum": ["batch", "file", "order", "field"]},
+    "source_ref": {"type": ["string", "null"]},
+    "field": {"type": ["string", "null"]},
+    "question": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "answer_type": {"enum": ["confirmation", "single_choice", "text", "file"]},
+    "choices": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "blocking": {"const": true},
+    "next_action": {"type": ["string", "null"]}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"answer_type": {"const": "single_choice"}},
+        "required": ["answer_type"]
+      },
+      "then": {
+        "required": ["choices"],
+        "properties": {"choices": {"minItems": 2}}
+      }
+    }
+  ],
+  "additionalProperties": false
+}

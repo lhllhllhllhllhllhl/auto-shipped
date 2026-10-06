@@ -1,0 +1,23 @@
+/.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.DS_Store
+
+# Local analysis, generated workbooks and source documents with recipient data
+/.artifact/
+/outputs/
+/tmp/
+*.inspect.ndjson
+/shangyu-shipping-system-workflow.json
+/shangyu-shipping-system-workflow.html
+
+# Browser dependencies and sensitive runtime state
+browser/guanyi/node_modules/
+/runtime/
+
+# Local credentials, environment overrides and logs
+.env
+.env.*
+*.log

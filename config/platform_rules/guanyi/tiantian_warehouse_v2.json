@@ -1,0 +1,263 @@
+{
+  "profile_id": "guanyi_tiantian_warehouse_v2",
+  "source_profile_id": "tiantian_warehouse_v2",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 3,
+  "platform_order_number": {
+    "strategy": "source_order_no_with_affixes",
+    "prefix": "TT",
+    "suffix": "",
+    "prefix_meaning": "恬田来源标识",
+    "confirmed": true,
+    "source": "用户确认：2026-09-30；机器人尾缀A于2026-10-05提升到管易公共平台策略"
+  },
+  "store_assignment_policy": {
+    "strategy": "all_items_same_store_by_product",
+    "confirmed": true,
+    "on_unmatched": "ask_user",
+    "on_multiple_stores": "ask_user",
+    "source": "PDF玉米订单规则、恬田原始样本、人工导入样本和用户确认：2026-09-30",
+    "rules": [
+      {
+        "rule_id": "guangming_corn_jtw8e1",
+        "store": "光明满元气",
+        "match": {
+          "product_codes": ["JTW8E1"],
+          "spec_codes": ["6974768564811"]
+        },
+        "evidence": "外部SKU 2026DFYUMI001已确认映射到JTW8E1/6974768564811；PDF规定玉米订单选择光明满元气；人工样本一致。"
+      }
+    ]
+  },
+  "field_output_policy": {
+    "product_name": {
+      "strategy": "catalog_product_name",
+      "confirmed": true,
+      "source": "用户复核人工结果后确认：2026-09-30"
+    },
+    "spec_name": {
+      "strategy": "catalog_spec_name",
+      "confirmed": true,
+      "source": "用户复核人工结果后确认：2026-09-30"
+    },
+    "order_created_at": {
+      "strategy": "source_ordered_at",
+      "confirmed": true,
+      "source": "用户复核人工结果后确认：2026-09-30"
+    },
+    "contact_columns": {
+      "strategy": "mobile_to_both_phone_preserved",
+      "confirmed": true,
+      "source": "用户确认：2026-09-30"
+    },
+    "recipient_region": {
+      "strategy": "source_components",
+      "confirmed": true,
+      "source": "用户复核人工结果后确认：2026-09-30"
+    }
+  },
+  "buyer_member_policy": {
+    "strategy": "fixed",
+    "value": "张",
+    "confirmed": true,
+    "source": "用户确认：2026-10-01",
+    "global_rule_note": "所有普通来源填写张；SAM由独立规则包按平台、商品类型、当日日期和跟团号生成。"
+  },
+  "defaults": {
+    "payment_amount": {
+      "value": 0,
+      "confirmed": true,
+      "source": "用户确认：2026-09-27"
+    },
+    "unit_price": {
+      "value": 0,
+      "confirmed": true,
+      "source": "用户确认：2026-09-27"
+    },
+    "freight": {
+      "value": 0,
+      "confirmed": true,
+      "source": "现有规则"
+    },
+    "warehouse_name": {
+      "value": "上海尚舆商贸有限公司",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "payment_method": {
+      "value": "网银在线",
+      "confirmed": true,
+      "source": "现有规则"
+    },
+    "order_type": {
+      "value": "销售订单",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "is_mobile_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_cod": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_distributor_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    }
+  },
+  "logistics_policy": {
+    "strategy": "source_override_then_confirmed_packaging_rules",
+    "source_carrier_priority": true,
+    "source_carrier_aliases": {
+      "韵达": "韵达快递",
+      "韵达快递": "韵达快递",
+      "中通重货": "中通快递（重货）",
+      "中通快递(重货)": "中通快递（重货）",
+      "中通快递（重货）": "中通快递（重货）"
+    },
+    "default_carrier": "韵达快递",
+    "heavy_carrier": "中通快递（重货）",
+    "heavy_conditions": [
+      {
+        "rule_id": "corn_8_pack_quantity_gte_2",
+        "description": "已确认的8棒家庭装合计达到2件（16根）",
+        "match": {
+          "product_codes": ["JTW8E1", "JTTZE1", "JTBN1E1-EH"]
+        },
+        "minimum_quantity": 2
+      },
+      {
+        "rule_id": "corn_10_pack_any_quantity",
+        "description": "已确认映射的玉米10根或10棒礼盒，任意1件",
+        "match": {
+          "product_name_contains_all": ["玉米"],
+          "any_text_contains": ["10根", "10棒"]
+        },
+        "minimum_quantity": 1
+      }
+    ],
+    "future_replacement": "取得ROY确认的重量公式后，仅替换本策略模块，不修改来源解析或模板渲染。",
+    "confirmed": true,
+    "source": "用户确认：2026-09-30；用户于2026-10-05同意来源物流先标准化，未登记名称必须追问。"
+  },
+  "seller_remark_policy": {
+    "strategy": "source_note_then_system_notes_deduplicated",
+    "target_field": "卖家备注",
+    "separator": "；",
+    "confirmed": true,
+    "source": "用户确认：2026-09-29"
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "tiantian_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.store_assignment.by_product",
+        "evidence": "用户于2026-09-30确认不能把恬田来源直接等同于光明满元气店铺；当前仅对已确认商品JTW8E1/6974768564811精确分配光明满元气，未命中或多店铺订单必须追问。"
+      },
+      "GY-PLATFORM-ORDER-NUMBER": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.platform_order.affixed_source_order_no",
+        "evidence": "恬田来源规则生成TT+原始来源单号；公共管易自动化标识策略再统一追加A。"
+      },
+      "GY-BUYER-MEMBER": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.buyer_member.policy",
+        "evidence": "用户确认普通来源统一填写张；SAM于2026-10-02改为独立组合格式。恬田规则包继续采用固定张。"
+      },
+      "GY-PAYMENT-VALUES": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.zero_amounts",
+        "evidence": "用户确认价格和支付金额填0；运费默认0"
+      },
+      "GY-WAREHOUSE-ASSIGNMENT": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.warehouse_name",
+        "evidence": "SOP统一仓库"
+      },
+      "GY-PAYMENT-METHOD": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.payment_method",
+        "evidence": "SOP选择网银在线"
+      },
+      "GY-ORDER-TYPE": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.order_type",
+        "evidence": "SOP选择销售订单"
+      },
+      "GY-ORDER-FLAGS": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.order_flags",
+        "evidence": "管易导入说明中的三个标记均为0"
+      },
+      "GY-PRODUCT-MAPPING": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.product_catalog.confirmed_exact",
+        "evidence": "映射模块已实现；每个SKU仍需单独达到confirmed状态"
+      },
+      "GY-RECIPIENT-COMPLETENESS": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "source.recipient.required_fields",
+        "evidence": "来源解析器阻断缺失收件人、联系方式和完整地址；2026-10-05起非法联系方式也阻断。"
+      },
+      "GY-LOGISTICS-SELECTION": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.logistics.corn_packaging_policy",
+        "evidence": "用户于2026-09-30确认暂按包装规则；2026-10-05确认来源物流先标准化，未登记名称追问。"
+      },
+      "GY-SELLER-REMARK-POLICY": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.seller_remark.rule_composition",
+        "evidence": "用户确认客户备注写入卖家备注；按来源备注、系统提示顺序拼接并精确去重。"
+      },
+      "GY-IMPORT-STATUS-PENDING-REVIEW": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "browser.guanyi.prepare_import_form.pending_review",
+        "evidence": "页面已真实回读待审核状态"
+      },
+      "GY-IMPORT-OPTIONS": {
+        "status": "pending_implementation",
+        "confirmed": true,
+        "question": "业务已确认自定义导入页面下面两项都要勾选；请在上传阶段完成两项控件的精确定位和回读验收。",
+        "reason": "规则已确认，但当前浏览器执行器尚未完成两项控件的实现和真实验收。"
+      },
+      "GY-UPLOAD-SUBMISSION": {
+        "status": "pending_implementation",
+        "confirmed": false,
+        "question": "管易导入的“确定”提交尚未启用，完成真实MVP验收前保持关闭。",
+        "reason": "文件选择可能已触发网络写入，提交必须有独立授权和幂等核验。"
+      },
+      "GY-TASK-RECONCILIATION": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "browser.guanyi.task_reconciliation.unique_verified_id",
+        "evidence": "任务中心基线和唯一新增任务ID核验已实现"
+      },
+      "GY-ORDER-AUDIT": {
+        "status": "pending_implementation",
+        "confirmed": false,
+        "question": "订单自动审核权限尚未开启；当前只允许导入为待审核。",
+        "reason": "审核会改变真实订单状态，必须在导入闭环稳定后单独授权。"
+      }
+    }
+  }
+}

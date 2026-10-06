@@ -1,0 +1,22 @@
+{
+  "profile_id": "corn_inbound_order_v1",
+  "source_label": "玉米入仓订单",
+  "order_type": "purpose_unknown",
+  "adapter": null,
+  "version": 1,
+  "enabled": true,
+  "detection": {
+    "sheet_name": "Sheet1",
+    "header_row": 3,
+    "required_headers": [
+      "产品名称",
+      "订货数量（根/袋）",
+      "金额"
+    ]
+  },
+  "processing": {
+    "mode": "clarify_before_route",
+    "clarification_code": "ORDER_PURPOSE_UNCLEAR"
+  }
+}
+

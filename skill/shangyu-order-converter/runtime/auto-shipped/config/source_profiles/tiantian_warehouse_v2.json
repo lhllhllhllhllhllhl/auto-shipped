@@ -1,0 +1,66 @@
+{
+  "profile_id": "tiantian_warehouse_v2",
+  "company_id": "tiantian",
+  "source_label": "恬田代发仓",
+  "order_type": "warehouse_order",
+  "adapter": "tiantian_warehouse_parsed",
+  "version": 2,
+  "enabled": true,
+  "detection": {
+    "sheet_name": "仓库订单",
+    "header_row": 1,
+    "header_order": "any",
+    "required_headers": [
+      "订单编号",
+      "来源单号",
+      "收件人",
+      "联系方式",
+      "省",
+      "市",
+      "区",
+      "省市区详细地址",
+      "商品编码",
+      "商品名称",
+      "数量"
+    ],
+    "known_headers": [
+      "订单编号",
+      "来源单号",
+      "下单时间",
+      "收件人",
+      "联系方式",
+      "省",
+      "市",
+      "区",
+      "省市区详细地址",
+      "商品编码",
+      "商品名称",
+      "数量",
+      "客户备注",
+      "物流公司",
+      "物流单号",
+      "渠道名称"
+    ],
+    "unknown_header_policy": "warn",
+    "company_identity": {
+      "required": true,
+      "on_missing": "ask_user",
+      "rules": [
+        {
+          "rule_id": "tiantian_channel_name",
+          "kind": "column_value",
+          "sheet_name": "仓库订单",
+          "header": "渠道名称",
+          "match": "exact",
+          "values": ["GW_12233787_代发仓-恬田"],
+          "scan_rows": 200,
+          "evidence": "2026-09-24与2026-09-28原始样本的渠道名称字段一致。"
+        }
+      ]
+    }
+  },
+  "grouping": {
+    "order_key": "来源单号",
+    "one_row_per": "source_order_item"
+  }
+}

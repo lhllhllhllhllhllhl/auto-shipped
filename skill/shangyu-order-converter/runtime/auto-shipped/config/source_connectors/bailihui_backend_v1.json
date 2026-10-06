@@ -1,0 +1,33 @@
+{
+  "profile_id": "bailihui_backend_v1",
+  "source_profile_id": "bailihui_dropship_v1",
+  "source_label": "百礼汇供应商后台",
+  "connector_kind": "web_backend",
+  "order_type": "dropship_order",
+  "adapter": "bailihui_backend_connector",
+  "version": 1,
+  "status": "pending_sample_and_access_method",
+  "workflow_confirmed": true,
+  "output_contract": "ParsedOrder@1.0",
+  "route_id": "bailihui_backend_to_guanyi_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "supported_access_methods": [
+    "backend_excel_export",
+    "official_api",
+    "authorized_browser_read"
+  ],
+  "access_method": null,
+  "minimum_order_facts": [
+    "source_order_no",
+    "recipient_name",
+    "recipient_contact",
+    "recipient_address",
+    "source_product_id_or_name",
+    "quantity"
+  ],
+  "credential_policy": "never_store_in_skill_or_config",
+  "blocking_questions": [
+    "百礼汇后台能否直接导出订单Excel？如果可以，请提供一个脱敏样本。",
+    "如果不能导出，是否有官方API；否则需在用户已登录且明确授权的会话中读取网页。"
+  ]
+}

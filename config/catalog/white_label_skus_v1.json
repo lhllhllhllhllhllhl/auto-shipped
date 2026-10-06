@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "library_id": "white_label_skus_v1",
+  "version": 1,
+  "status": "approved_not_integrated",
+  "effective_from": "2026-09-29",
+  "purpose": "登记需要在管易卖家备注中标记为白标商品的精确SKU；与来源解析、商品映射和备注拼接逻辑分离。",
+  "match_policy": {
+    "stage": "after_guanyi_product_mapping",
+    "mode": "exact_product_and_spec_code",
+    "name_similarity_allowed": false,
+    "library_miss_behavior": "do_not_apply_white_label_rule"
+  },
+  "order_policy": {
+    "rule_id": "GY-DAILY-GOODS-WHITE-LABEL",
+    "if_any_item_matches": "mark_entire_order",
+    "remark_token": "白标商品",
+    "target_field": "卖家备注",
+    "remark_composition_rule_id": "GY-SELLER-REMARK-POLICY"
+  },
+  "entries": [
+    {
+      "product_code": "SWHL3627",
+      "spec_code": "4901792023627",
+      "display_name": "滑溜手套蓝色L码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-LIB-001",
+        "SRC-GY-CATALOG-001"
+      ]
+    },
+    {
+      "product_code": "SWHL3610",
+      "spec_code": "4901792023610",
+      "display_name": "滑溜手套蓝色M码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-LIB-001",
+        "SRC-GY-CATALOG-001"
+      ]
+    },
+    {
+      "product_code": "SWHL3603",
+      "spec_code": "4901792023603",
+      "display_name": "滑溜手套粉色S码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-LIB-001",
+        "SRC-GY-CATALOG-001"
+      ]
+    }
+  ],
+  "change_control": {
+    "editable": true,
+    "update_style": "versioned_config",
+    "required_for_addition": [
+      "product_code",
+      "spec_code",
+      "display_name",
+      "evidence_ref",
+      "effective_date"
+    ],
+    "removal_policy": "retire_entry_in_new_version_do_not_delete_history",
+    "integration_policy": "规则文档冻结并完成精确匹配测试后，才允许转换服务读取本库。"
+  }
+}

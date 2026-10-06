@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0",
+  "source_policies": {
+    "tiantian_warehouse_v2": {
+      "source_identifier_type": "product_code",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": false,
+      "name_matching": "normalized_exact_unique_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    }
+  },
+  "mappings": []
+}

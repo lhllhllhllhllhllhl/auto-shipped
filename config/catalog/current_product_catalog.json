@@ -1,0 +1,10 @@
+{
+  "profile_id": "guanyi_product_catalog_source_v1",
+  "platform": "guanyi",
+  "version": 1,
+  "status": "configured",
+  "path": "assets/catalog/current_product_catalog.csv",
+  "exported_at": "2026-09-21T17:51:41+08:00",
+  "refresh_policy": "manual_replace_or_future_catalog_connector",
+  "description": "员工日常只提交公司原始订单；商品资料由系统配置维护。"
+}

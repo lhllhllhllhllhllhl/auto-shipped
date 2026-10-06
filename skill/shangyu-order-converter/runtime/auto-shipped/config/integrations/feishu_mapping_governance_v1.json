@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "feishu_mapping_governance_v1",
+  "status": "shared_mapping_runtime_ready_publisher_pending",
+  "provider_priority": [
+    "agent_native_feishu",
+    "lark_cli"
+  ],
+  "adapter_status": {
+    "lark_cli_pending_gateway": "ready",
+    "agent_native_feishu_gateway": "pending",
+    "official_mapping_snapshot": "ready",
+    "owner_publisher": "pending"
+  },
+  "identity_policy": {
+    "required_identity_type": "user",
+    "route_key": "feishu_user_id",
+    "reject_shared_bot_identity": true
+  },
+  "official_repository": {
+    "role": "authoritative_read_model",
+    "wiki_url": "https://bcno5qs9unss.feishu.cn/wiki/UBkdw6EYuiuVSCkBy6ac0dMin7f",
+    "spreadsheet_token": "QsLYsongYhoIdXtaL2GcB8Rinwe",
+    "mapping_sheet_id": "13abc6",
+    "metadata_sheet_id": "CPVHDe",
+    "publish_log_sheet_id": "jl3rEi",
+    "employee_access": "read_only",
+    "publisher_access": "owner_only"
+  },
+  "pending_repository": {
+    "role": "untrusted_proposal_inbox",
+    "wiki_url": "https://bcno5qs9unss.feishu.cn/wiki/Tvdewidahi2vCbkuyTncmiORnec",
+    "spreadsheet_token": "PH82sw3sBhbiJAtVPIScA96Yn3b",
+    "route_sheet_id": "U8k7Mz",
+    "template_sheet_id": "eb2307",
+    "route_sheet_title": "__用户路由",
+    "template_sheet_title": "__个人Sheet模板",
+    "route_key": "feishu_user_id",
+    "route_target": "sheet_id",
+    "auto_provision": true,
+    "append_only": true,
+    "metadata_schema_version": "1.0",
+    "proposal_schema_version": "1.0"
+  },
+  "safety": {
+    "pending_workbook_is_not_a_security_boundary": true,
+    "pending_rows_never_become_active_without_owner_publish": true,
+    "unknown_user_action": "auto_provision_or_fail_closed",
+    "duplicate_owner_sheet_action": "stop_and_require_owner_resolution",
+    "write_verification": "read_back_exact_proposal_id",
+    "sheet_lookup": "stable_sheet_id_only"
+  }
+}

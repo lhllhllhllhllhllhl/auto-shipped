@@ -1,0 +1,336 @@
+{
+  "schema_version": "1.0",
+  "catalog_id": "shangyu_shipping_sop_v1",
+  "source_documents": [
+    {
+      "title": "尚舆发货流程",
+      "file_name": "尚舆发货流程.pdf",
+      "document_date": "2026-09-20",
+      "coverage_note": "已盘点第3、5、6、8、9、10、12、13、14页；规则状态由各来源规则包声明。"
+    }
+  ],
+  "rules": {
+    "GY-STORE-ASSIGNMENT": {
+      "title": "按已确认商品、订单类型或显式来源证据选择管易店铺",
+      "module": "guanyi.store_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3", "p.8", "p.10", "p.12"],
+      "allowed_implementation_refs": [
+        "guanyi.defaults.store",
+        "guanyi.store_policy.by_route",
+        "guanyi.store_assignment.by_product"
+      ]
+    },
+    "GY-PLATFORM-ORDER-NUMBER": {
+      "title": "生成或复制管易平台单号",
+      "module": "guanyi.platform_order_number",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3", "p.8", "p.10", "p.12"],
+      "allowed_implementation_refs": [
+        "guanyi.platform_order.source_order_no",
+        "guanyi.platform_order.purchase_order_no",
+        "guanyi.platform_order.prefix_date_sequence",
+        "guanyi.platform_order.affixed_source_order_no"
+      ]
+    },
+    "GY-BUYER-MEMBER": {
+      "title": "填写买家会员",
+      "module": "guanyi.buyer_member_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.8", "p.10"],
+      "allowed_implementation_refs": [
+        "guanyi.defaults.buyer_member",
+        "guanyi.buyer_member.sam_pattern",
+        "guanyi.buyer_member.policy"
+      ]
+    },
+    "GY-PAYMENT-VALUES": {
+      "title": "填写价格、支付金额与运费",
+      "module": "guanyi.amount_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.8", "p.10"],
+      "allowed_implementation_refs": ["guanyi.defaults.zero_amounts"]
+    },
+    "GY-WAREHOUSE-ASSIGNMENT": {
+      "title": "选择管易仓库",
+      "module": "guanyi.warehouse_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3"],
+      "allowed_implementation_refs": ["guanyi.defaults.warehouse_name"]
+    },
+    "GY-PAYMENT-METHOD": {
+      "title": "选择支付方式",
+      "module": "guanyi.payment_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.5"],
+      "allowed_implementation_refs": ["guanyi.defaults.payment_method"]
+    },
+    "GY-ORDER-TYPE": {
+      "title": "选择订单类型",
+      "module": "guanyi.order_type_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.12"],
+      "allowed_implementation_refs": ["guanyi.defaults.order_type"]
+    },
+    "GY-ORDER-FLAGS": {
+      "title": "填写手机订单、货到付款和分销商标记",
+      "module": "guanyi.order_flags_policy",
+      "phase": "conversion",
+      "source_refs": ["管易自定义订单导入说明"],
+      "allowed_implementation_refs": ["guanyi.defaults.order_flags"]
+    },
+    "GY-PRODUCT-MAPPING": {
+      "title": "将来源商品映射为管易商品和规格编码",
+      "module": "guanyi.product_mapping",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.4", "p.8", "p.10", "p.12"],
+      "allowed_implementation_refs": ["guanyi.product_catalog.confirmed_exact"],
+      "reason": "名称相似只能形成候选；商品或规格映射未确认时必须阻断。"
+    },
+    "GY-ITEM-EXPANSION": {
+      "title": "将来源组合商品展开为多个管易商品行",
+      "module": "guanyi.item_expansion",
+      "phase": "conversion",
+      "source_refs": ["SAM原始订单与人工管易成品对照", "用户确认：2026-10-02"],
+      "allowed_implementation_refs": [
+        "guanyi.item_expansion.confirmed_source_components"
+      ],
+      "reason": "组合商品不得伪装成同一来源编码的多条普通映射；必须按已确认组成和数量倍数展开。"
+    },
+    "GY-RECIPIENT-COMPLETENESS": {
+      "title": "校验收件人、联系方式和完整地址",
+      "module": "guanyi.recipient_validation",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.5", "p.8", "p.10"],
+      "allowed_implementation_refs": ["source.recipient.required_fields"]
+    },
+    "GY-LOGISTICS-SELECTION": {
+      "title": "按商品与数量选择韵达或中通重货",
+      "module": "guanyi.logistics_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3", "p.10"],
+      "allowed_implementation_refs": [
+        "guanyi.logistics.source_passthrough",
+        "guanyi.logistics.corn_packaging_policy",
+        "guanyi.logistics.weight_threshold"
+      ],
+      "question": "如果以后用重量公式替换当前包装规则，请提供重量阈值和适用商品重量。",
+      "reason": "当前版本已确认按包装数量执行；未来重量公式作为可替换策略实现。",
+      "answer_type": "single_choice",
+      "choices": [
+        "按8根装数量≥2或10根礼盒装走中通，其余韵达",
+        "按整单重量判断，我将提供重量阈值",
+        "来源文件必须提供物流公司，系统不自动判断"
+      ]
+    },
+    "GY-SELLER-REMARK-POLICY": {
+      "title": "生成管易卖家备注",
+      "module": "guanyi.seller_remark_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3"],
+      "allowed_implementation_refs": [
+        "guanyi.seller_remark.source_note_passthrough",
+        "guanyi.seller_remark.rule_composition"
+      ],
+      "question": "后续新增系统提示时，按已确认的卖家备注组合策略接入。",
+      "reason": "客户备注写入卖家备注已经确认；系统提示按固定顺序追加并精确去重。"
+    },
+    "GY-DAILY-GOODS-WHITE-LABEL": {
+      "title": "日货订单添加白标商品备注并排除指定系列",
+      "module": "guanyi.seller_remark_policy",
+      "phase": "conversion",
+      "source_refs": ["尚舆发货流程.pdf p.3"],
+      "allowed_implementation_refs": ["guanyi.seller_remark.daily_goods_white_label"],
+      "question": "请确认日货商品识别方式，以及showa滑溜手套和885丁腈系列的准确商品范围。",
+      "reason": "只有文字例外名称，没有稳定商品编码或标签，不能安全自动判断。"
+    },
+    "GY-IMPORT-STATUS-PENDING-REVIEW": {
+      "title": "导入订单状态选择待审核",
+      "module": "guanyi.browser.import_form",
+      "phase": "upload",
+      "source_refs": ["尚舆发货流程.pdf p.9"],
+      "allowed_implementation_refs": ["browser.guanyi.prepare_import_form.pending_review"]
+    },
+    "GY-IMPORT-OPTIONS": {
+      "title": "确认自定义导入页面的附加勾选项",
+      "module": "guanyi.browser.import_form",
+      "phase": "upload",
+      "source_refs": ["尚舆发货流程.pdf p.9"],
+      "allowed_implementation_refs": ["browser.guanyi.import_options.verified_current_ui"],
+      "question": "业务已确认自定义导入页面下面两项都要勾选；上传模块需完成精确定位、勾选和回读验收。",
+      "reason": "业务规则已确认，当前缺少浏览器执行器实现和真实页面验收。"
+    },
+    "GY-UPLOAD-SUBMISSION": {
+      "title": "点击确定并提交自定义订单导入",
+      "module": "guanyi.browser.upload_submit",
+      "phase": "upload",
+      "source_refs": ["尚舆发货流程.pdf p.9"],
+      "allowed_implementation_refs": ["browser.guanyi.submit_import.guarded"]
+    },
+    "GY-TASK-RECONCILIATION": {
+      "title": "用任务中心唯一新增任务核验导入结果",
+      "module": "guanyi.browser.task_reconciliation",
+      "phase": "post_upload",
+      "source_refs": ["尚舆发货流程.pdf p.9", "自动化安全增强规则"],
+      "allowed_implementation_refs": ["browser.guanyi.task_reconciliation.unique_verified_id"]
+    },
+    "GY-ORDER-AUDIT": {
+      "title": "导入后审核管易订单",
+      "module": "guanyi.browser.order_audit",
+      "phase": "post_upload",
+      "source_refs": ["尚舆发货流程.pdf p.7", "p.9"],
+      "allowed_implementation_refs": ["browser.guanyi.order_audit.guarded"]
+    },
+    "BLH-SHIPPING-BACKFILL": {
+      "title": "管易产生物流后回填百礼汇包裹",
+      "module": "bailihui.post_fulfillment",
+      "phase": "post_fulfillment",
+      "source_refs": ["尚舆发货流程.pdf p.13", "p.14"],
+      "allowed_implementation_refs": ["bailihui.shipping_backfill.guarded"]
+    },
+    "GY-MANUAL-ADDRESS-RECOGNITION": {
+      "title": "手工新增订单时使用地址智能识别",
+      "module": "guanyi.manual_entry",
+      "phase": "manual_entry",
+      "source_refs": ["尚舆发货流程.pdf p.5"],
+      "allowed_implementation_refs": ["guanyi.manual_entry.smart_address"]
+    },
+    "GY-MANUAL-AUTO-CONCESSION": {
+      "title": "手工新增订单时执行自动让利",
+      "module": "guanyi.manual_entry",
+      "phase": "manual_entry",
+      "source_refs": ["尚舆发货流程.pdf p.6"],
+      "allowed_implementation_refs": ["guanyi.manual_entry.auto_concession"]
+    }
+  },
+  "scopes": {
+    "tiantian_to_guanyi_v1": {
+      "route_id": "tiantian_warehouse_to_guanyi_v2",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ],
+        "post_upload": [
+          "GY-TASK-RECONCILIATION",
+          "GY-ORDER-AUDIT"
+        ]
+      }
+    },
+    "sam_to_guanyi_v1": {
+      "route_id": "sam_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-ITEM-EXPANSION",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "ndd_to_guanyi_v1": {
+      "route_id": "ndd_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-ITEM-EXPANSION",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "bailihui_to_guanyi_v1": {
+      "route_id": "bailihui_backend_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-SELLER-REMARK-POLICY"
+        ],
+        "post_fulfillment": ["BLH-SHIPPING-BACKFILL"]
+      }
+    },
+    "daily_goods_to_guanyi_v1": {
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL"
+        ]
+      }
+    },
+    "manual_guanyi_order_v1": {
+      "required_rules": {
+        "manual_entry": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-MANUAL-ADDRESS-RECOGNITION",
+          "GY-MANUAL-AUTO-CONCESSION"
+        ]
+      }
+    }
+  }
+}

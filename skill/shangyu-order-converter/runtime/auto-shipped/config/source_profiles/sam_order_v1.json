@@ -1,0 +1,108 @@
+{
+  "profile_id": "sam_order_v1",
+  "company_id": "sam",
+  "source_label": "SAM群接龙订单",
+  "order_type": "standard_order",
+  "adapter": "configured_excel_order_parsed",
+  "version": 2,
+  "enabled": true,
+  "detection": {
+    "sheet_name": "仓库订单",
+    "header_row": 1,
+    "header_order": "any",
+    "required_headers": [
+      "来源单号（不存在则显示订单编号）",
+      "跟团号",
+      "原表格商品",
+      "原表格规格",
+      "数量",
+      "收件人",
+      "联系方式",
+      "省市区详细地址",
+      "商铺名称",
+      "商品编码",
+      "规格编码"
+    ],
+    "known_headers": [
+      "物流公司",
+      "物流单号",
+      "来源单号（不存在则显示订单编号）",
+      "团标题",
+      "跟团号",
+      "原表格商品",
+      "原表格规格",
+      "数量",
+      "收件人",
+      "联系方式",
+      "省市区详细地址",
+      "客户备注",
+      "商铺名称",
+      "商品编码",
+      "规格编码",
+      "省",
+      "市",
+      "区",
+      "子单号",
+      "身份证号",
+      "真实姓名",
+      "买家备注"
+    ],
+    "unknown_header_policy": "warn",
+    "company_identity": {
+      "required": true,
+      "on_missing": "ask_user",
+      "rules": [
+        {
+          "rule_id": "sam_store_name",
+          "kind": "column_value",
+          "sheet_name": "仓库订单",
+          "header": "商铺名称",
+          "match": "exact",
+          "values": ["sam哥的品牌号"],
+          "scan_rows": 200,
+          "evidence": "用户于2026-10-01明确确认真实样本属于SAM；样本商铺名称为sam哥的品牌号。"
+        }
+      ]
+    }
+  },
+  "fields": {
+    "source_order_no": "来源单号（不存在则显示订单编号）",
+    "source_order_code": "子单号",
+    "recipient_name": "收件人",
+    "contact": "联系方式",
+    "province": "省",
+    "city": "市",
+    "district": "区",
+    "address": "省市区详细地址",
+    "product_code": "商品编码",
+    "product_name": "原表格商品",
+    "source_spec": "规格编码",
+    "source_display_spec": "原表格规格",
+    "quantity": "数量",
+    "carrier": "物流公司",
+    "tracking_no": "物流单号",
+    "source_note": "客户备注",
+    "buyer_message": "买家备注"
+  },
+  "order_extension_fields": {
+    "sam_group_number": "跟团号",
+    "source_store_name": "商铺名称",
+    "source_group_title": "团标题"
+  },
+  "consistency_fields": [
+    "recipient_name",
+    "contact",
+    "province",
+    "city",
+    "district",
+    "address",
+    "source_note",
+    "buyer_message",
+    "carrier",
+    "tracking_no"
+  ],
+  "grouping": {
+    "order_key": "来源单号（不存在则显示订单编号）",
+    "one_row_per": "source_order_item"
+  }
+}

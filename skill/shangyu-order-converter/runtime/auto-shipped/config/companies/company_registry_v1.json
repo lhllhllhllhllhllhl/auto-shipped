@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "registry_id": "shangyu_company_registry_v1",
+  "status": "active",
+  "design_note": "公司库只保存稳定身份、模块引用和能力状态，不复制识别、字段转换、商品、店铺、物流或上传规则。",
+  "companies": [
+    {
+      "company_id": "tiantian",
+      "display_name": "恬田",
+      "aliases": [
+        "恬田代发仓",
+        "代发仓-恬田"
+      ],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "tiantian_warehouse_v2",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "tiantian_guanyi_custom_import_v2",
+          "source_profile_id": "tiantian_warehouse_v2",
+          "route_id": "tiantian_warehouse_to_guanyi_v2",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_tiantian_warehouse_v2",
+          "product_mapping_scope_id": "tiantian_warehouse_v2",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "ready"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "管易确定提交、自动审核和发货仍保持关闭。"
+        }
+      },
+      "source_refs": [
+        "docs/RULE_SOURCE_LEDGER.md",
+        "docs/DECISIONS.md",
+        "用户确认与真实样本测试：2026-09-30至2026-10-01"
+      ],
+      "last_verified_on": "2026-10-01"
+    },
+    {
+      "company_id": "sam",
+      "display_name": "SAM",
+      "aliases": [
+        "sam哥的品牌号",
+        "SAM群接龙"
+      ],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "sam_order_v1",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "sam_guanyi_custom_import_v1",
+          "source_profile_id": "sam_order_v1",
+          "route_id": "sam_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_sam_order_v1",
+          "product_mapping_scope_id": "sam_order_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "ready"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "SAM仍处于转换验收阶段，不进入管易真实上传。"
+        }
+      },
+      "source_refs": [
+        "docs/RULE_SOURCE_LEDGER.md",
+        "docs/ORDER_AUTOMATION_RULES_V0.1.md",
+        "用户确认真实SAM样本：2026-10-01",
+        "用户确认SAM组合商品与买家会员规则：2026-10-02"
+      ],
+      "last_verified_on": "2026-10-02"
+    },
+    {
+      "company_id": "ndd",
+      "display_name": "NDD",
+      "aliases": ["NDD礼品订单"],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "ndd_order_v1",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "ndd_guanyi_custom_import_v1",
+          "source_profile_id": "ndd_order_v1",
+          "route_id": "ndd_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_ndd_order_v1",
+          "product_mapping_scope_id": "ndd_order_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "requires_explicit_user_hint",
+          "reason": "当前真实Excel没有稳定NDD公司字段。"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "NDD仍处于生成Excel验收阶段。"
+        }
+      },
+      "source_refs": [
+        "尚舆发货流程.pdf p.10",
+        "NDD原始样本与人工管易成品：2026-10-05",
+        "docs/RULE_SOURCE_LEDGER.md"
+      ],
+      "last_verified_on": "2026-10-05"
+    }
+  ]
+}

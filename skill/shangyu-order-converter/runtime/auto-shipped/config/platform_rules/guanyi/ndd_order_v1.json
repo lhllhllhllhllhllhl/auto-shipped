@@ -1,0 +1,185 @@
+{
+  "profile_id": "guanyi_ndd_order_v1",
+  "source_profile_id": "ndd_order_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 1,
+  "platform_order_number": {
+    "strategy": "source_order_no_with_affixes",
+    "prefix": "NDD",
+    "suffix": "",
+    "confirmed": true,
+    "source": "NDD人工管易成品逐单对照：2026-10-05"
+  },
+  "field_output_policy": {
+    "product_name": {
+      "strategy": "expansion_component_name_or_catalog",
+      "confirmed": true,
+      "source": "NDD人工管易成品使用黄糯玉米8根装和白糯玉米8根装"
+    },
+    "spec_name": {
+      "strategy": "blank",
+      "confirmed": true,
+      "source": "NDD人工管易成品规格名称留空"
+    },
+    "order_created_at": {
+      "strategy": "blank",
+      "confirmed": true,
+      "source": "NDD人工管易成品订单创建时间留空"
+    },
+    "contact_columns": {
+      "strategy": "mobile_to_both_phone_preserved",
+      "confirmed": true,
+      "source": "用户已确认只有手机时联系电话和联系手机均填写该号码"
+    },
+    "recipient_region": {
+      "strategy": "source_components",
+      "confirmed": true,
+      "source": "NDD完整地址稳定使用空格分隔省、市、区和详细地址；解析失败时阻断"
+    }
+  },
+  "buyer_member_policy": {
+    "strategy": "fixed",
+    "value": "张",
+    "confirmed": true,
+    "source": "发货SOP第10页和NDD人工成品"
+  },
+  "item_expansion_policy": {
+    "strategy": "confirmed_source_item_expansions",
+    "on_unmatched": "standard_product_mapping",
+    "confirmed": true,
+    "rules": [
+      {
+        "rule_id": "ndd_guangming_benefit_package_4",
+        "match": {
+          "source_product_name": "光明 福利套餐四"
+        },
+        "components": [
+          {
+            "product_code": "JTW8E1",
+            "spec_code": "6974768564811",
+            "quantity_multiplier": 1,
+            "output_product_name": "黄糯玉米8根装"
+          },
+          {
+            "product_code": "JTBN1E1-EH",
+            "spec_code": "6974768564842",
+            "quantity_multiplier": 1,
+            "output_product_name": "白糯玉米8根装"
+          }
+        ],
+        "confirmed": true,
+        "source": "NDD原始样本套餐明细与人工管易成品逐订单对照：2026-10-05"
+      }
+    ]
+  },
+  "defaults": {
+    "store": {
+      "value": "光明满元气",
+      "confirmed": true,
+      "source": "发货SOP第10页和NDD人工成品"
+    },
+    "payment_amount": {
+      "value": 0,
+      "confirmed": true,
+      "source": "发货SOP第10页和NDD人工成品"
+    },
+    "unit_price": {
+      "value": 0,
+      "confirmed": true,
+      "source": "发货SOP第10页和NDD人工成品"
+    },
+    "freight": {
+      "value": "",
+      "confirmed": true,
+      "source": "NDD人工管易成品留空"
+    },
+    "warehouse_name": {
+      "value": "上海尚舆商贸有限公司",
+      "confirmed": true,
+      "source": "发货SOP统一仓库"
+    },
+    "payment_method": {
+      "value": "网银在线",
+      "confirmed": true,
+      "source": "表格订单沿用已确认的管易显式默认值"
+    },
+    "order_type": {
+      "value": "销售订单",
+      "confirmed": true,
+      "source": "表格订单沿用已确认的管易显式默认值"
+    },
+    "is_mobile_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_cod": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_distributor_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    }
+  },
+  "logistics_policy": {
+    "strategy": "source_override_then_confirmed_packaging_rules",
+    "source_carrier_priority": true,
+    "source_carrier_aliases": {
+      "韵达": "韵达快递",
+      "韵达快递": "韵达快递",
+      "中通重货": "中通快递（重货）",
+      "中通快递(重货)": "中通快递（重货）",
+      "中通快递（重货）": "中通快递（重货）"
+    },
+    "default_carrier": "韵达快递",
+    "heavy_carrier": "中通快递（重货）",
+    "heavy_conditions": [
+      {
+        "rule_id": "corn_8_pack_quantity_gte_2",
+        "match": {
+          "product_codes": ["JTW8E1", "JTTZE1", "JTBN1E1-EH"]
+        },
+        "minimum_quantity": 2
+      },
+      {
+        "rule_id": "corn_10_pack_any_quantity",
+        "match": {
+          "product_name_contains_all": ["玉米"],
+          "any_text_contains": ["10根", "10棒"]
+        },
+        "minimum_quantity": 1
+      }
+    ],
+    "confirmed": true,
+    "source": "用户确认的玉米包装物流规则；NDD人工成品一致"
+  },
+  "seller_remark_policy": {
+    "strategy": "source_note_then_system_notes_deduplicated",
+    "target_field": "卖家备注",
+    "separator": "；",
+    "confirmed": true,
+    "source": "用户确认客户备注进入卖家备注；NDD送货时间列包含发货指令"
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "ndd_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.store", "evidence": "SOP和人工成品均为光明满元气。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.affixed_source_order_no", "evidence": "人工成品为NDD加原始订单编号。"},
+      "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "SOP和人工成品均填写张。"},
+      "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "价格和支付金额为0，运费留空。"},
+      "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},
+      "GY-PAYMENT-METHOD": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.payment_method", "evidence": "显式填写网银在线。"},
+      "GY-ORDER-TYPE": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_type", "evidence": "显式填写销售订单。"},
+      "GY-ORDER-FLAGS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_flags", "evidence": "三个导入标记均为0。"},
+      "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "组合展开目标必须在商品主档中唯一存在。"},
+      "GY-ITEM-EXPANSION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.item_expansion.confirmed_source_components", "evidence": "原始套餐说明和人工成品确认拆为黄糯8根与白糯8根。"},
+      "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "解析器校验收件人、联系方式、完整地址和省市区拆分。"},
+      "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.corn_packaging_policy", "evidence": "两袋8根装合计16根走中通重货。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "来源发货指令进入卖家备注。"}
+    }
+  }
+}

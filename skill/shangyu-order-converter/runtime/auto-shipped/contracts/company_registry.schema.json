@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/company-registry-v1.json",
+  "title": "Shangyu Company Registry",
+  "type": "object",
+  "required": ["schema_version", "registry_id", "status", "companies"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "registry_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["active", "draft", "retired"]},
+    "design_note": {"type": "string"},
+    "companies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "company_id",
+          "display_name",
+          "status",
+          "enabled",
+          "source_profiles",
+          "workflows",
+          "capabilities",
+          "source_refs",
+          "last_verified_on"
+        ],
+        "properties": {
+          "company_id": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+          "display_name": {"type": "string", "minLength": 1},
+          "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+          "status": {"enum": ["active", "paused", "retired", "pending"]},
+          "enabled": {"type": "boolean"},
+          "source_profiles": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["source_profile_id", "source_kind", "status", "enabled"],
+              "properties": {
+                "source_profile_id": {"type": "string", "minLength": 1},
+                "source_kind": {"enum": ["excel", "web_backend", "api", "manual"]},
+                "status": {"enum": ["active", "pending", "retired"]},
+                "enabled": {"type": "boolean"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "workflow_id",
+                "source_profile_id",
+                "route_id",
+                "target_platform",
+                "target_profile_id",
+                "platform_rules_profile_id",
+                "product_mapping_scope_id",
+                "runtime_enabled"
+              ],
+              "properties": {
+                "workflow_id": {"type": "string", "minLength": 1},
+                "source_profile_id": {"type": "string", "minLength": 1},
+                "route_id": {"type": "string", "minLength": 1},
+                "target_platform": {"type": "string", "minLength": 1},
+                "target_profile_id": {"type": "string", "minLength": 1},
+                "platform_rules_profile_id": {"type": ["string", "null"]},
+                "product_mapping_scope_id": {"type": ["string", "null"]},
+                "runtime_enabled": {"type": "boolean"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "capabilities": {"type": "object"},
+          "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+          "last_verified_on": {"type": "string", "format": "date"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

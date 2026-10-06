@@ -1,0 +1,287 @@
+{
+  "profile_id": "guanyi_sam_order_v1",
+  "source_profile_id": "sam_order_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 7,
+  "platform_order_number": {
+    "strategy": "source_order_no",
+    "confirmed": true,
+    "source": "发货SOP第8页；真实SAM样本已定位来源单号列：2026-10-01"
+  },
+  "field_output_policy": {
+    "product_name": {
+      "strategy": "source_name_with_display_spec_for_standard_items",
+      "confirmed": true,
+      "source": "用户确认SAM商品名称应贴近人工习惯；普通商品使用来源品名与来源规格拼接，组合展开商品仍使用各目标商品的管易名称；2026-10-04"
+    },
+    "spec_name": {
+      "strategy": "catalog_spec_name",
+      "confirmed": true,
+      "source": "统一商品映射规则"
+    },
+    "order_created_at": {
+      "strategy": "blank",
+      "confirmed": true,
+      "source": "当前SAM真实样本没有下单时间字段；管易自定义导入允许省略该非必填列"
+    },
+    "contact_columns": {
+      "strategy": "mobile_to_both_phone_preserved",
+      "confirmed": true,
+      "source": "用户确认：只有手机号码时联系电话和联系手机均填写该号码"
+    },
+    "recipient_region": {
+      "strategy": "source_components",
+      "confirmed": true,
+      "source": "真实SAM样本提供省、市、区独立字段"
+    }
+  },
+  "buyer_member_policy": {
+    "strategy": "sam_product_type_date_group",
+    "platform_prefix": "sam",
+    "group_number_field": "sam_group_number",
+    "group_separator": "_",
+    "date_format": "%y%m%d",
+    "timezone": "Asia/Shanghai",
+    "on_missing_group_number": "ask_user",
+    "on_unknown_product_type": "ask_user",
+    "on_multiple_product_types": "ask_user",
+    "product_type_rules": [
+      {
+        "rule_id": "sam_product_type_corn",
+        "type_code": "YM",
+        "match": {
+          "product_name_contains_all": ["玉米"]
+        },
+        "confirmed": true,
+        "source": "用户确认：YM为玉米缩写；2026-10-02"
+      },
+      {
+        "rule_id": "sam_product_type_shanghe_gloves",
+        "type_code": "SH",
+        "match": {
+          "product_name_contains_all": ["手套"],
+          "any_text_contains": ["尚和", "尚合"]
+        },
+        "confirmed": true,
+        "source": "用户确认：尚和手套使用SH；兼容历史资料中的尚合写法；2026-10-02"
+      },
+      {
+        "rule_id": "sam_product_type_showa_swsh8072",
+        "type_code": "SH",
+        "match": {
+          "product_codes": ["SWSH8072"],
+          "spec_codes": ["4901792038072"]
+        },
+        "confirmed": true,
+        "source": "SAM原始订单与人工成品按同一平台单号核对，人工买家会员为samSH260930_1977；用户确认按当前普通商品规则处理；2026-10-02"
+      }
+    ],
+    "confirmed": true,
+    "source": "尚舆发货流程PDF规则经用户纠错确认：sam+商品类型缩写+当日YYMMDD+_+跟团号；2026-10-02"
+  },
+  "item_expansion_policy": {
+    "strategy": "confirmed_source_item_expansions",
+    "on_unmatched": "standard_product_mapping",
+    "confirmed": true,
+    "rules": [
+      {
+        "rule_id": "sam_corn_white_8_plus_1",
+        "match": {
+          "source_product_code": "276388650",
+          "source_spec": "光9-JTBN1T1-EH"
+        },
+        "components": [
+          {
+            "product_code": "JTBN1E1-EH",
+            "spec_code": "6974768564842",
+            "quantity_multiplier": 1
+          },
+          {
+            "product_code": "GMBN1",
+            "spec_code": "6974768564804",
+            "quantity_multiplier": 1
+          }
+        ],
+        "confirmed": true,
+        "source": "SAM原始样本与人工成品逐行对照；用户确认云仓无8+1/9根组合，需要拆为8根装和单根装；2026-10-02"
+      }
+    ]
+  },
+  "defaults": {
+    "store": {
+      "value": "sam",
+      "confirmed": true,
+      "source": "发货SOP第3、8页"
+    },
+    "payment_amount": {
+      "value": 0,
+      "confirmed": true,
+      "source": "发货SOP第8页"
+    },
+    "unit_price": {
+      "value": 0,
+      "confirmed": true,
+      "source": "发货SOP第8页"
+    },
+    "freight": {
+      "value": "",
+      "confirmed": true,
+      "source": "人工SAM管易成品的两条商品行均留空；用户确认跟随人工做法；2026-10-02"
+    },
+    "warehouse_name": {
+      "value": "上海尚舆商贸有限公司",
+      "confirmed": true,
+      "source": "发货SOP统一仓库"
+    },
+    "payment_method": {
+      "value": "网银在线",
+      "confirmed": true,
+      "source": "用户确认空着或填写均可；系统为避免依赖页面默认值选择显式填写网银在线；2026-10-02"
+    },
+    "order_type": {
+      "value": "销售订单",
+      "confirmed": true,
+      "source": "用户确认空着或填写均可；系统为避免依赖页面默认值选择显式填写销售订单；2026-10-02"
+    },
+    "is_mobile_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_cod": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_distributor_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    }
+  },
+  "logistics_policy": {
+    "strategy": "source_override_then_confirmed_packaging_rules",
+    "source_carrier_priority": true,
+    "source_carrier_aliases": {
+      "韵达": "韵达快递",
+      "韵达快递": "韵达快递",
+      "中通重货": "中通快递（重货）",
+      "中通快递(重货)": "中通快递（重货）",
+      "中通快递（重货）": "中通快递（重货）"
+    },
+    "default_carrier": "韵达快递",
+    "heavy_carrier": "中通快递（重货）",
+    "heavy_conditions": [
+      {
+        "rule_id": "corn_8_pack_quantity_gte_2",
+        "description": "已确认的8棒家庭装合计达到2件（16根）",
+        "match": {
+          "product_codes": ["JTW8E1", "JTTZE1", "JTBN1E1-EH"]
+        },
+        "minimum_quantity": 2
+      },
+      {
+        "rule_id": "corn_10_pack_any_quantity",
+        "description": "已确认映射的玉米10根或10棒礼盒，任意1件",
+        "match": {
+          "product_name_contains_all": ["玉米"],
+          "any_text_contains": ["10根", "10棒"]
+        },
+        "minimum_quantity": 1
+      }
+    ],
+    "confirmed": true,
+    "source": "用户确认的当前玉米包装数量规则；来源指定物流优先；用户于2026-10-05同意来源物流先标准化，未登记名称必须追问。"
+  },
+  "seller_remark_policy": {
+    "strategy": "source_note_then_system_notes_deduplicated",
+    "target_field": "卖家备注",
+    "separator": "；",
+    "confirmed": true,
+    "source": "用户确认：客户备注写入卖家备注"
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "sam_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.store",
+        "evidence": "SOP确认SAM订单选择sam店铺。"
+      },
+      "GY-PLATFORM-ORDER-NUMBER": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.platform_order.source_order_no",
+        "evidence": "SOP确认复制来源平台单号；真实样本已定位来源列。"
+      },
+      "GY-BUYER-MEMBER": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.buyer_member.sam_pattern",
+        "evidence": "用户确认按sam+商品类型缩写+当日日期+_+跟团号生成；YM为玉米，SH为尚和手套。"
+      },
+      "GY-PAYMENT-VALUES": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.zero_amounts",
+        "evidence": "用户确认SAM价格与支付金额填0；运费跟随人工成品留空。"
+      },
+      "GY-WAREHOUSE-ASSIGNMENT": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.warehouse_name",
+        "evidence": "SOP统一使用上海尚舆商贸有限公司仓库。"
+      },
+      "GY-PAYMENT-METHOD": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.payment_method",
+        "evidence": "用户确认该字段可空或显式填写；系统选择显式填写网银在线，避免依赖管易默认值。"
+      },
+      "GY-ORDER-TYPE": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.order_type",
+        "evidence": "用户确认该字段可空或显式填写；系统选择显式填写销售订单，避免依赖管易默认值。"
+      },
+      "GY-ORDER-FLAGS": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.defaults.order_flags",
+        "evidence": "管易导入说明中的三个标记均为0。"
+      },
+      "GY-PRODUCT-MAPPING": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.product_catalog.confirmed_exact",
+        "evidence": "共享映射模块已实现；样本中的实际SKU仍必须单独确认。"
+      },
+      "GY-ITEM-EXPANSION": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.item_expansion.confirmed_source_components",
+        "evidence": "SAM来源编码276388650、规格光9-JTBN1T1-EH按已确认规则展开为8根装和单根装两行。"
+      },
+      "GY-RECIPIENT-COMPLETENESS": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "source.recipient.required_fields",
+        "evidence": "SAM来源解析器阻断缺失收件人、联系方式和完整地址；2026-10-05起非法联系方式也阻断。"
+      },
+      "GY-LOGISTICS-SELECTION": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.logistics.corn_packaging_policy",
+        "evidence": "使用已确认的玉米包装数量规则；来源指定物流优先但必须先命中已登记管易标准名称。"
+      },
+      "GY-SELLER-REMARK-POLICY": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.seller_remark.rule_composition",
+        "evidence": "客户备注写入卖家备注；买家备注保留为买家留言。"
+      }
+    }
+  }
+}

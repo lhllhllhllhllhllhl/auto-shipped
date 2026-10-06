@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/batch-conversion-result-v1.json",
+  "title": "Shangyu Batch Conversion Result",
+  "type": "object",
+  "required": [
+    "status",
+    "source_count",
+    "order_count",
+    "item_row_count",
+    "sources",
+    "outputs",
+    "upload_manifest",
+    "clarifications",
+    "errors"
+  ],
+  "properties": {
+    "status": { "enum": ["ready", "needs_input", "blocked"] },
+    "source_count": { "type": "integer", "minimum": 0 },
+    "order_count": { "type": "integer", "minimum": 0 },
+    "item_row_count": { "type": "integer", "minimum": 0 },
+    "target_platform": { "type": ["string", "null"] },
+    "target_profile_id": { "type": ["string", "null"] },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source_file",
+          "source_sha256",
+          "status",
+          "parsed_order_count",
+          "output_row_count",
+          "schema_warnings",
+          "clarifications",
+          "errors"
+        ],
+        "properties": {
+          "source_file": { "type": "string", "minLength": 1 },
+          "source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "status": { "type": "string", "minLength": 1 },
+          "source_profile_id": { "type": ["string", "null"] },
+          "company_id": { "type": ["string", "null"] },
+          "route_id": { "type": ["string", "null"] },
+          "target_platform": { "type": ["string", "null"] },
+          "target_profile_id": { "type": ["string", "null"] },
+          "parsed_order_count": { "type": "integer", "minimum": 0 },
+          "output_row_count": { "type": "integer", "minimum": 0 },
+          "schema_warnings": { "type": "array", "items": { "type": "object" } },
+          "clarifications": { "type": "array", "items": { "type": "object" } },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "outputs": { "type": "array", "items": { "type": "string" } },
+    "upload_manifest": { "type": ["string", "null"] },
+    "clarifications": { "type": "array", "items": { "type": "object" } },
+    "errors": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}

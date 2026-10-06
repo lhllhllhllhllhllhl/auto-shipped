@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from openpyxl import Workbook
+
+from auto_shipped.catalog import ProductCatalog, ProductRecord
+from auto_shipped.detection import detect_source, load_source_profiles
+from auto_shipped.platforms.guanyi import build_custom_import_lines
+from auto_shipped.source_adapters import NddGiftOrderParsedAdapter
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROFILE = json.loads(
+    (PROJECT_ROOT / "config/source_profiles/ndd_order_v1.json").read_text(
+        encoding="utf-8"
+    )
+)
+RULES = json.loads(
+    (PROJECT_ROOT / "config/platform_rules/guanyi/ndd_order_v1.json").read_text(
+        encoding="utf-8"
+    )
+)
+GUANYI_PROFILE = json.loads(
+    (PROJECT_ROOT / "config/platform_profiles/guanyi_order_import_v1.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+HEADERS = [
+    "商品小计",
+    "订单编号",
+    "礼品名称",
+    "礼品描述",
+    "礼品价格",
+    "数量",
+    "订单状态",
+    "配送方式",
+    "收件人姓名",
+    "收件人手机",
+    "完整地址",
+    "快递公司",
+    "快递单号",
+    "兑换码",
+    "订单生成时间",
+    "自提点名称",
+    "自提点地址",
+    "提货人姓名",
+    "提货人手机",
+    "礼品规格",
+    "",
+    "套餐配套商品信息",
+    "送货时间",
+]
+
+
+def build_sample(path: Path, *, white_quantity: int = 1) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    sheet.append(HEADERS)
+    sheet.append(
+        [
+            500,
+            "2104856428830863362",
+            "光明 福利套餐四",
+            "",
+            "500.00",
+            1,
+            "待发货",
+            "邮寄",
+            "测试用户",
+            "13800138000",
+            "上海市 上海市 浦东新区 测试路1号",
+            "",
+            "",
+            "CODE1",
+            "2026-09-29 16:50:54",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "无套餐配套商品",
+            "抓紧发货。",
+        ]
+    )
+    for _ in range(4):
+        sheet.append([])
+    sheet.append([None] * 6 + ["光明满元气鲜食玉米2袋组合", None, "黄糯玉米8根装", 1])
+    sheet.append([None] * 8 + ["白糯玉米8根装", white_quantity])
+    workbook.save(path)
+
+
+class NddAdapterTests(unittest.TestCase):
+    def test_requires_explicit_source_hint_but_matches_known_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "orders.xlsx"
+            build_sample(path)
+            profiles = load_source_profiles(PROJECT_ROOT / "config/source_profiles")
+
+            unidentified = detect_source(path, profiles)
+            self.assertEqual(unidentified.status, "needs_input")
+            self.assertIn("ndd_order_v1", unidentified.candidate_profile_ids)
+            self.assertEqual(
+                unidentified.clarifications[0].code,
+                "COMPANY_IDENTITY_UNCONFIRMED",
+            )
+
+            confirmed = detect_source(
+                path,
+                profiles,
+                source_profile_hint="ndd_order_v1",
+            )
+            self.assertEqual(confirmed.status, "matched")
+            self.assertEqual(confirmed.company_id, "ndd")
+            self.assertIn(
+                "explicit_source_profile:ndd_order_v1",
+                confirmed.matched_features,
+            )
+
+    def test_parses_orders_and_splits_region_after_bundle_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "orders.xlsx"
+            build_sample(path)
+            parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
+
+            self.assertEqual(parsed.status, "parsed")
+            self.assertEqual(len(parsed.orders), 1)
+            order = parsed.orders[0]
+            self.assertEqual(order.source.source_order_no, "2104856428830863362")
+            self.assertEqual(order.recipient.province, "上海市")
+            self.assertEqual(order.recipient.city, "上海市")
+            self.assertEqual(order.recipient.district, "浦东新区")
+            self.assertEqual(order.source_note, "抓紧发货。")
+            self.assertEqual(order.items[0].source_product_name, "光明 福利套餐四")
+
+    def test_changed_bundle_composition_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "orders.xlsx"
+            build_sample(path, white_quantity=2)
+            parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
+
+            self.assertIn(
+                "NDD_BUNDLE_COMPOSITION_CHANGED",
+                {request.code for request in parsed.clarifications},
+            )
+
+    def test_build_matches_manual_business_fields_and_fixes_missing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "orders.xlsx"
+            build_sample(path)
+            parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
+            catalog = ProductCatalog(
+                [
+                    ProductRecord(
+                        "JTW8E1",
+                        "光明满元气 黄糯玉米8棒家庭装",
+                        "6974768564811",
+                        "8袋/箱",
+                        1210,
+                        "上海尚舆商贸有限公司",
+                    ),
+                    ProductRecord(
+                        "JTBN1E1-EH",
+                        "光明满元气 白糯玉米8棒家庭装",
+                        "6974768564842",
+                        "8袋/箱",
+                        1210,
+                        "上海尚舆商贸有限公司",
+                    ),
+                ]
+            )
+
+            built = build_custom_import_lines(
+                parsed.orders,
+                catalog,
+                RULES,
+                GUANYI_PROFILE,
+            )
+
+            self.assertEqual(built.status, "ready")
+            self.assertEqual(len(built.lines), 2)
+            self.assertEqual(
+                [line["商品代码"] for line in built.lines],
+                ["JTW8E1", "JTBN1E1-EH"],
+            )
+            self.assertEqual(
+                [line["商品名称"] for line in built.lines],
+                ["黄糯玉米8根装", "白糯玉米8根装"],
+            )
+            self.assertEqual(
+                {line["平台单号"] for line in built.lines},
+                {"NDD2104856428830863362A"},
+            )
+            self.assertEqual(
+                {line["物流公司"] for line in built.lines},
+                {"中通快递（重货）"},
+            )
+            self.assertEqual(
+                {line["卖家备注"] for line in built.lines},
+                {"抓紧发货。"},
+            )
+            self.assertEqual(
+                {line["联系手机"] for line in built.lines},
+                {"13800138000"},
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

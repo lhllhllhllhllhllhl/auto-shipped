@@ -1,0 +1,39 @@
+{
+  "schema_version": "2.0",
+  "source_policies": {
+    "tiantian_warehouse_v2": {
+      "source_identifier_type": "product_code",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": true,
+      "name_matching": "normalized_exact_unique_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation",
+      "require_identity_guard_for_blank_source_spec": true,
+      "mapping_identity_guards": [
+        {
+          "identifier_type": "product_code",
+          "source_value": "2026DFYUMI001",
+          "allowed_product_names": [
+            "【光明满元气】黄糯玉米  8棒家庭量贩装"
+          ],
+          "on_mismatch": "require_user_confirmation",
+          "source": "四份恬田真实样本的来源编码与品名一致；用户于2026-10-05同意加入来源身份保护。"
+        }
+      ]
+    },
+    "sam_order_v1": {
+      "source_identifier_type": "product_code",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": false,
+      "name_matching": "confirmed_mapping_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "ndd_order_v1": {
+      "source_identifier_type": "product_name",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": false,
+      "name_matching": "confirmed_bundle_expansion_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    }
+  },
+  "mappings": []
+}

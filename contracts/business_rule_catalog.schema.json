@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/business-rule-catalog-v1.json",
+  "title": "Shangyu Business Rule Catalog",
+  "type": "object",
+  "required": ["schema_version", "catalog_id", "rules", "scopes"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "catalog_id": {"type": "string", "minLength": 1},
+    "source_documents": {"type": "array", "items": {"type": "object"}},
+    "rules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title", "module", "phase", "source_refs"],
+        "properties": {
+          "title": {"type": "string", "minLength": 1},
+          "module": {"type": "string", "minLength": 1},
+          "phase": {"enum": ["conversion", "upload", "post_upload", "post_fulfillment", "manual_entry"]},
+          "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+          "allowed_implementation_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "question": {"type": "string"},
+          "reason": {"type": "string"},
+          "answer_type": {"enum": ["confirmation", "single_choice", "text", "file"]},
+          "choices": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "scopes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["required_rules"],
+        "properties": {
+          "route_id": {"type": "string"},
+          "required_rules": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "uniqueItems": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

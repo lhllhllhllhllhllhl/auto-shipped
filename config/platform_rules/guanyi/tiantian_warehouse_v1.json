@@ -1,0 +1,70 @@
+{
+  "profile_id": "guanyi_tiantian_warehouse_v1",
+  "source_profile_id": "tiantian_warehouse_v2",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 1,
+  "status": "superseded",
+  "superseded_by": "guanyi_tiantian_warehouse_v2",
+  "platform_order_number": {
+    "strategy": "source_order_no",
+    "confirmed": true,
+    "source": "用户确认：2026-09-27"
+  },
+  "defaults": {
+    "store": {
+      "value": "光明满元气",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "buyer_member": {
+      "value": "张",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "payment_amount": {
+      "value": 0,
+      "confirmed": true,
+      "source": "用户确认：2026-09-27"
+    },
+    "unit_price": {
+      "value": 0,
+      "confirmed": true,
+      "source": "用户确认：2026-09-27"
+    },
+    "freight": {
+      "value": 0,
+      "confirmed": true,
+      "source": "现有规则"
+    },
+    "warehouse_name": {
+      "value": "上海尚舆商贸有限公司",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "payment_method": {
+      "value": "网银在线",
+      "confirmed": true,
+      "source": "现有规则"
+    },
+    "order_type": {
+      "value": "销售订单",
+      "confirmed": true,
+      "source": "发货SOP"
+    },
+    "is_mobile_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_cod": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    },
+    "is_distributor_order": {
+      "value": 0,
+      "confirmed": true,
+      "source": "管易导入说明"
+    }
+  }
+}

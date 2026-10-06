@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0",
+  "status": "draft",
+  "routing_key": ["source_profile_id", "order_type"],
+  "routes": [
+    {
+      "route_id": "tiantian_warehouse_to_guanyi_v2",
+      "source_profile_id": "tiantian_warehouse_v2",
+      "source_label": "恬田代发仓",
+      "order_type": "warehouse_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_tiantian_warehouse_v2",
+      "business_rule_scope_id": "tiantian_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sample_and_sop",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
+      "route_id": "xiaohongshu_sample_to_guanyi_v1",
+      "source_profile_id": "xiaohongshu_sample_v1",
+      "source_label": "小红书光明满元气寄样",
+      "order_type": "sample_shipment",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sample_and_sop_inference",
+      "approval_status": "pending_business_confirmation"
+    },
+    {
+      "route_id": "seven_addresses_to_guanyi_v1",
+      "source_profile_id": "seven_addresses_v1",
+      "source_label": "玉米快递地址清单",
+      "order_type": "address_list_shipment",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sample_and_sop_inference",
+      "approval_status": "pending_business_confirmation"
+    },
+    {
+      "route_id": "sam_to_guanyi_v1",
+      "source_profile_id": "sam_order_v1",
+      "source_label": "SAM",
+      "order_type": "standard_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_sam_order_v1",
+      "business_rule_scope_id": "sam_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sample_and_sop",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
+      "route_id": "fuze_to_guanyi_v1",
+      "source_profile_id": "fuze_order_v1",
+      "source_label": "孚泽",
+      "order_type": "standard_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sop_only",
+      "approval_status": "pending_sample"
+    },
+    {
+      "route_id": "ndd_to_guanyi_v1",
+      "source_profile_id": "ndd_order_v1",
+      "source_label": "NDD",
+      "order_type": "standard_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_ndd_order_v1",
+      "business_rule_scope_id": "ndd_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "sample_sop_and_manual_output",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
+      "route_id": "bailihui_backend_to_guanyi_v1",
+      "source_profile_id": "bailihui_dropship_v1",
+      "source_label": "百礼汇供应商后台代发订单",
+      "source_kind": "web_backend",
+      "order_type": "dropship_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": null,
+      "post_fulfillment_profile_id": "bailihui_shipping_backfill_v1",
+      "evidence_status": "business_flow_confirmed_sample_pending",
+      "approval_status": "route_confirmed_implementation_pending"
+    }
+  ],
+  "unrouted_sources": [
+    {
+      "source_profile_id": "corn_inbound_order_v1",
+      "source_label": "玉米入仓订单",
+      "reason": "样本包含商品和订货数量，但没有收件人、联系方式和地址，不能确定是入仓资料还是发货订单。",
+      "resolution": "ask_user",
+      "clarification_code": "ORDER_PURPOSE_UNCLEAR",
+      "approval_status": "requires_runtime_clarification"
+    },
+    {
+      "source_profile_id": "manual_channel_orders",
+      "source_label": "淘宝、日货定制、企业店、天猫、京东",
+      "reason": "SOP描述了管易手工建单规则，但当前没有对应原始Excel样本。",
+      "candidate_target_profile_id": "guanyi_order_import_v1",
+      "approval_status": "pending_samples"
+    }
+  ],
+  "deferred_workflows": []
+}

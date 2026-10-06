@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/upload-batch-v1.json",
+  "title": "Shangyu Upload Batch Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "platform",
+    "operation",
+    "profile",
+    "artifact",
+    "counts",
+    "checks",
+    "issues",
+    "safety"
+  ],
+  "properties": {
+    "schema_version": { "const": "upload-batch/1.0" },
+    "status": { "enum": ["ready", "blocked"] },
+    "platform": { "const": "guanyi" },
+    "operation": { "const": "custom_order_import" },
+    "validated_at": { "type": "string" },
+    "profile": {
+      "type": "object",
+      "required": ["profile_id", "version"],
+      "properties": {
+        "profile_id": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["path", "file_name", "sha256", "size_bytes"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "file_name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": ["string", "null"] },
+        "size_bytes": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "counts": {
+      "type": "object",
+      "required": ["orders", "item_rows"],
+      "properties": {
+        "orders": { "type": "integer", "minimum": 0 },
+        "item_rows": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "enum": ["error", "warning"] },
+          "message": { "type": "string" },
+          "row": { "type": ["integer", "null"] },
+          "column": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "manifest_contains_recipient_pii",
+        "workbook_contains_recipient_pii",
+        "upload_authorized"
+      ],
+      "properties": {
+        "manifest_contains_recipient_pii": { "const": false },
+        "workbook_contains_recipient_pii": { "const": true },
+        "upload_authorized": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

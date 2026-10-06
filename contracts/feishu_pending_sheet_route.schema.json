@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/feishu-pending-sheet-route-v1.json",
+  "title": "Feishu Pending Mapping User Sheet Route",
+  "type": "object",
+  "required": [
+    "feishu_user_id",
+    "sheet_id",
+    "sheet_title",
+    "status",
+    "schema_version",
+    "provision_key",
+    "provision_operation_id",
+    "created_at",
+    "last_used_at"
+  ],
+  "properties": {
+    "feishu_user_id": {"type": "string", "minLength": 1},
+    "sheet_id": {"type": "string"},
+    "sheet_title": {"type": "string"},
+    "status": {"enum": ["creating", "active", "conflict", "disabled"]},
+    "schema_version": {"const": "1.0"},
+    "provision_key": {"type": "string", "minLength": 1},
+    "provision_operation_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "last_used_at": {"type": "string", "format": "date-time"},
+    "conflict_sheet_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}
