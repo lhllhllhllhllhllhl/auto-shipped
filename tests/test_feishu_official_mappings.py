@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+import json
+from pathlib import Path
 
 from auto_shipped.catalog import ProductCatalog, ProductRecord
 from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
     build_mapping_key,
     build_official_mapping_snapshot,
+    load_official_mapping_snapshot,
+    validate_official_mapping_snapshot,
+    write_official_mapping_snapshot,
 )
 
 
@@ -86,6 +92,46 @@ class FeishuOfficialMappingTests(unittest.TestCase):
                 {"repository_status": "active", "mapping_revision": "1"},
                 catalog(),
             )
+
+    def test_snapshot_round_trip_is_validated_before_use(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            synced_at="2026-10-01T00:00:00+00:00",
+        )
+        self.assertEqual(
+            validate_official_mapping_snapshot(snapshot, catalog())["mapping_revision"],
+            "1",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "official.json"
+            write_official_mapping_snapshot(path, snapshot)
+            loaded = load_official_mapping_snapshot(path, catalog())
+            self.assertEqual(loaded["snapshot_sha256"], snapshot["snapshot_sha256"])
+
+    def test_tampered_snapshot_fails_hash_validation(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+        snapshot["mappings"][0]["spec_code"] = "TAMPERED"
+        with self.assertRaises(OfficialMappingSyncError):
+            validate_official_mapping_snapshot(snapshot, catalog())
+
+    def test_native_payload_contract_builds_same_valid_snapshot(self) -> None:
+        payload = {
+            "metadata": {"repository_status": "active", "mapping_revision": "1"},
+            "records": [record()],
+        }
+        restored = json.loads(json.dumps(payload, ensure_ascii=False))
+        snapshot = build_official_mapping_snapshot(
+            restored["records"],
+            restored["metadata"],
+            catalog(),
+        )
+        self.assertEqual(snapshot["mappings"][0]["source_value"], "2026DFYUMI001")
 
 
 if __name__ == "__main__":

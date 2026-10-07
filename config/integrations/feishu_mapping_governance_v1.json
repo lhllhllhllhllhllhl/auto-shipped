@@ -8,8 +8,9 @@
   ],
   "adapter_status": {
     "lark_cli_pending_gateway": "ready",
-    "agent_native_feishu_gateway": "pending",
+    "agent_native_feishu_gateway": "ready_via_validated_payload_bridge",
     "official_mapping_snapshot": "ready",
+    "conversion_fail_closed_gate": "ready",
     "owner_publisher": "pending"
   },
   "identity_policy": {

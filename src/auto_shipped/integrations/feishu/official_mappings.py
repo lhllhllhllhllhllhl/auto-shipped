@@ -145,6 +145,118 @@ def build_official_mapping_snapshot(
     return snapshot
 
 
+def validate_official_mapping_snapshot(
+    snapshot: Mapping[str, Any],
+    catalog: ProductCatalog,
+) -> dict[str, Any]:
+    """Validate a cached/native snapshot before it can participate in conversion."""
+
+    document = dict(snapshot)
+    if clean_identifier(document.get("schema_version")) != "2.0":
+        raise OfficialMappingSyncError("正式映射快照schema_version不是2.0。")
+    if clean_identifier(document.get("source")) != "feishu_official_mapping_repository":
+        raise OfficialMappingSyncError("正式映射快照来源标识不正确。")
+    if clean_identifier(document.get("repository_status")) != "active":
+        raise OfficialMappingSyncError("正式映射快照状态不是active。")
+    revision = clean_identifier(document.get("mapping_revision"))
+    if not revision:
+        raise OfficialMappingSyncError("正式映射快照缺少mapping_revision。")
+    records = document.get("mappings")
+    if not isinstance(records, list):
+        raise OfficialMappingSyncError("正式映射快照mappings不是列表。")
+
+    expected_digest = clean_identifier(document.get("snapshot_sha256"))
+    canonical_document = dict(document)
+    canonical_document.pop("snapshot_sha256", None)
+    canonical = json.dumps(
+        canonical_document,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    actual_digest = hashlib.sha256(canonical).hexdigest()
+    if not expected_digest or expected_digest != actual_digest:
+        raise OfficialMappingSyncError("正式映射快照SHA-256校验失败。")
+
+    seen_ids: set[str] = set()
+    seen_keys: set[str] = set()
+    for source in records:
+        if not isinstance(source, Mapping):
+            raise OfficialMappingSyncError("正式映射快照包含非对象记录。")
+        mapping_id = clean_identifier(source.get("mapping_id"))
+        company_id = clean_identifier(source.get("company_id"))
+        source_profile_id = clean_identifier(source.get("source_profile_id"))
+        identifier_type = clean_identifier(source.get("identifier_type"))
+        source_value = clean_identifier(source.get("source_value"))
+        source_spec = clean_identifier(source.get("source_spec"))
+        product_code = clean_identifier(source.get("product_code"))
+        spec_code = clean_identifier(source.get("spec_code"))
+        mapping_version = clean_identifier(source.get("mapping_version"))
+        required = {
+            "mapping_id": mapping_id,
+            "company_id": company_id,
+            "source_profile_id": source_profile_id,
+            "identifier_type": identifier_type,
+            "source_value": source_value,
+            "product_code": product_code,
+            "spec_code": spec_code,
+            "mapping_version": mapping_version,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id or '<unknown>'}缺少字段：{', '.join(missing)}"
+            )
+        if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}使用未知identifier_type。"
+            )
+        if source.get("confirmed") is not True:
+            raise OfficialMappingSyncError(f"正式映射快照记录{mapping_id}未确认。")
+        if not catalog.has_unique_pair(product_code, spec_code):
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}的管易商品/规格组合不存在或不唯一。"
+            )
+        expected_key = build_mapping_key(
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+            target_platform="guanyi",
+        )
+        actual_key = clean_identifier(source.get("mapping_key"))
+        if actual_key != expected_key:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}的mapping_key校验失败。"
+            )
+        if mapping_id in seen_ids:
+            raise OfficialMappingSyncError(f"正式映射快照mapping_id重复：{mapping_id}")
+        if actual_key in seen_keys:
+            raise OfficialMappingSyncError(f"正式映射快照mapping_key重复：{actual_key}")
+        seen_ids.add(mapping_id)
+        seen_keys.add(actual_key)
+        if revision.isdigit() and mapping_version.isdigit():
+            if int(mapping_version) > int(revision):
+                raise OfficialMappingSyncError(
+                    f"正式映射快照记录{mapping_id}版本高于库版本。"
+                )
+    return document
+
+
+def load_official_mapping_snapshot(
+    path: str | Path,
+    catalog: ProductCatalog,
+) -> dict[str, Any]:
+    try:
+        snapshot = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OfficialMappingSyncError(f"无法读取正式映射快照：{exc}") from exc
+    if not isinstance(snapshot, dict):
+        raise OfficialMappingSyncError("正式映射快照根节点不是对象。")
+    return validate_official_mapping_snapshot(snapshot, catalog)
+
+
 def write_official_mapping_snapshot(
     path: str | Path,
     snapshot: Mapping[str, Any],
@@ -158,4 +270,3 @@ def write_official_mapping_snapshot(
     )
     os.replace(temporary, destination)
     return destination
-

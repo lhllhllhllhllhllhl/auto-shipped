@@ -316,6 +316,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             rules,
             self.profile,
             business_date=date(2026, 9, 29),
+            official_mapping_ready=False,
         )
 
         self.assertEqual(result.status, "ready")
@@ -336,6 +337,29 @@ class GuanyiCustomImportTests(unittest.TestCase):
             [line["商品名称"] for line in result.lines],
             ["光明满元气 白糯玉米8棒家庭装", "光明满元气 白糯玉米单根装"],
         )
+
+    def test_missing_official_mapping_blocks_before_product_question(self) -> None:
+        result = build_custom_import_lines(
+            [parsed_order()],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+            official_mapping_ready=False,
+            official_mapping_error="飞书用户未授权",
+        )
+
+        codes = {request.code for request in result.clarifications}
+        self.assertEqual(result.status, "needs_input")
+        self.assertEqual(result.lines, [])
+        self.assertIn("FEISHU_OFFICIAL_MAPPING_UNAVAILABLE", codes)
+        self.assertNotIn("PROVIDE_GUANYI_PRODUCT_MAPPING", codes)
+        self.assertNotIn("CONFIRM_GUANYI_PRODUCT_MAPPING", codes)
+        request = next(
+            item
+            for item in result.clarifications
+            if item.code == "FEISHU_OFFICIAL_MAPPING_UNAVAILABLE"
+        )
+        self.assertEqual(request.reason, "飞书用户未授权")
 
     def test_sam_standard_item_uses_readable_source_name_and_display_spec(self) -> None:
         order = parsed_order()

@@ -137,6 +137,8 @@ def convert_order_file(
     / "assets/templates/guanyi/自定义订单导入模板.xlsx",
     source_profile_hint: str | None = None,
     mapping_overlay_paths: tuple[str | Path, ...] = (),
+    official_mapping_ready: bool = True,
+    official_mapping_error: str = "",
 ) -> ConversionResult:
     source = Path(source_path)
     source_file = source.name
@@ -430,7 +432,14 @@ def convert_order_file(
             route=route,
             parsed_order_count=len(parsed.orders),
         )
-    built = build_custom_import_lines(parsed.orders, catalog, rules, platform_profile)
+    built = build_custom_import_lines(
+        parsed.orders,
+        catalog,
+        rules,
+        platform_profile,
+        official_mapping_ready=official_mapping_ready,
+        official_mapping_error=official_mapping_error,
+    )
     duplicate_codes = {
         code
         for rule_id in coverage.blocked_rule_ids

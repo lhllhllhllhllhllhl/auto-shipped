@@ -262,12 +262,15 @@ def build_custom_import_lines(
     platform_profile: dict[str, Any],
     *,
     business_date: date | None = None,
+    official_mapping_ready: bool = True,
+    official_mapping_error: str = "",
 ) -> GuanyiBuildResult:
     result = GuanyiBuildResult()
     result.clarifications.extend(_rule_clarifications(rules))
 
     resolved_products: dict[tuple[str, str, str, str], Any] = {}
     resolved_lines_by_order: dict[int, list[ResolvedLineItem]] = {}
+    official_mapping_clarification_added = False
     for order in orders:
         order_lines: list[ResolvedLineItem] = []
         for item in order.items:
@@ -287,6 +290,27 @@ def build_custom_import_lines(
                 continue
             if expansion.applied:
                 order_lines.extend(expansion.lines)
+                continue
+
+            if not official_mapping_ready:
+                if not official_mapping_clarification_added:
+                    result.clarifications.append(
+                        ClarificationRequest(
+                            code="FEISHU_OFFICIAL_MAPPING_UNAVAILABLE",
+                            scope="batch",
+                            field="飞书正式商品映射",
+                            question=(
+                                "无法读取并验证飞书正式商品映射。请先完成飞书授权或正式映射同步后重试。"
+                            ),
+                            reason=(
+                                official_mapping_error
+                                or "正式映射快照不存在、读取失败或未通过完整性校验。"
+                            ),
+                            answer_type="text",
+                            next_action="sync_feishu_official_mappings",
+                        )
+                    )
+                    official_mapping_clarification_added = True
                 continue
 
             resolution_key = _product_resolution_key(order, item)

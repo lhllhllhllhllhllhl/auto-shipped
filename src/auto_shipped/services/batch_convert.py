@@ -208,6 +208,8 @@ def convert_order_batch(
     / "assets/templates/guanyi/自定义订单导入模板.xlsx",
     source_profile_hints: dict[str, str] | None = None,
     mapping_overlay_paths: tuple[str | Path, ...] = (),
+    official_mapping_ready: bool = True,
+    official_mapping_error: str = "",
     batch_name: str = "批量订单",
 ) -> BatchConversionResult:
     sources = [Path(value).expanduser().resolve() for value in source_paths]
@@ -273,6 +275,8 @@ def convert_order_batch(
                 guanyi_template_path=guanyi_template_path,
                 source_profile_hint=_hint_for_source(source, hints),
                 mapping_overlay_paths=mapping_overlay_paths,
+                official_mapping_ready=official_mapping_ready,
+                official_mapping_error=official_mapping_error,
             )
             summary = _summarize_conversion(source, digest, conversion)
             result.sources.append(summary)

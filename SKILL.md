@@ -29,5 +29,6 @@ python3 <repository-root>/skill/shangyu-order-converter/scripts/bootstrap_runtim
 - 不修改用户原始订单，不在聊天或日志中展示完整收件信息。
 - 管易凭证、短信验证码、Cookie 和飞书登录状态不随仓库迁移。
 - 一次收到多个订单文件时默认合并输出；只有用户明确要求分开时才分别生成。
+- 标准商品转换前必须成功读取并验证飞书正式映射。Agent有原生飞书表格能力时优先使用；否则统一入口自动调用`lark-cli`备用读取器。两者均不可用时返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`并停止，禁止改问用户已发布的商品映射。
 
 新电脑迁移、操作系统差异和本机凭证建立方式见[可迁移运行时说明](skill/shangyu-order-converter/references/portability.md)。

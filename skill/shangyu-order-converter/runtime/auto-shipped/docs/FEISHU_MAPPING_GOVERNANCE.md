@@ -1,6 +1,6 @@
 # 飞书商品映射治理
 
-状态：核心合同与路由状态机已实现；两个工作簿已初始化并绑定固定Sheet ID；`lark-cli`待确认网关已通过真实用户Sheet创建、路由回读与幂等复用测试。正式库只读同步、商品主档校验、原子快照和转换覆盖层也已真实跑通。当前仅所有者审核发布器未实现，待确认提案仍严格不能直接进入正式映射。
+状态：核心合同与路由状态机已实现；两个工作簿已初始化并绑定固定Sheet ID；Agent原生飞书读取通过受校验载荷桥接，`lark-cli`作为备用网关。正式库只读同步、商品主档校验、快照哈希、原子写入和转换前强制门禁均已接通。当前仅所有者审核发布器未实现，待确认提案仍严格不能直接进入正式映射。
 
 ## 1. 两个工作簿
 
@@ -35,7 +35,7 @@
 
 ## 2. Agent能力假设
 
-优先使用Agent原生飞书电子表格能力，`lark-cli`只是备用适配器。所有实现都适配统一的`FeishuSheetGateway`合同：
+优先使用Agent原生飞书电子表格能力，`lark-cli`只是备用适配器。待确认读写实现统一的`FeishuSheetGateway`合同：
 
 ```text
 get_current_identity
@@ -47,6 +47,44 @@ list_pending_proposals / append_pending_proposal
 ```
 
 待确认写入必须使用当前员工的飞书`user`身份。共享`bot`身份无法区分员工，必须返回`FEISHU_USER_IDENTITY_REQUIRED`。
+
+正式映射只读同步额外支持Agent原生载荷桥：Agent从固定Sheet ID读取后，必须提交以下结构给确定性校验器，不能直接把模型理解结果交给转换器：
+
+```json
+{
+  "metadata": {
+    "repository_status": "active",
+    "mapping_revision": "2"
+  },
+  "records": [
+    {
+      "mapping_id": "...",
+      "mapping_key": "...",
+      "company_id": "...",
+      "source_profile_id": "...",
+      "identifier_type": "product_code",
+      "source_value": "...",
+      "source_spec": "...",
+      "target_platform": "guanyi",
+      "product_code": "...",
+      "spec_code": "...",
+      "status": "active",
+      "mapping_version": "...",
+      "confirmed_by": "...",
+      "confirmed_at": "...",
+      "evidence": "..."
+    }
+  ]
+}
+```
+
+桥接命令：
+
+```bash
+python3 <skill-dir>/scripts/feishu_mapping.py sync-native --payload <原生读取载荷.json>
+```
+
+校验器会核对库状态、版本、字段、`mapping_key`、重复键、管易商品/规格唯一性并生成带SHA-256的原子快照。
 
 ## 3. 待确认工作簿结构
 
@@ -182,6 +220,8 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 
 `sync`只读取正式映射，不读取待确认提案。它会核验库状态、库版本、`mapping_key`、重复键、管易商品/规格唯一性，再以原子替换方式写入状态目录；校验失败时不会覆盖上一次有效快照。Skill日常转换入口只自动叠加该正式快照，不再自动叠加本机旧映射或环境变量共享映射。
 
+统一转换入口会在每次运行前自动调用备用`sync`，除非Agent显式提供本次由`sync-native`生成的`--official-mapping-snapshot`。正式读取或验证失败时，普通商品返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`；只有正式库成功读取且确实无匹配时，才允许返回商品映射问题。已确认组合展开规则不依赖一对一正式映射，可继续按自身规则校验。
+
 ## 6. 风险边界
 
 由于飞书电子表格不能为不同协作者提供可靠的单Sheet编辑隔离，用户可能手工修改他人的待确认Sheet。当前设计只防止Agent误写，不声称阻止恶意或人工越界编辑。
@@ -198,7 +238,6 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 
 ## 7. 当前未完成项
 
-- 为Agent原生飞书工具实现`FeishuSheetGateway`适配器；当前已有跨macOS/Windows调用方式一致的`lark-cli`备用适配器。
 - 实现所有者专用的审核与发布器。
 
 已完成：
@@ -208,3 +247,4 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 - 当前飞书用户的个人Sheet与路由已通过适配器自动创建；相同用户重复执行会复用原Sheet，不会重复创建。
 - 已确认的恬田`2026DFYUMI001 -> JTW8E1 / 6974768564811`与SAM`84292384 + SWSH8072 -> SWSH8072 / 4901792038072`已进入正式映射版本2。
 - 正式版本2已同步为本机快照；移除本地基础映射后，恬田、SAM普通商品和SAM组合展开真实样本均可独立完成转换回归。
+- Agent原生飞书结果可通过`sync-native`载荷桥进入同一校验器；正式映射不可用时转换不再退化为商品确认问题。

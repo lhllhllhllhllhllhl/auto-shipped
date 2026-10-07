@@ -151,6 +151,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-USER-SAM-FREIGHT-BLANK-001` | 2026-10-02 | SAM运费跟随人工成品留空，不填写0 | SAM金额字段 | 已确认并实现；直接证据为`SRC-SAMPLE-SAM-MANUAL-001!Sheet1!R2:R3` |
 | `DEC-USER-SAM-PRODUCT-DISPLAY-001` | 2026-10-04 | SAM普通商品的“商品名称”使用来源“原表格商品/原表格规格”拼成可读名称；组合展开商品仍使用各目标商品的管易名称；显示名称不参与商品匹配 | SAM商品显示字段 | 已确认并实现；证据为`SRC-SAMPLE-SAM-SHOWA-001`与`SRC-SAMPLE-SAM-SHOWA-MANUAL-001`，解决商品主档短名称`PinkS`可读性差的问题 |
 | `DEC-USER-MAPPING-AUTHORITY-002` | 2026-10-05 | 已测试的一对一商品映射统一进入飞书正式映射表；日常转换不再自动加载本机旧映射，正式快照是唯一自动生效映射源 | 商品映射治理 | 已确认并实现；正式库版本2含恬田与SAM两条一对一映射 |
+| `DEC-USER-FEISHU-OFFICIAL-READ-GATE-001` | 2026-10-08 | Agent应在标准商品转换前直接读取并验证飞书正式映射；原生飞书能力优先，`lark-cli`作为备用适配器；读取失败时必须提示授权或同步，不能把已发布映射当作缺失映射重新询问 | 商品映射治理 | 用户在当前对话确认；已实现受校验原生载荷桥、自动备用同步和`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`转换门禁，并用SAM SHOWA真实样本回归 |
 | `DEC-USER-MAPPING-IDENTITY-GUARD-001` | 2026-10-05 | 防止“来源编码未变但商品已变化”的碰巧正确结果；无来源规格的编码映射必须同时核对已登记来源品名，不一致时追问 | 商品映射 | 已确认并实现恬田`2026DFYUMI001`品名保护 |
 | `DEC-USER-CARRIER-NORMALIZATION-001` | 2026-10-05 | 来源指定物流仍为最高优先级，但必须先映射成已登记的管易标准名称；未登记名称追问 | 物流字段 | 已确认并实现第一版别名表及上传前标准值校验 |
 | `DEC-USER-SOURCE-VALUE-GUARDS-001` | 2026-10-05 | 非法联系方式不能进入上传Excel；超过15位的数值型订单号或科学计数法订单号必须改为文本后重新导出 | 来源输入校验 | 已确认并实现来源解析与输出预检双层门禁 |
@@ -179,7 +180,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-PAYMENT-METHOD` | 支付方式 | `SRC-SOP-PDF-001` p.5 | `DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写网银在线；其他来源仍按各自规则包确认 |
 | `GY-ORDER-TYPE` | 订单类型 | `SRC-SOP-PDF-001` p.12 | `DEC-BLH-ROUTE-001`、`DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写销售订单；其他来源仍按各自规则包确认 |
 | `GY-ORDER-FLAGS` | 赠品、手机、货到付款和分销标记 | `SRC-GY-TEMPLATE-001` | 当前模板说明 | 寄样订单是否属于赠品未确认 |
-| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001` | 恬田当前SKU已确认；其他来源和新增SKU仍需逐项确认 |
+| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001` | 飞书正式库版本2已登记恬田玉米和SAM SHOWA一对一映射；其他来源和新增SKU仍需逐项确认并经所有者发布 |
 | `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-USER-SAM-BUNDLE-001` | 当前已确认SAM白糯8+1；其他组合商品必须逐项登记组成和数量倍数 |
 | `GY-RECIPIENT-COMPLETENESS` | 收件信息完整性 | `SRC-SOP-PDF-001` p.5、p.8、p.10 | `SRC-SAMPLE-TT-001`、`SRC-SAMPLE-XHS-001`、`SRC-SAMPLE-ADDR-001` | 组合地址解析仍需边界测试 |
 | `GY-LOGISTICS-SELECTION` | 物流选择 | `SRC-SOP-PDF-001` p.3、p.10 | `DEC-XV-LOGISTICS-001`、`DEC-XV-LOGISTICS-PRIORITY-001`、`DEC-USER-LOGISTICS-INTERIM-001`、各玉米样本 | 恬田当前包装规则已确认并实现；通用重量公式作为后续可替换策略 |

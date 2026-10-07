@@ -17,6 +17,7 @@ from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
     build_pending_mapping_proposal,
+    load_official_mapping_snapshot,
     resolve_or_provision_user_sheet,
     submit_pending_mapping_proposal,
     write_official_mapping_snapshot,
@@ -112,6 +113,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="可重复提供的已确认商品映射覆盖层JSON",
     )
+    for conversion_parser in (convert, convert_batch):
+        conversion_parser.add_argument(
+            "--official-mapping-status",
+            choices=["auto", "ready", "unavailable"],
+            default="auto",
+            help="正式映射读取状态；ready仍会校验快照，默认从overlay自动判定",
+        )
+        conversion_parser.add_argument(
+            "--official-mapping-error",
+            default="",
+            help="正式映射不可用时供结构化追问展示的诊断信息",
+        )
     convert.add_argument(
         "--template",
         default=str(PROJECT_ROOT / "assets/templates/guanyi/自定义订单导入模板.xlsx"),
@@ -208,6 +221,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_official.add_argument("--output", required=True)
 
+    sync_official_native = subparsers.add_parser(
+        "sync-feishu-official-mappings-from-payload",
+        help="接收Agent原生飞书能力读取的标准载荷，校验后原子更新本机正式映射快照",
+    )
+    sync_official_native.add_argument("--payload", required=True)
+    sync_official_native.add_argument("--catalog", required=True)
+    sync_official_native.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    sync_official_native.add_argument("--output", required=True)
+
     provision_pending = subparsers.add_parser(
         "provision-pending-sheet",
         help="按当前飞书用户自动发现、修复或创建个人待确认Sheet",
@@ -285,7 +310,49 @@ def run_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _official_mapping_runtime_state(
+    args: argparse.Namespace,
+) -> tuple[bool, str]:
+    if args.official_mapping_status == "unavailable":
+        return False, (
+            args.official_mapping_error
+            or "正式映射提供器未能完成读取与校验。"
+        )
+    try:
+        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return False, f"正式映射校验无法加载商品主档：{exc}"
+
+    official_candidates: list[Path] = []
+    errors: list[str] = []
+    for value in args.mapping_overlay:
+        path = Path(value).expanduser().resolve()
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{path.name}: {exc}")
+            continue
+        if isinstance(document, dict) and document.get("source") == "feishu_official_mapping_repository":
+            official_candidates.append(path)
+
+    for path in official_candidates:
+        try:
+            load_official_mapping_snapshot(path, catalog)
+        except OfficialMappingSyncError as exc:
+            errors.append(f"{path.name}: {exc}")
+            continue
+        return True, ""
+
+    if errors:
+        return False, "；".join(errors)
+    return False, (
+        args.official_mapping_error
+        or "没有提供经过验证的飞书正式映射快照。"
+    )
+
+
 def run_convert(args: argparse.Namespace) -> int:
+    official_mapping_ready, official_mapping_error = _official_mapping_runtime_state(args)
     result = convert_order_file(
         source_path=args.source,
         catalog_csv=args.catalog,
@@ -294,6 +361,8 @@ def run_convert(args: argparse.Namespace) -> int:
         guanyi_template_path=args.template,
         source_profile_hint=args.source_profile,
         mapping_overlay_paths=tuple(args.mapping_overlay),
+        official_mapping_ready=official_mapping_ready,
+        official_mapping_error=official_mapping_error,
     )
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
     if result.status == "ready":
@@ -340,6 +409,7 @@ def run_convert_batch(args: argparse.Namespace) -> int:
             )
         )
         return 1
+    official_mapping_ready, official_mapping_error = _official_mapping_runtime_state(args)
     result = convert_order_batch(
         source_paths=args.source,
         catalog_csv=args.catalog,
@@ -349,6 +419,8 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         source_profile_hints=hints,
         mapping_overlay_paths=tuple(args.mapping_overlay),
         batch_name=args.batch_name,
+        official_mapping_ready=official_mapping_ready,
+        official_mapping_error=official_mapping_error,
     )
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
     if result.status == "ready":
@@ -544,6 +616,57 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_sync_feishu_official_mappings_from_payload(
+    args: argparse.Namespace,
+) -> int:
+    try:
+        payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise OfficialMappingSyncError("Agent原生飞书载荷根节点不是对象。")
+        records = payload.get("records")
+        metadata = payload.get("metadata")
+        if not isinstance(records, list) or not isinstance(metadata, dict):
+            raise OfficialMappingSyncError(
+                "Agent原生飞书载荷必须包含records列表和metadata对象。"
+            )
+        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+        snapshot = build_official_mapping_snapshot(records, metadata, catalog)
+        output = write_official_mapping_snapshot(args.output, snapshot)
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        OfficialMappingSyncError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "FEISHU_NATIVE_OFFICIAL_MAPPING_SYNC_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {
+                "status": "synced",
+                "provider": "agent_native_feishu",
+                "mapping_revision": snapshot["mapping_revision"],
+                "mapping_count": len(snapshot["mappings"]),
+                "snapshot_sha256": snapshot["snapshot_sha256"],
+                "output": str(output),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def run_provision_pending_sheet(args: argparse.Namespace) -> int:
     try:
         gateway = _lark_gateway(args.config)
@@ -700,6 +823,8 @@ def main() -> int:
         return run_feishu_mapping_status(args)
     if args.command == "sync-feishu-official-mappings":
         return run_sync_feishu_official_mappings(args)
+    if args.command == "sync-feishu-official-mappings-from-payload":
+        return run_sync_feishu_official_mappings_from_payload(args)
     if args.command == "provision-pending-sheet":
         return run_provision_pending_sheet(args)
     if args.command == "submit-mapping-proposal":

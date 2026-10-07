@@ -76,18 +76,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="可重复提供的已确认商品映射覆盖层JSON",
     )
+    parser.add_argument(
+        "--official-mapping-snapshot",
+        help="Agent原生飞书能力已经读取并校验生成的正式映射快照；提供后不再调用lark-cli同步",
+    )
     parser.add_argument("--template", help="可选的管易自定义订单导入模板")
     return parser
 
 
-def _common_cli_args(args: argparse.Namespace) -> list[str]:
+def _common_cli_args(
+    args: argparse.Namespace,
+    official_mapping_snapshot: Path | None,
+    official_mapping_error: str,
+) -> list[str]:
     values: list[str] = []
     if args.mappings:
         values.extend(["--mappings", str(Path(args.mappings).expanduser().resolve())])
-    overlay_candidates = [
-        *args.mapping_overlay,
-        str(STATE_ROOT / "config" / "feishu-official-product-mappings.json"),
-    ]
+    overlay_candidates = list(args.mapping_overlay)
+    if official_mapping_snapshot is not None:
+        overlay_candidates.append(str(official_mapping_snapshot))
     seen: set[str] = set()
     for value in overlay_candidates:
         overlay = Path(value).expanduser().resolve()
@@ -96,9 +103,67 @@ def _common_cli_args(args: argparse.Namespace) -> list[str]:
             continue
         seen.add(key)
         values.extend(["--mapping-overlay", key])
+    if official_mapping_snapshot is not None:
+        values.extend(["--official-mapping-status", "auto"])
+    else:
+        values.extend(
+            [
+                "--official-mapping-status",
+                "unavailable",
+                "--official-mapping-error",
+                official_mapping_error[:1000]
+                or "无法读取并验证飞书正式商品映射。",
+            ]
+        )
     if args.template:
         values.extend(["--template", str(Path(args.template).expanduser().resolve())])
     return values
+
+
+def _prepare_official_mapping(
+    args: argparse.Namespace,
+    runtime: str,
+    project_root: Path,
+    catalog: Path,
+) -> tuple[Path | None, str]:
+    if args.official_mapping_snapshot:
+        snapshot = Path(args.official_mapping_snapshot).expanduser().resolve()
+        if snapshot.is_file():
+            return snapshot, ""
+        return None, f"Agent原生飞书正式映射快照不存在：{snapshot}"
+
+    snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
+    command = [
+        runtime,
+        "-m",
+        "auto_shipped.cli",
+        "sync-feishu-official-mappings",
+        "--catalog",
+        str(catalog),
+        "--output",
+        str(snapshot),
+    ]
+    if args.mappings:
+        command.extend(
+            ["--mappings", str(Path(args.mappings).expanduser().resolve())]
+        )
+    completed = subprocess.run(
+        command,
+        env=_environment(project_root),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if completed.returncode == 0 and snapshot.is_file():
+        return snapshot, ""
+    message = completed.stderr.strip()
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        message = str(payload.get("message") or payload.get("code") or message)
+    return None, message or "飞书正式映射同步失败。"
 
 
 def _environment(project_root: Path) -> dict[str, str]:
@@ -179,7 +244,17 @@ def main() -> int:
         return 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    common_args = _common_cli_args(args)
+    official_mapping_snapshot, official_mapping_error = _prepare_official_mapping(
+        args,
+        runtime,
+        project_root,
+        catalog,
+    )
+    common_args = _common_cli_args(
+        args,
+        official_mapping_snapshot,
+        official_mapping_error,
+    )
     if len(sources) == 1:
         completed = _run_single(
             runtime,

@@ -65,7 +65,7 @@ PYTHONPATH=src python -m auto_shipped.cli audit-companies
 
 ## 飞书商品映射治理
 
-飞书映射治理的核心合同和用户Sheet自动路由状态机已经实现，设计见 [docs/FEISHU_MAPPING_GOVERNANCE.md](docs/FEISHU_MAPPING_GOVERNANCE.md)。系统把正式映射和待确认提案放在两个工作簿：正式库只读消费，待确认库按当前飞书用户ID自动发现、创建或修复个人Sheet。Agent原生飞书能力优先，`lark-cli`只作为备用适配器。
+飞书映射治理的核心合同和用户Sheet自动路由状态机已经实现，设计见 [docs/FEISHU_MAPPING_GOVERNANCE.md](docs/FEISHU_MAPPING_GOVERNANCE.md)。系统把正式映射和待确认提案放在两个工作簿：正式库只读消费，待确认库按当前飞书用户ID自动发现、创建或修复个人Sheet。Agent原生飞书能力优先，通过受校验载荷桥生成正式快照；`lark-cli`作为自动备用适配器。正式库未读取成功时转换会明确阻断，不再误问已发布的商品映射。
 
 两个实际工作簿现已初始化并绑定固定Sheet ID，已确认的恬田映射已写入正式库并回读校验。`lark-cli`待确认网关已经接通并完成用户Sheet创建、路由回读和幂等复用实测；正式映射也能只读同步为校验过的本机快照，转换入口会自动叠加该快照。当前状态是`shared_mapping_runtime_ready_publisher_pending`：员工读取、个人提案和转换消费已接通，所有者审核发布器尚未实现，待确认提案绝不会自动进入正式映射。
 

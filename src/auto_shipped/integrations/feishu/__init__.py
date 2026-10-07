@@ -16,6 +16,8 @@ from .lark_cli_gateway import LarkCliFeishuSheetGateway, LarkCliGatewayError
 from .official_mappings import (
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
+    load_official_mapping_snapshot,
+    validate_official_mapping_snapshot,
     write_official_mapping_snapshot,
 )
 
@@ -36,5 +38,7 @@ __all__ = [
     "LarkCliGatewayError",
     "OfficialMappingSyncError",
     "build_official_mapping_snapshot",
+    "load_official_mapping_snapshot",
+    "validate_official_mapping_snapshot",
     "write_official_mapping_snapshot",
 ]

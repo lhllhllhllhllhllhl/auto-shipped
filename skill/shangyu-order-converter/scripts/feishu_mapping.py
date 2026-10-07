@@ -16,6 +16,7 @@ from runtime_common import STATE_ROOT, resolve_project_root
 COMMANDS = {
     "status": "feishu-mapping-status",
     "sync": "sync-feishu-official-mappings",
+    "sync-native": "sync-feishu-official-mappings-from-payload",
     "provision": "provision-pending-sheet",
     "submit": "submit-mapping-proposal",
 }
@@ -28,7 +29,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|provision|submit [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -44,7 +45,7 @@ def main() -> int:
         print('{"status":"invalid","code":"PYTHON_RUNTIME_MISSING"}')
         return 2
     forwarded = list(sys.argv[2:])
-    if sys.argv[1] == "sync":
+    if sys.argv[1] in {"sync", "sync-native"}:
         if "--catalog" not in forwarded:
             registry_path = project_root / "config/catalog/current_product_catalog.json"
             try:
