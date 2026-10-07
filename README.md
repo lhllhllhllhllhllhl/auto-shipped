@@ -10,9 +10,15 @@
 
 ## 作为Agent Skill安装
 
-需要通过“上传 `.zip` 或 `.skill` 文件”安装时，请直接下载并上传 [`dist/shangyu-order-converter.zip`](dist/shangyu-order-converter.zip)。该压缩包的第一层就是 `SKILL.md`；不要上传 GitHub 自动生成的整个仓库 ZIP，因为项目根目录不是 Skill 根目录。
+本仓库根目录本身就是 Skill 根目录，第一层包含 `SKILL.md` 和 `agents/openai.yaml`。支持 GitHub 安装的 Agent 直接使用仓库地址：
 
-仓库中的 `skill/shangyu-order-converter` 是可直接迁移的 Skill 源目录，内置确定性运行时、规则、模板、当前商品资料快照和 SHA-256 清单。支持从 GitHub 子目录安装的 Agent，可以直接安装该目录。新电脑安装后执行：
+```text
+https://github.com/lhllhllhllhllhllhl/auto-shipped
+```
+
+使用文件上传入口时，直接使用 GitHub 的 `Code → Download ZIP` 下载本仓库，再上传该 ZIP。GitHub ZIP 只有平台自动添加的一层仓库目录，进入该目录后即可看到 `SKILL.md`；不再需要单独寻找或生成 Skill 发布包。
+
+仓库内部的 `skill/shangyu-order-converter` 保存详细执行说明和可迁移运行包，内置确定性运行时、规则、模板、当前商品资料快照和 SHA-256 清单。新电脑安装后执行：
 
 ```bash
 python3 <skill-dir>/scripts/doctor.py
@@ -27,14 +33,6 @@ python3 <skill-dir>/scripts/bootstrap_runtime.py
 新电脑不会继承管易账号密码、短信验证码、浏览器Cookie或飞书登录令牌。macOS/Windows都必须以实际员工身份重新建立凭证和登录会话；Linux当前只支持Excel转换。详细步骤见 `skill/shangyu-order-converter/references/portability.md`。
 
 这个仓库包含公司内部业务规则和飞书工作簿绑定，应保持私有。真实订单、收件信息、转换结果、浏览器profile和运行日志不进入Git。
-
-修改 Skill 后使用以下命令重新生成上传包：
-
-```bash
-python3 scripts/build_skill_archive.py
-```
-
-命令同时生成 `dist/shangyu-order-converter.zip.sha256`，用于核对下载文件是否完整。
 
 ## 当前主链路
 
@@ -73,11 +71,13 @@ PYTHONPATH=src python -m auto_shipped.cli audit-companies
 
 ## Agent Skill 入口
 
-发布包位于：
+仓库根入口为：
 
 ```text
-skill/shangyu-order-converter
+SKILL.md
 ```
+
+详细指令和运行包装位于 `skill/shangyu-order-converter`，根入口会明确路由到该目录；其他 Agent 不需要自行判断子路径。
 
 员工日常只需向 Skill 提供公司原始订单。Skill 默认读取登记的管易商品资料并调用统一转换服务；商品资料缺失或需要更新时才请求补充 CSV。一次提供多个Excel时默认合并成一个管易导入文件，只有用户明确要求分开时才分别生成。它根据结构化状态返回生成文件或向用户追问，不在 Skill 内复制公司字段规则，也不自动上传管易。
 

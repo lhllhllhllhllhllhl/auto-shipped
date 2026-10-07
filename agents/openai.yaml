@@ -1,0 +1,4 @@
+interface:
+  display_name: "尚舆订单转换"
+  short_description: "识别公司订单、生成管易导入Excel并执行安全的管易自动化准备"
+  default_prompt: "使用 $shangyu-order-converter 识别这份公司订单，生成经过校验的管易导入文件，并按安全边界准备管易导入。"
