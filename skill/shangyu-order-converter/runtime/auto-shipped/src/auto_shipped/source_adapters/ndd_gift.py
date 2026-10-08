@@ -35,6 +35,26 @@ def _positive_number(value: Any) -> float | None:
     return number if number > 0 else None
 
 
+def _bundle_components(value: Any) -> dict[str, float] | None:
+    """Parse `商品A×1；商品B×1` without guessing malformed bundle text."""
+
+    text = unicodedata.normalize("NFKC", _text(value))
+    parts = [part.strip() for part in re.split(r"[；;]", text) if part.strip()]
+    if not parts:
+        return None
+    parsed: dict[str, float] = {}
+    for part in parts:
+        match = re.fullmatch(r"(.+?)[×xX*]\s*(\d+(?:\.\d+)?)", part)
+        if match is None:
+            return None
+        name = _normalized(match.group(1))
+        quantity = _positive_number(match.group(2))
+        if not name or quantity is None or name in parsed:
+            return None
+        parsed[name] = quantity
+    return parsed
+
+
 def _split_region(raw_address: str) -> tuple[str, str, str, str] | None:
     parts = re.split(r"\s+", raw_address.strip(), maxsplit=3)
     if len(parts) != 4 or not all(parts):
@@ -50,7 +70,7 @@ def _split_region(raw_address: str) -> tuple[str, str, str, str] | None:
 
 
 class NddGiftOrderParsedAdapter:
-    """Parse NDD gift orders and guard the bundle definition embedded below them."""
+    """Parse NDD gift orders and guard row-level or legacy bundle definitions."""
 
     adapter_id = "ndd_gift_order_parsed"
 
@@ -97,12 +117,24 @@ class NddGiftOrderParsedAdapter:
 
             order_key = str(profile["fields"]["source_order_no"])
             order_key_index = headers.index(order_key)
+            example_order_numbers = {
+                _normalized(value)
+                for value in (
+                    (profile.get("example_row_policy") or {}).get(
+                        "source_order_numbers"
+                    )
+                    or []
+                )
+                if _normalized(value)
+            }
             rows: list[tuple[int, dict[str, Any]]] = []
             for row_no, cells in enumerate(
                 sheet.iter_rows(min_row=header_row + 1, values_only=True),
                 start=header_row + 1,
             ):
                 if order_key_index >= len(cells) or not _text(cells[order_key_index]):
+                    continue
+                if _normalized(cells[order_key_index]) in example_order_numbers:
                     continue
                 rows.append(
                     (
@@ -116,7 +148,9 @@ class NddGiftOrderParsedAdapter:
                 )
 
             clarifications = self._validate_order_rows(rows, profile, sheet_name)
-            clarifications.extend(self._validate_bundle_guard(sheet, profile, path.name))
+            clarifications.extend(
+                self._validate_bundle_guard(rows, sheet, profile, path.name)
+            )
         finally:
             workbook.close()
 
@@ -183,7 +217,7 @@ class NddGiftOrderParsedAdapter:
                     code="NDD_NO_ORDER_ROWS",
                     scope="file",
                     question="NDD文件中没有找到带订单编号的订单行，请确认导出范围。",
-                    reason="当前文件只有表头或套餐说明，无法生成发货订单。",
+                    reason="当前文件只有表头、填写示例或套餐说明，无法生成发货订单。",
                     answer_type="file",
                 )
             ]
@@ -227,10 +261,84 @@ class NddGiftOrderParsedAdapter:
         return requests
 
     @staticmethod
-    def _validate_bundle_guard(sheet, profile: dict[str, Any], source_ref: str) -> list[ClarificationRequest]:
+    def _validate_bundle_guard(
+        rows: list[tuple[int, dict[str, Any]]],
+        sheet,
+        profile: dict[str, Any],
+        source_ref: str,
+    ) -> list[ClarificationRequest]:
         guard = profile.get("bundle_identity_guard") or {}
         if not guard:
             return []
+        expected_components = {
+            _normalized(component.get("source_component_name")): float(
+                component.get("quantity_per_bundle") or 0
+            )
+            for component in guard.get("components") or []
+        }
+        expected_components = {
+            name: quantity
+            for name, quantity in expected_components.items()
+            if name and quantity > 0
+        }
+        row_field = str(guard.get("row_field") or "").strip()
+        product_field = str(profile.get("fields", {}).get("product_name") or "")
+        guarded_products = {
+            _normalized(value)
+            for value in (
+                guard.get("applies_to_product_names")
+                or (profile.get("order_row_policy") or {}).get(
+                    "allowed_product_names"
+                )
+                or []
+            )
+            if _normalized(value)
+        }
+        blank_values = {
+            _normalized(value)
+            for value in guard.get("row_field_blank_values") or []
+            if _normalized(value)
+        }
+        relevant_rows = [
+            (row_no, row)
+            for row_no, row in rows
+            if not guarded_products
+            or _normalized(row.get(product_field)) in guarded_products
+        ]
+        if not relevant_rows:
+            return []
+
+        direct_failures: list[str] = []
+        legacy_required = not row_field
+        if row_field:
+            for row_no, row in relevant_rows:
+                raw_summary = row.get(row_field)
+                normalized_summary = _normalized(raw_summary)
+                if not normalized_summary or normalized_summary in blank_values:
+                    legacy_required = True
+                    continue
+                actual_components = _bundle_components(raw_summary)
+                if actual_components is None:
+                    direct_failures.append(
+                        f"第{row_no}行套餐组成格式无法识别"
+                    )
+                elif actual_components != expected_components:
+                    direct_failures.append(f"第{row_no}行套餐组成发生变化")
+        if direct_failures:
+            return [
+                ClarificationRequest(
+                    code="NDD_BUNDLE_COMPOSITION_CHANGED",
+                    scope="batch",
+                    source_ref=source_ref,
+                    field=row_field or "套餐配套商品信息",
+                    question="NDD套餐说明与已确认的福利套餐四不一致，请确认新的套餐组成和商品编码。",
+                    reason="；".join(direct_failures),
+                    answer_type="text",
+                )
+            ]
+        if not legacy_required:
+            return []
+
         all_values: list[tuple[int, int, str]] = []
         for row in sheet.iter_rows():
             for cell in row:

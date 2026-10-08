@@ -1,11 +1,12 @@
 {
   "profile_id": "ndd_order_v1",
   "company_id": "ndd",
-  "source_label": "NDD礼品订单",
+  "source_label": "NDD标准订单模板",
   "order_type": "standard_order",
   "adapter": "ndd_gift_order_parsed",
-  "version": 1,
+  "version": 2,
   "enabled": true,
+  "template_asset": "assets/templates/ndd/NDD完整字段标准模板_v1.2.xlsx",
   "detection": {
     "sheet_name": "Sheet1",
     "header_row": 1,
@@ -51,9 +52,30 @@
     "company_identity": {
       "required": true,
       "on_missing": "ask_user",
-      "rules": [],
-      "evidence": "真实样本中没有稳定NDD公司字段；必须由员工显式说明NDD后使用本来源配置。"
+      "rules": [
+        {
+          "kind": "fixed_cell",
+          "sheet_name": "Sheet1",
+          "cell": "B2",
+          "match": "exact",
+          "values": ["示例-普通商品"]
+        },
+        {
+          "kind": "fixed_cell",
+          "sheet_name": "Sheet1",
+          "cell": "B3",
+          "match": "exact",
+          "values": ["示例-套餐商品"]
+        }
+      ],
+      "evidence": "NDD标准模板v1.2固定在Sheet1第2行保留普通商品示例；旧版后台导出仍需员工显式说明NDD。"
     }
+  },
+  "example_row_policy": {
+    "strategy": "reserved_source_order_numbers",
+    "source_order_numbers": ["示例-普通商品", "示例-套餐商品"],
+    "action": "ignore",
+    "evidence": "NDD标准模板v1.2把填写示例放在Sheet1第2、3行，真实订单从后续行填写。"
   },
   "fields": {
     "source_order_no": "订单编号",
@@ -90,6 +112,10 @@
   },
   "bundle_identity_guard": {
     "bundle_title": "光明满元气鲜食玉米2袋组合",
+    "row_field": "套餐配套商品信息",
+    "row_field_format": "商品A×1；商品B×1",
+    "row_field_blank_values": ["无套餐配套商品"],
+    "applies_to_product_names": ["光明 福利套餐四"],
     "components": [
       {
         "source_component_name": "黄糯玉米8根装",
@@ -101,6 +127,6 @@
       }
     ],
     "on_change": "ask_user",
-    "evidence": "NDD原始样本套餐说明和人工管易成品逐单对照：2026-10-05"
+    "evidence": "NDD标准模板v1.2按订单行填写套餐配套商品信息；旧版原始样本底部套餐说明继续兼容。"
   }
 }

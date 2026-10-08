@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from auto_shipped.catalog import ProductCatalog, ProductRecord
 from auto_shipped.detection import detect_source, load_source_profiles
 from auto_shipped.platforms.guanyi import build_custom_import_lines
+from auto_shipped.services.convert import convert_order_file
 from auto_shipped.source_adapters import NddGiftOrderParsedAdapter
 
 
@@ -28,6 +30,9 @@ GUANYI_PROFILE = json.loads(
     (PROJECT_ROOT / "config/platform_profiles/guanyi_order_import_v1.json").read_text(
         encoding="utf-8"
     )
+)
+STANDARD_TEMPLATE = (
+    PROJECT_ROOT / "assets/templates/ndd/NDD完整字段标准模板_v1.2.xlsx"
 )
 
 
@@ -97,6 +102,47 @@ def build_sample(path: Path, *, white_quantity: int = 1) -> None:
     workbook.save(path)
 
 
+def build_standard_sample(
+    path: Path,
+    *,
+    bundle_summary: str = "黄糯玉米8根装×1；白糯玉米8根装×1",
+) -> None:
+    shutil.copy2(STANDARD_TEMPLATE, path)
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["Sheet1"]
+        values = [
+            500,
+            "2104856428830863362",
+            "光明 福利套餐四",
+            "标准模板测试订单",
+            500,
+            1,
+            "待发货",
+            "邮寄",
+            "测试用户",
+            "13800138000",
+            "上海市 上海市 浦东新区 测试路1号",
+            "",
+            "",
+            "CODE1",
+            "2026-10-08 14:00:00",
+            "",
+            "",
+            "",
+            "",
+            "黄糯8根装+白糯8根装",
+            "",
+            bundle_summary,
+            "抓紧发货。",
+        ]
+        for column, value in enumerate(values, start=1):
+            sheet.cell(4, column).value = value
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+
 class NddAdapterTests(unittest.TestCase):
     def test_requires_explicit_source_hint_but_matches_known_format(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -123,6 +169,66 @@ class NddAdapterTests(unittest.TestCase):
                 "explicit_source_profile:ndd_order_v1",
                 confirmed.matched_features,
             )
+
+    def test_standard_template_is_auto_detected_and_examples_are_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "NDD标准订单.xlsx"
+            build_standard_sample(path)
+            profiles = load_source_profiles(PROJECT_ROOT / "config/source_profiles")
+
+            detected = detect_source(path, profiles)
+            self.assertEqual(detected.status, "matched")
+            self.assertEqual(detected.source_profile_id, "ndd_order_v1")
+            self.assertIn("company_cell:Sheet1!B2", detected.matched_features)
+
+            parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
+            self.assertEqual(parsed.status, "parsed")
+            self.assertEqual(len(parsed.orders), 1)
+            self.assertEqual(parsed.orders[0].source.row_numbers, (4,))
+            self.assertEqual(
+                parsed.orders[0].source.source_order_no,
+                "2104856428830863362",
+            )
+
+    def test_standard_template_bundle_summary_change_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "NDD标准订单.xlsx"
+            build_standard_sample(path, bundle_summary="黄糯玉米8根装×2")
+
+            parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
+
+            self.assertIn(
+                "NDD_BUNDLE_COMPOSITION_CHANGED",
+                {request.code for request in parsed.clarifications},
+            )
+
+    def test_standard_template_runs_end_to_end_to_guanyi_excel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "NDD标准订单.xlsx"
+            build_standard_sample(source)
+
+            result = convert_order_file(
+                source,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "output",
+            )
+
+            self.assertEqual(result.status, "ready")
+            self.assertEqual(result.parsed_order_count, 1)
+            self.assertEqual(result.output_row_count, 2)
+            self.assertEqual(len(result.outputs), 2)
+            self.assertTrue(result.upload_manifest)
+
+            workbook = load_workbook(result.outputs[0], data_only=False)
+            try:
+                sheet = workbook["Sheet1"]
+                self.assertEqual(sheet.cell(2, 2).value, "NDD2104856428830863362A")
+                self.assertEqual(sheet.cell(3, 2).value, "NDD2104856428830863362A")
+                self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
+                self.assertEqual(sheet.cell(3, 6).value, "JTBN1E1-EH")
+            finally:
+                workbook.close()
 
     def test_parses_orders_and_splits_region_after_bundle_guard(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
