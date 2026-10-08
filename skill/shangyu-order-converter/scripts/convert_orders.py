@@ -68,6 +68,20 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SOURCE=PROFILE_ID",
         help="用户已明确公司时，按路径或文件名指定来源配置；可重复提供",
     )
+    parser.add_argument(
+        "--company-hint",
+        action="append",
+        default=[],
+        metavar="SOURCE=COMPANY_ID",
+        help="用户明确公司但模板可能未知时，按文件提供公司ID；可重复提供",
+    )
+    parser.add_argument(
+        "--adaptive-plan-hint",
+        action="append",
+        default=[],
+        metavar="SOURCE=PLAN_JSON",
+        help="按文件提供已经补充确认的自适应来源计划；可重复提供",
+    )
     parser.add_argument("--project-root", default=None, help="auto-shipped项目目录")
     parser.add_argument("--mappings", help="可选的商品映射JSON")
     parser.add_argument(
@@ -185,6 +199,8 @@ def _run_single(
     catalog: Path,
     output_dir: Path,
     hint: str | None,
+    company_hint: str | None,
+    adaptive_plan: str | None,
     common_args: list[str],
     *,
     capture: bool,
@@ -204,6 +220,12 @@ def _run_single(
     ]
     if hint:
         command.extend(["--source-profile", hint])
+    if company_hint:
+        command.extend(["--company", company_hint])
+    if adaptive_plan:
+        command.extend(
+            ["--adaptive-plan", str(Path(adaptive_plan).expanduser().resolve())]
+        )
     return subprocess.run(
         command,
         env=_environment(project_root),
@@ -239,6 +261,8 @@ def main() -> int:
         return 1
     try:
         hints = _parse_hints(args.source_profile_hint)
+        company_hints = _parse_hints(args.company_hint)
+        adaptive_plan_hints = _parse_hints(args.adaptive_plan_hint)
     except ValueError as exc:
         _json_error(str(exc))
         return 1
@@ -263,6 +287,8 @@ def main() -> int:
             catalog,
             output_dir,
             _hint_for_source(sources[0], hints),
+            _hint_for_source(sources[0], company_hints),
+            _hint_for_source(sources[0], adaptive_plan_hints),
             common_args,
             capture=False,
         )
@@ -286,6 +312,10 @@ def main() -> int:
             command.extend(["--source", str(source)])
         for value in args.source_profile_hint:
             command.extend(["--source-profile-hint", value])
+        for value in args.company_hint:
+            command.extend(["--company-hint", value])
+        for value in args.adaptive_plan_hint:
+            command.extend(["--adaptive-plan-hint", value])
         completed = subprocess.run(
             command,
             env=_environment(project_root),
@@ -305,6 +335,8 @@ def main() -> int:
             catalog,
             source_output,
             _hint_for_source(source, hints),
+            _hint_for_source(source, company_hints),
+            _hint_for_source(source, adaptive_plan_hints),
             common_args,
             capture=True,
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +24,16 @@ from auto_shipped.platforms.guanyi import (
 from auto_shipped.routing import RouteDecision, load_routing, resolve_route
 from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
 from auto_shipped.source_adapters import (
+    AdaptiveExcelParsedAdapter,
+    AdaptiveExcelPlanError,
     ConfiguredExcelParsedAdapter,
     NddGiftOrderParsedAdapter,
     TiantianWarehouseParsedAdapter,
+    load_adaptive_plan,
+)
+from auto_shipped.services.adaptive import (
+    propose_adaptive_excel_plan,
+    write_adaptive_plan,
 )
 
 
@@ -119,6 +126,63 @@ def _needs_input(
     )
 
 
+def _adaptive_detection(
+    plan: dict[str, Any],
+    profiles: list[dict[str, Any]],
+    *,
+    company_hint: str | None,
+) -> DetectionResult:
+    company_id = str(plan.get("company_id") or "").strip()
+    profile_id = str(plan.get("rule_source_profile_id") or "").strip()
+    if not company_id or not profile_id:
+        raise AdaptiveExcelPlanError(
+            "自适应计划缺少company_id或rule_source_profile_id。"
+        )
+    if company_hint and company_hint != company_id:
+        raise AdaptiveExcelPlanError("用户指定公司与自适应计划公司不一致。")
+    profile = _find_profile(profiles, profile_id)
+    if profile.get("company_id") != company_id:
+        raise AdaptiveExcelPlanError("自适应计划公司与规则来源配置归属不一致。")
+    return DetectionResult(
+        status="matched",
+        confidence="high",
+        company_id=company_id,
+        source_profile_id=profile_id,
+        source_label=profile.get("source_label") or profile_id,
+        order_type=profile.get("order_type") or "unknown",
+        matched_features=[
+            f"explicit_company:{company_id}",
+            f"adaptive_plan:{plan.get('plan_id') or 'unversioned'}",
+            f"rule_source_profile:{profile_id}",
+        ],
+        candidate_profile_ids=[profile_id],
+    )
+
+
+def _known_detection_for_company(
+    source: Path,
+    profiles: list[dict[str, Any]],
+    company_id: str,
+) -> tuple[DetectionResult | None, list[str]]:
+    matched: list[DetectionResult] = []
+    for profile in profiles:
+        if profile.get("company_id") != company_id:
+            continue
+        profile_id = str(profile.get("profile_id") or "")
+        if not profile_id:
+            continue
+        candidate = detect_source(source, profiles, source_profile_hint=profile_id)
+        if candidate.status == "matched":
+            matched.append(candidate)
+    if len(matched) == 1:
+        return matched[0], []
+    return None, [
+        str(item.source_profile_id)
+        for item in matched
+        if item.source_profile_id
+    ]
+
+
 def convert_order_file(
     source_path: str | Path,
     catalog_csv: str | Path,
@@ -136,6 +200,8 @@ def convert_order_file(
     guanyi_template_path: str | Path = PROJECT_ROOT
     / "assets/templates/guanyi/自定义订单导入模板.xlsx",
     source_profile_hint: str | None = None,
+    company_hint: str | None = None,
+    adaptive_plan_path: str | Path | None = None,
     mapping_overlay_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
@@ -143,7 +209,146 @@ def convert_order_file(
     source = Path(source_path)
     source_file = source.name
     profiles = load_source_profiles(source_profiles_dir)
-    detection = detect_source(source, profiles, source_profile_hint=source_profile_hint)
+    adaptive_plan: dict[str, Any] | None = None
+    try:
+        if adaptive_plan_path is not None:
+            adaptive_plan = load_adaptive_plan(adaptive_plan_path)
+            detection = _adaptive_detection(
+                adaptive_plan,
+                profiles,
+                company_hint=company_hint,
+            )
+        else:
+            detection = detect_source(
+                source,
+                profiles,
+                source_profile_hint=source_profile_hint,
+            )
+    except (AdaptiveExcelPlanError, KeyError) as exc:
+        return _needs_input(
+            source_file,
+            [
+                ClarificationRequest(
+                    code="ADAPTIVE_PLAN_INVALID",
+                    scope="file",
+                    source_ref=source_file,
+                    question="自适应字段映射计划无法使用，请重新分析当前Excel。",
+                    reason=str(exc),
+                    answer_type="file",
+                )
+            ],
+        )
+
+    if adaptive_plan is None and company_hint:
+        if detection.status == "matched" and detection.company_id != company_hint:
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="EXPLICIT_COMPANY_CONFLICTS_WITH_SOURCE",
+                        scope="file",
+                        source_ref=source_file,
+                        question="用户指定公司与Excel中的已知公司证据冲突，请确认实际来源。",
+                        reason=(
+                            f"company_hint={company_hint}; "
+                            f"detected_company={detection.company_id}"
+                        ),
+                        answer_type="text",
+                    )
+                ],
+                detection=detection,
+            )
+        if detection.status != "matched":
+            known_detection, ambiguous_profiles = _known_detection_for_company(
+                source,
+                profiles,
+                company_hint,
+            )
+            if known_detection is not None:
+                detection = known_detection
+            elif ambiguous_profiles:
+                return _needs_input(
+                    source_file,
+                    [
+                        ClarificationRequest(
+                            code="EXPLICIT_COMPANY_FORMAT_AMBIGUOUS",
+                            scope="file",
+                            source_ref=source_file,
+                            question="该公司的Excel同时匹配多个已登记模板，请确认具体订单类型。",
+                            reason="候选来源配置：" + ", ".join(ambiguous_profiles),
+                            answer_type="single_choice",
+                            choices=tuple(ambiguous_profiles),
+                        )
+                    ],
+                    detection=detection,
+                )
+            else:
+                try:
+                    registry_for_adaptive = load_company_registry(company_registry_path)
+                    proposal = propose_adaptive_excel_plan(
+                        source,
+                        company_hint,
+                        registry_for_adaptive,
+                    )
+                except (
+                    OSError,
+                    json.JSONDecodeError,
+                    CompanyRegistryError,
+                    AdaptiveExcelPlanError,
+                ) as exc:
+                    return _needs_input(
+                        source_file,
+                        [
+                            ClarificationRequest(
+                                code="ADAPTIVE_SOURCE_ANALYSIS_FAILED",
+                                scope="file",
+                                source_ref=source_file,
+                                question="无法分析这个新Excel格式，请检查文件和公司配置。",
+                                reason=str(exc),
+                                answer_type="file",
+                            )
+                        ],
+                        detection=detection,
+                    )
+                if proposal.plan is None:
+                    return _needs_input(
+                        source_file,
+                        proposal.clarifications,
+                        detection=detection,
+                    )
+                plan_path = (
+                    Path(output_dir).expanduser().resolve()
+                    / f"{_safe_stem(source.stem)}_自适应来源计划.json"
+                )
+                write_adaptive_plan(plan_path, proposal.plan)
+                if proposal.clarifications:
+                    draft_detection = _adaptive_detection(
+                        proposal.plan,
+                        profiles,
+                        company_hint=company_hint,
+                    )
+                    draft_detection.status = "needs_input"
+                    draft_detection.confidence = "medium"
+                    draft_detection.matched_features.append("adaptive_plan:draft")
+                    next_action = (
+                        f"根据用户回答更新计划文件{plan_path}，再通过"
+                        "--adaptive-plan重新运行。"
+                    )
+                    questions = [
+                        replace(item, next_action=next_action)
+                        for item in proposal.clarifications
+                    ]
+                    return _needs_input(
+                        source_file,
+                        questions,
+                        detection=draft_detection,
+                    )
+                adaptive_plan = proposal.plan
+                detection = _adaptive_detection(
+                    adaptive_plan,
+                    profiles,
+                    company_hint=company_hint,
+                )
     if detection.status != "matched" or not detection.source_profile_id:
         return _needs_input(source_file, detection.clarifications, detection=detection)
 
@@ -259,30 +464,53 @@ def convert_order_file(
             route=route,
         )
 
-    adapter_id = source_profile.get("adapter")
-    adapter_types = {
-        TiantianWarehouseParsedAdapter.adapter_id: TiantianWarehouseParsedAdapter,
-        ConfiguredExcelParsedAdapter.adapter_id: ConfiguredExcelParsedAdapter,
-        NddGiftOrderParsedAdapter.adapter_id: NddGiftOrderParsedAdapter,
-    }
-    adapter_type = adapter_types.get(str(adapter_id or ""))
-    if adapter_type is None:
-        return _needs_input(
-            source_file,
-            [
-                ClarificationRequest(
-                    code="SOURCE_ADAPTER_NOT_IMPLEMENTED",
-                    scope="file",
-                    question="这个来源已经识别，但对应的解析器尚未实现。是否现在为它新增适配器？",
-                    reason=f"adapter={adapter_id}",
-                    answer_type="confirmation",
-                )
-            ],
-            detection=detection,
-            route=route,
-        )
-
-    parsed = adapter_type().parse(source, source_profile)
+    if adaptive_plan is not None:
+        try:
+            parsed = AdaptiveExcelParsedAdapter().parse(
+                source,
+                source_profile,
+                adaptive_plan,
+            )
+        except AdaptiveExcelPlanError as exc:
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="ADAPTIVE_PLAN_INVALID",
+                        scope="file",
+                        source_ref=source_file,
+                        question="自适应字段映射计划无法使用，请重新分析当前Excel。",
+                        reason=str(exc),
+                        answer_type="file",
+                    )
+                ],
+                detection=detection,
+                route=route,
+            )
+    else:
+        adapter_id = source_profile.get("adapter")
+        adapter_types = {
+            TiantianWarehouseParsedAdapter.adapter_id: TiantianWarehouseParsedAdapter,
+            ConfiguredExcelParsedAdapter.adapter_id: ConfiguredExcelParsedAdapter,
+            NddGiftOrderParsedAdapter.adapter_id: NddGiftOrderParsedAdapter,
+        }
+        adapter_type = adapter_types.get(str(adapter_id or ""))
+        if adapter_type is None:
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="SOURCE_ADAPTER_NOT_IMPLEMENTED",
+                        scope="file",
+                        question="这个来源已经识别，但对应的解析器尚未实现。是否现在为它新增适配器？",
+                        reason=f"adapter={adapter_id}",
+                        answer_type="confirmation",
+                    )
+                ],
+                detection=detection,
+                route=route,
+            )
+        parsed = adapter_type().parse(source, source_profile)
     if parsed.clarifications:
         return _needs_input(
             source_file,

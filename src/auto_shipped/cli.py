@@ -24,10 +24,15 @@ from auto_shipped.integrations.feishu import (
 )
 from auto_shipped.services.convert import convert_order_file
 from auto_shipped.services.batch_convert import convert_order_batch
+from auto_shipped.services.adaptive import (
+    propose_adaptive_excel_plan,
+    write_adaptive_plan,
+)
 from auto_shipped.services.ingest import ingest_file
 from auto_shipped.services.redaction import redact_order
 from auto_shipped.platforms.guanyi import preflight_custom_import
 from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
+from auto_shipped.source_adapters import AdaptiveExcelPlanError, inspect_excel_structure
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--source-profile",
         help="用户已明确确认来源公司时提供来源配置ID；仍会校验Excel格式",
     )
+    convert.add_argument(
+        "--company",
+        help="用户明确提供的稳定公司ID；未知模板将进入自适应来源流程",
+    )
+    convert.add_argument(
+        "--adaptive-plan",
+        help="当前Excel对应的自适应来源字段映射计划JSON",
+    )
 
     convert_batch = subparsers.add_parser(
         "convert-batch",
@@ -88,6 +101,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="SOURCE=PROFILE_ID",
         help="按文件路径或文件名指定来源配置；可重复提供",
+    )
+    convert_batch.add_argument(
+        "--company-hint",
+        action="append",
+        default=[],
+        metavar="SOURCE=COMPANY_ID",
+        help="按文件路径或文件名提供用户确认的公司ID；可重复提供",
+    )
+    convert_batch.add_argument(
+        "--adaptive-plan-hint",
+        action="append",
+        default=[],
+        metavar="SOURCE=PLAN_JSON",
+        help="按文件路径或文件名提供自适应来源计划；可重复提供",
     )
     convert_batch.add_argument(
         "--mappings",
@@ -129,6 +156,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--template",
         default=str(PROJECT_ROOT / "assets/templates/guanyi/自定义订单导入模板.xlsx"),
     )
+
+    inspect_source = subparsers.add_parser(
+        "inspect-source-structure",
+        help="只读输出Excel工作表、表头和类型统计，不输出任何订单数据值",
+    )
+    inspect_source.add_argument("--source", required=True)
+
+    propose_adaptive = subparsers.add_parser(
+        "propose-adaptive-plan",
+        help="根据用户确认的公司和Excel结构生成一次性字段映射草案",
+    )
+    propose_adaptive.add_argument("--source", required=True)
+    propose_adaptive.add_argument("--company", required=True)
+    propose_adaptive.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    propose_adaptive.add_argument("--output", required=True)
 
     preflight = subparsers.add_parser(
         "preflight",
@@ -360,6 +405,8 @@ def run_convert(args: argparse.Namespace) -> int:
         mappings_path=args.mappings,
         guanyi_template_path=args.template,
         source_profile_hint=args.source_profile,
+        company_hint=args.company,
+        adaptive_plan_path=args.adaptive_plan,
         mapping_overlay_paths=tuple(args.mapping_overlay),
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
@@ -372,19 +419,19 @@ def run_convert(args: argparse.Namespace) -> int:
     return 1
 
 
-def _parse_source_profile_hints(values: list[str]) -> dict[str, str]:
+def _parse_keyed_hints(values: list[str], option_name: str) -> dict[str, str]:
     parsed: dict[str, str] = {}
     for value in values:
         if "=" not in value:
             raise ValueError(
-                "--source-profile-hint 必须使用 SOURCE=PROFILE_ID 格式"
+                f"{option_name}必须使用 SOURCE=VALUE 格式"
             )
         source, profile_id = value.rsplit("=", 1)
         source = source.strip()
         profile_id = profile_id.strip()
         if not source or not profile_id:
             raise ValueError(
-                "--source-profile-hint 的文件和来源配置ID都不能为空"
+                f"{option_name}的文件和值都不能为空"
             )
         if source in parsed and parsed[source] != profile_id:
             raise ValueError(f"同一文件配置了多个来源：{source}")
@@ -392,9 +439,18 @@ def _parse_source_profile_hints(values: list[str]) -> dict[str, str]:
     return parsed
 
 
+def _parse_source_profile_hints(values: list[str]) -> dict[str, str]:
+    return _parse_keyed_hints(values, "--source-profile-hint")
+
+
 def run_convert_batch(args: argparse.Namespace) -> int:
     try:
         hints = _parse_source_profile_hints(args.source_profile_hint)
+        company_hints = _parse_keyed_hints(args.company_hint, "--company-hint")
+        adaptive_plan_hints = _parse_keyed_hints(
+            args.adaptive_plan_hint,
+            "--adaptive-plan-hint",
+        )
     except ValueError as exc:
         print(
             json.dumps(
@@ -417,6 +473,8 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         mappings_path=args.mappings,
         guanyi_template_path=args.template,
         source_profile_hints=hints,
+        company_hints=company_hints,
+        adaptive_plan_hints=adaptive_plan_hints,
         mapping_overlay_paths=tuple(args.mapping_overlay),
         batch_name=args.batch_name,
         official_mapping_ready=official_mapping_ready,
@@ -428,6 +486,61 @@ def run_convert_batch(args: argparse.Namespace) -> int:
     if result.status == "needs_input":
         return 2
     return 1
+
+
+def run_inspect_source_structure(args: argparse.Namespace) -> int:
+    try:
+        payload = inspect_excel_structure(args.source)
+    except (OSError, ValueError, AdaptiveExcelPlanError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "ADAPTIVE_SOURCE_INSPECTION_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    print(json.dumps({"status": "ready", **payload}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_propose_adaptive_plan(args: argparse.Namespace) -> int:
+    try:
+        registry = load_company_registry(args.registry)
+        proposal = propose_adaptive_excel_plan(
+            args.source,
+            args.company,
+            registry,
+        )
+        output = None
+        if proposal.plan is not None:
+            output = write_adaptive_plan(args.output, proposal.plan)
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        AdaptiveExcelPlanError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "ADAPTIVE_PLAN_PROPOSAL_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    payload = proposal.to_public_dict()
+    payload["output"] = str(output) if output else None
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if proposal.status == "ready" else 2
 
 
 def run_preflight(args: argparse.Namespace) -> int:
@@ -811,6 +924,10 @@ def main() -> int:
         return run_convert(args)
     if args.command == "convert-batch":
         return run_convert_batch(args)
+    if args.command == "inspect-source-structure":
+        return run_inspect_source_structure(args)
+    if args.command == "propose-adaptive-plan":
+        return run_propose_adaptive_plan(args)
     if args.command == "preflight":
         return run_preflight(args)
     if args.command == "audit-rules":
