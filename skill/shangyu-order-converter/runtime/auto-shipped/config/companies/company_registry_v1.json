@@ -134,7 +134,7 @@
       "capabilities": {
         "source_recognition": {
           "status": "standard_template_auto_legacy_requires_explicit_hint",
-          "reason": "NDD标准模板v1.2通过固定示例标记自动识别；旧版后台导出没有稳定公司字段，仍需用户明确NDD。"
+          "reason": "NDD公司最终模板v1.2（Roy版）通过固定示例标记自动识别；旧版后台导出没有稳定公司字段，仍需用户明确NDD。"
         },
         "order_conversion": {
           "status": "ready_for_employee_acceptance",
@@ -149,7 +149,7 @@
       "source_refs": [
         "尚舆发货流程.pdf p.10",
         "NDD原始样本与人工管易成品：2026-10-05",
-        "NDD完整字段标准模板v1.2：2026-10-08",
+        "NDD完整字段标准模板v1.2（Roy最终版）：2026-10-08",
         "docs/RULE_SOURCE_LEDGER.md"
       ],
       "last_verified_on": "2026-10-08"

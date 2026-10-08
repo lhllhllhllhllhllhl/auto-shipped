@@ -106,18 +106,18 @@ def build_standard_sample(
     path: Path,
     *,
     bundle_summary: str = "黄糯玉米8根装×1；白糯玉米8根装×1",
+    quantity: int = 1,
 ) -> None:
     shutil.copy2(STANDARD_TEMPLATE, path)
     workbook = load_workbook(path)
     try:
         sheet = workbook["Sheet1"]
         values = [
-            500,
             "2104856428830863362",
             "光明 福利套餐四",
             "标准模板测试订单",
             500,
-            1,
+            quantity,
             "待发货",
             "邮寄",
             "测试用户",
@@ -179,7 +179,7 @@ class NddAdapterTests(unittest.TestCase):
             detected = detect_source(path, profiles)
             self.assertEqual(detected.status, "matched")
             self.assertEqual(detected.source_profile_id, "ndd_order_v1")
-            self.assertIn("company_cell:Sheet1!B2", detected.matched_features)
+            self.assertIn("company_cell:Sheet1!A2", detected.matched_features)
 
             parsed = NddGiftOrderParsedAdapter().parse(path, PROFILE)
             self.assertEqual(parsed.status, "parsed")
@@ -227,6 +227,31 @@ class NddAdapterTests(unittest.TestCase):
                 self.assertEqual(sheet.cell(3, 2).value, "NDD2104856428830863362A")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(3, 6).value, "JTBN1E1-EH")
+                self.assertEqual(sheet.cell(2, 10).value, 1)
+                self.assertEqual(sheet.cell(3, 10).value, 1)
+            finally:
+                workbook.close()
+
+    def test_standard_template_quantity_multiplies_each_bundle_component(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "NDD标准订单_数量2.xlsx"
+            build_standard_sample(source, quantity=2)
+
+            result = convert_order_file(
+                source,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "output",
+            )
+
+            self.assertEqual(result.status, "ready")
+            workbook = load_workbook(result.outputs[0], data_only=False)
+            try:
+                sheet = workbook["Sheet1"]
+                self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
+                self.assertEqual(sheet.cell(3, 6).value, "JTBN1E1-EH")
+                self.assertEqual(sheet.cell(2, 10).value, 2)
+                self.assertEqual(sheet.cell(3, 10).value, 2)
             finally:
                 workbook.close()
 
