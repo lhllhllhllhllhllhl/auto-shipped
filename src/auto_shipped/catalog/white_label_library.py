@@ -65,11 +65,9 @@ def load_white_label_library(path: str | Path) -> WhiteLabelLibrary:
         if not isinstance(entry, dict):
             raise WhiteLabelLibraryError(f"白标SKU库第{index}项不是对象")
         status = str(entry.get("status") or "").strip()
-        if status == "retired":
-            continue
         if status != "confirmed":
             raise WhiteLabelLibraryError(
-                f"白标SKU库第{index}项状态必须为confirmed或retired"
+                f"白标SKU库第{index}项状态必须为confirmed"
             )
         key = (
             str(entry.get("product_code") or "").strip(),

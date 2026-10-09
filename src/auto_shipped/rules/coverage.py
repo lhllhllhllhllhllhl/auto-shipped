@@ -7,10 +7,19 @@ from pathlib import Path
 from typing import Any
 
 from auto_shipped.domain import ClarificationRequest, deduplicate_clarifications
+from auto_shipped.rules.implementation_registry import (
+    ImplementationRegistry,
+    ImplementationRegistryError,
+    load_implementation_registry,
+)
 
 
 READY_STATUSES = {"implemented", "not_applicable"}
 BLOCKING_STATUSES = {"pending_confirmation", "pending_implementation", "partial"}
+DEFAULT_IMPLEMENTATION_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "config/business_rules/implementation_registry_v1.json"
+)
 
 
 @dataclass(slots=True)
@@ -71,6 +80,7 @@ def audit_rule_coverage(
     scope_id: str,
     *,
     phase: str | None = None,
+    implementation_registry: ImplementationRegistry | None = None,
 ) -> RuleCoverageResult:
     catalog_id = str(catalog.get("catalog_id") or "")
     result = RuleCoverageResult(
@@ -79,6 +89,24 @@ def audit_rule_coverage(
         scope_id=scope_id,
         phase=phase,
     )
+    if implementation_registry is None:
+        try:
+            implementation_registry = load_implementation_registry(
+                DEFAULT_IMPLEMENTATION_REGISTRY_PATH
+            )
+        except ImplementationRegistryError as exc:
+            result.status = "invalid"
+            result.clarifications.append(
+                ClarificationRequest(
+                    code="BUSINESS_RULE_IMPLEMENTATION_REGISTRY_INVALID",
+                    scope="batch",
+                    field="规则实现注册表",
+                    question="规则实现注册表无法核验，请先修复后再转换。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            )
+            return result
     scopes = catalog.get("scopes") or {}
     scope = scopes.get(scope_id)
     coverage = platform_rules.get("business_rule_coverage") or {}
@@ -171,6 +199,7 @@ def audit_rule_coverage(
             if status == "implemented" and (
                 not implementation_ref
                 or (allowed_refs and implementation_ref not in allowed_refs)
+                or not implementation_registry.contains(implementation_ref)
             ):
                 result.blocked_rule_ids.append(rule_id)
                 result.clarifications.append(

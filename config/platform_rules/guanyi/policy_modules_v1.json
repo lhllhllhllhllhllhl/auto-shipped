@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "guanyi_policy_modules_v1",
-  "version": 2,
+  "version": 3,
   "design_note": "跨公司的同类管易规则只在此保存一份可执行定义；公司平台规则包只引用模块并保存公司特有规则。",
   "modules": {
     "store.corn_to_guangming_manyuanqi.v1": {
@@ -43,6 +43,15 @@
         "source": "用户于2026-10-09确认：本批淘宝文字单与KQYD企业店文字单均进入淘橘子；PDF既有规则也将淘宝、企业店KQYD和日货定制归入淘橘子。"
       }
     },
+    "store.sam_fixed.v1": {
+      "target_key": "store_assignment_policy",
+      "value": {
+        "strategy": "fixed",
+        "store": "sam",
+        "confirmed": true,
+        "source": "发货SOP第3、8页确认SAM订单选择sam店铺。"
+      }
+    },
     "buyer.normal_zhang.v1": {
       "target_key": "buyer_member_policy",
       "value": {
@@ -52,26 +61,12 @@
         "source": "用户确认普通来源买家会员统一填写张；SAM使用独立策略。"
       }
     },
-    "defaults.standard_sales_zero_freight.v1": {
+    "defaults.standard_sales.v1": {
       "target_key": "defaults",
       "value": {
         "payment_amount": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
         "unit_price": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
         "freight": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
-        "warehouse_name": {"value": "上海尚舆商贸有限公司", "confirmed": true, "source": "发货SOP统一仓库"},
-        "payment_method": {"value": "网银在线", "confirmed": true, "source": "已确认管易显式默认值"},
-        "order_type": {"value": "销售订单", "confirmed": true, "source": "已确认管易显式默认值"},
-        "is_mobile_order": {"value": 0, "confirmed": true, "source": "管易导入说明"},
-        "is_cod": {"value": 0, "confirmed": true, "source": "管易导入说明"},
-        "is_distributor_order": {"value": 0, "confirmed": true, "source": "管易导入说明"}
-      }
-    },
-    "defaults.standard_sales_blank_freight.v1": {
-      "target_key": "defaults",
-      "value": {
-        "payment_amount": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
-        "unit_price": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
-        "freight": {"value": "", "confirmed": true, "source": "已确认人工成品运费留空"},
         "warehouse_name": {"value": "上海尚舆商贸有限公司", "confirmed": true, "source": "发货SOP统一仓库"},
         "payment_method": {"value": "网银在线", "confirmed": true, "source": "已确认管易显式默认值"},
         "order_type": {"value": "销售订单", "confirmed": true, "source": "已确认管易显式默认值"},

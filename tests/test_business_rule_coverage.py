@@ -4,7 +4,11 @@ import json
 import unittest
 from pathlib import Path
 
-from auto_shipped.rules import audit_rule_coverage
+from auto_shipped.rules import (
+    ImplementationRegistration,
+    ImplementationRegistry,
+    audit_rule_coverage,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +35,21 @@ def minimal_catalog() -> dict:
     }
 
 
+def minimal_implementation_registry() -> ImplementationRegistry:
+    return ImplementationRegistry(
+        registry_id="test_registry",
+        version=1,
+        implementations={
+            "test.a": ImplementationRegistration(
+                reference="test.a",
+                runtime="python",
+                target="tests.test_business_rule_coverage:minimal_catalog",
+                test="tests/test_business_rule_coverage.py",
+            )
+        },
+    )
+
+
 class BusinessRuleCoverageTests(unittest.TestCase):
     def test_ready_requires_confirmed_implementation_or_not_applicable(self) -> None:
         rules = {
@@ -52,7 +71,11 @@ class BusinessRuleCoverageTests(unittest.TestCase):
             }
         }
         result = audit_rule_coverage(
-            minimal_catalog(), rules, "test_scope", phase="conversion"
+            minimal_catalog(),
+            rules,
+            "test_scope",
+            phase="conversion",
+            implementation_registry=minimal_implementation_registry(),
         )
         self.assertEqual(result.status, "ready")
         self.assertEqual(set(result.ready_rule_ids), {"RULE-A", "RULE-B"})
@@ -71,7 +94,11 @@ class BusinessRuleCoverageTests(unittest.TestCase):
             }
         }
         result = audit_rule_coverage(
-            minimal_catalog(), rules, "test_scope", phase="conversion"
+            minimal_catalog(),
+            rules,
+            "test_scope",
+            phase="conversion",
+            implementation_registry=minimal_implementation_registry(),
         )
         self.assertEqual(result.status, "needs_input")
         self.assertEqual(set(result.blocked_rule_ids), {"RULE-A", "RULE-B"})
@@ -98,7 +125,11 @@ class BusinessRuleCoverageTests(unittest.TestCase):
             }
         }
         result = audit_rule_coverage(
-            minimal_catalog(), rules, "test_scope", phase="conversion"
+            minimal_catalog(),
+            rules,
+            "test_scope",
+            phase="conversion",
+            implementation_registry=minimal_implementation_registry(),
         )
         self.assertEqual(result.status, "needs_input")
         self.assertIn("RULE-A", result.blocked_rule_ids)
@@ -108,6 +139,38 @@ class BusinessRuleCoverageTests(unittest.TestCase):
                 for item in result.clarifications
             )
         )
+
+    def test_allowed_but_unregistered_implementation_reference_blocks(self) -> None:
+        catalog = minimal_catalog()
+        catalog["rules"]["RULE-A"]["allowed_implementation_refs"].append(
+            "test.allowed_but_missing"
+        )
+        rules = {
+            "business_rule_coverage": {
+                "catalog_id": "test_catalog",
+                "scope_id": "test_scope",
+                "rules": {
+                    "RULE-A": {
+                        "status": "implemented",
+                        "confirmed": True,
+                        "implementation_ref": "test.allowed_but_missing",
+                    },
+                    "RULE-B": {
+                        "status": "not_applicable",
+                        "confirmed": True,
+                    },
+                },
+            }
+        }
+        result = audit_rule_coverage(
+            catalog,
+            rules,
+            "test_scope",
+            phase="conversion",
+            implementation_registry=minimal_implementation_registry(),
+        )
+        self.assertEqual(result.status, "needs_input")
+        self.assertEqual(result.blocked_rule_ids, ["RULE-A"])
 
     def test_production_tiantian_conversion_rules_are_ready(self) -> None:
         catalog = json.loads(

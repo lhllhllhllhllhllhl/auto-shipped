@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/implementation-registry-v1.json",
+  "title": "Shangyu Rule Implementation Registry",
+  "type": "object",
+  "required": ["schema_version", "registry_id", "version", "implementations"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "registry_id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "implementations": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["runtime", "target", "test"],
+        "properties": {
+          "runtime": {"enum": ["python", "javascript"]},
+          "target": {"type": "string", "minLength": 1},
+          "test": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

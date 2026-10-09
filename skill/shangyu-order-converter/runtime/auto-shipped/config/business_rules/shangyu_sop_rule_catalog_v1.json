@@ -16,8 +16,7 @@
       "phase": "conversion",
       "source_refs": ["尚舆发货流程.pdf p.3", "p.8", "p.10", "p.12"],
       "allowed_implementation_refs": [
-        "guanyi.defaults.store",
-        "guanyi.store_policy.by_route",
+        "guanyi.store_assignment.fixed",
         "guanyi.store_assignment.by_product",
         "guanyi.store_assignment.by_source_channel"
       ]

@@ -14,6 +14,27 @@ def item(code: str, spec: str = "S1") -> ResolvedOrderItem:
 
 
 class GuanyiStoreAssignmentTests(unittest.TestCase):
+    def test_confirmed_fixed_store_assignment(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "fixed",
+                "store": "sam",
+                "confirmed": True,
+            }
+        }
+        self.assertEqual(select_store([item("P1")], rules), "sam")
+
+    def test_unconfirmed_fixed_store_fails_closed(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "fixed",
+                "store": "sam",
+                "confirmed": False,
+            }
+        }
+        with self.assertRaises(GuanyiStoreAssignmentError):
+            select_store([item("P1")], rules)
+
     def test_exact_product_and_spec_assign_one_store(self) -> None:
         rules = {
             "store_assignment_policy": {

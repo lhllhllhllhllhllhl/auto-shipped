@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "registry_id": "shangyu_rule_implementations_v1",
+  "version": 1,
+  "implementations": {
+    "browser.guanyi.prepare_import_form.pending_review": {
+      "runtime": "javascript",
+      "target": "browser/guanyi/navigation.mjs#prepareCustomImportForm",
+      "test": "browser/guanyi/navigation.test.mjs"
+    },
+    "browser.guanyi.task_reconciliation.unique_verified_id": {
+      "runtime": "javascript",
+      "target": "browser/guanyi/operation-state.mjs#reconcileUniqueNewTask",
+      "test": "browser/guanyi/operation-state.test.mjs"
+    },
+    "guanyi.buyer_member.policy": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:select_buyer_member",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.buyer_member.sam_pattern": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:select_buyer_member",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.contact_suffix.jd_zhongtong_recipient_marker": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:apply_contact_suffix_policy",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.defaults.order_flags": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_rule_value",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.defaults.order_type": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_rule_value",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.defaults.payment_method": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_rule_value",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.defaults.warehouse_name": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_rule_value",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.defaults.zero_amounts": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_rule_value",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.item_expansion.confirmed_source_components": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.item_expansion:expand_source_item",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.logistics.corn_packaging_policy": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:select_logistics_carrier",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.logistics.default_yunda": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:select_logistics_carrier",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.note_routing.courier_instruction_to_address": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:route_order_notes",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.platform_order.affixed_source_order_no": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.platform_order.prefix_minute_sequence": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
+      "test": "tests/test_text_order_intake.py"
+    },
+    "guanyi.platform_order.source_order_no": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
+      "test": "tests/test_guanyi_custom_import.py"
+    },
+    "guanyi.product_catalog.confirmed_exact": {
+      "runtime": "python",
+      "target": "auto_shipped.catalog.product_catalog:ProductCatalog.resolve",
+      "test": "tests/test_product_catalog.py"
+    },
+    "guanyi.seller_remark.rule_composition": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.order_policies:compose_seller_remark",
+      "test": "tests/test_guanyi_order_policies.py"
+    },
+    "guanyi.seller_remark.white_label_sku_library": {
+      "runtime": "python",
+      "target": "auto_shipped.catalog.white_label_library:WhiteLabelLibrary.matches_any",
+      "test": "tests/test_white_label_library.py"
+    },
+    "guanyi.store_assignment.by_product": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.store_assignment:select_store",
+      "test": "tests/test_guanyi_store_assignment.py"
+    },
+    "guanyi.store_assignment.by_source_channel": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.store_assignment:select_store",
+      "test": "tests/test_guanyi_store_assignment.py"
+    },
+    "guanyi.store_assignment.fixed": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.store_assignment:select_store",
+      "test": "tests/test_guanyi_store_assignment.py"
+    },
+    "source.recipient.required_fields": {
+      "runtime": "python",
+      "target": "auto_shipped.source_adapters.configured_excel:ConfiguredExcelParsedAdapter.parse",
+      "test": "tests/test_tiantian_adapter.py"
+    }
+  }
+}

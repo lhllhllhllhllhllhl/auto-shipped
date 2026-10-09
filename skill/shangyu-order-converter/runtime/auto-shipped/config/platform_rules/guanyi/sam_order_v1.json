@@ -1,17 +1,19 @@
 {
+  "schema_version": "1.0",
   "profile_id": "guanyi_sam_order_v1",
   "source_profile_id": "sam_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 9,
+  "version": 10,
   "policy_module_refs": {
-    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales_blank_freight.v1"},
+    "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.sam_fixed.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
     "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
     "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
     "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
   },
   "policy_module_overrides": {
     "defaults": {
-      "store": {"value": "sam", "confirmed": true, "source": "发货SOP第3、8页"}
+      "freight": {"value": "", "confirmed": true, "source": "已确认人工成品运费留空"}
     }
   },
   "platform_order_number": {
@@ -125,8 +127,8 @@
       "GY-STORE-ASSIGNMENT": {
         "status": "implemented",
         "confirmed": true,
-        "implementation_ref": "guanyi.defaults.store",
-        "evidence": "SOP确认SAM订单选择sam店铺。"
+        "implementation_ref": "guanyi.store_assignment.fixed",
+        "evidence": "SAM规则包引用统一店铺策略模块中的固定sam店铺。"
       },
       "GY-PLATFORM-ORDER-NUMBER": {
         "status": "implemented",

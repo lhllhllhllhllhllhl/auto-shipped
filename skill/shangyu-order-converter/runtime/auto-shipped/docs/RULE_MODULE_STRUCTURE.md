@@ -15,16 +15,18 @@
 | 公司平台规则包 | `config/platform_rules/guanyi/<source>.json` | 公司特有单号、字段显示、套餐规则，以及对共享模块的引用 |
 | 商品身份 | `config/catalog/`与正式飞书映射 | 来源商品如何唯一变成管易商品和规格 |
 | 规则覆盖门禁 | `config/business_rules/shangyu_sop_rule_catalog_v1.json` | 每条路由必须具备哪些规则，不保存重复业务值 |
-| 证据与历史 | `docs/RULE_SOURCE_LEDGER.md` | 来源、确认时间和历史变更，不参与运行时取值 |
+| 规则包核心合同 | `contracts/platform_rule_pack.schema.json` | 只校验身份、版本和覆盖声明；允许公司业务字段继续扩展 |
+| 实现注册表 | `config/business_rules/implementation_registry_v1.json` | 把`implementation_ref`绑定到真实代码入口和测试文件 |
+| 当前证据 | `docs/RULE_SOURCE_LEDGER.md` | 当前规则的来源与确认时间，不参与运行时取值；旧版本由Git保存 |
 
 ## 当前共享模块
 
 | module_id | 规则 |
 | --- | --- |
 | `store.corn_to_guangming_manyuanqi.v1` | 恬田、NDD、荣之达的已确认玉米商品进入“光明满元气”；非玉米或无法唯一判断时追问 |
+| `store.sam_fixed.v1` | SAM订单固定进入`sam`店铺；仍通过统一店铺策略执行 |
 | `buyer.normal_zhang.v1` | 普通来源买家会员填写“张”；SAM不引用该模块 |
-| `defaults.standard_sales_zero_freight.v1` | 金额、仓库、支付、订单类型和标记的公共值，运费为0 |
-| `defaults.standard_sales_blank_freight.v1` | 同上，但运费留空 |
+| `defaults.standard_sales.v1` | 金额、仓库、支付、订单类型和标记的唯一公共默认值；SAM、NDD只覆盖运费为空 |
 | `logistics.source_override_then_corn_packaging.v1` | 来源指定物流优先；否则执行已确认玉米包装规则 |
 | `note.courier_instruction_to_address.v1` | 把送货上门、不准放门口等快递员指令追加到收货地址末尾，其余来源备注留给卖家备注模块 |
 | `remark.source_then_system.v1` | 接收分流后的非快递员备注，系统提示后写，中文分号拼接并去重 |
@@ -37,7 +39,7 @@
 | NDD | `NDD+来源单号`、福利套餐四展开、NDD字段显示；玉米店铺等引用共享模块 |
 | 荣之达 | `RZD+上海整批生成分钟YYYYMMDDHHmm+最少两位弹性序号`；玉米店铺等引用共享模块 |
 | 尚舆自营 | 复制天猫/京东来源单号；店铺由自营渠道决定；京东中通的姓名四位码追加联系方式也只保留在自营规则包 |
-| SAM | 复制来源单号、店铺`sam`、SAM买家会员和组合商品展开；其他公共值引用共享模块 |
+| SAM | 复制来源单号、SAM买家会员和组合商品展开；店铺`sam`引用统一店铺模块，运费仅做字段级覆盖 |
 
 ## 防止规则重新散开
 
@@ -46,6 +48,7 @@
 3. 文档只记录证据和模块ID，不作为运行时取值来源。
 4. 修改共享规则时只改模块并运行全部来源回归；公司例外才留在公司规则包。
 5. 新规则先判断是“跨公司共用”还是“公司特有”，再选择共享模块或公司规则包，禁止直接写进Excel渲染器。
+6. 规则包可增加新业务字段，但核心身份、版本和覆盖声明必须通过Schema；标记为`implemented`的引用还必须存在于实现注册表。
 
 ## 自营京东中通联系方式例外
 

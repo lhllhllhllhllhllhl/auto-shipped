@@ -60,7 +60,7 @@
       "evidence_ref",
       "effective_date"
     ],
-    "removal_policy": "retire_entry_in_new_version_do_not_delete_history",
+    "removal_policy": "remove_from_current_version_git_keeps_history",
     "integration_policy": "转换服务在商品精确映射后读取本库；新增或停用SKU只修改本文件并通过白标库测试。"
   }
 }

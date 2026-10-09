@@ -42,7 +42,12 @@ from auto_shipped.services.text_intake import (
     validate_text_order_draft,
 )
 from auto_shipped.platforms.guanyi import preflight_custom_import
-from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
+from auto_shipped.rules import (
+    RulePackSchemaError,
+    audit_rule_coverage,
+    load_rule_catalog,
+    load_rule_pack,
+)
 from auto_shipped.source_adapters import AdaptiveExcelPlanError, inspect_excel_structure
 
 
@@ -723,8 +728,22 @@ def run_preflight(args: argparse.Namespace) -> int:
 
 
 def run_audit_rules(args: argparse.Namespace) -> int:
-    catalog = load_rule_catalog(args.catalog)
-    rules = json.loads(Path(args.rules).read_text(encoding="utf-8"))
+    try:
+        catalog = load_rule_catalog(args.catalog)
+        rules = load_rule_pack(args.rules)
+    except (OSError, json.JSONDecodeError, RulePackSchemaError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "invalid",
+                    "code": "BUSINESS_RULE_PACK_SCHEMA_INVALID",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
     coverage = rules.get("business_rule_coverage") or {}
     scope_id = args.scope or coverage.get("scope_id")
     if not scope_id:

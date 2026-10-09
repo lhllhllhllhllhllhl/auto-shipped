@@ -1,12 +1,13 @@
 {
+  "schema_version": "1.0",
   "profile_id": "guanyi_rongzhida_text_v1",
   "source_profile_id": "rongzhida_text_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 4,
+  "version": 5,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
-    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales_zero_freight.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
     "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
     "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
     "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}

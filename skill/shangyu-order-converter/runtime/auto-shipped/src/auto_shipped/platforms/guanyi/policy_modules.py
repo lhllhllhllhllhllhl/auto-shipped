@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from auto_shipped.rules.rule_pack import RulePackSchemaError, validate_rule_pack
+
 
 class GuanyiPolicyModuleError(ValueError):
     """Raised when a platform rule references an invalid shared policy module."""
@@ -46,6 +48,10 @@ def resolve_guanyi_policy_modules(
     executable policies have a single authority in a versioned registry.
     """
 
+    try:
+        validate_rule_pack(rules)
+    except RulePackSchemaError as exc:
+        raise GuanyiPolicyModuleError(f"管易规则包Schema无效：{exc}") from exc
     resolved = copy.deepcopy(rules)
     references = resolved.get("policy_module_refs") or {}
     overrides = resolved.get("policy_module_overrides") or {}

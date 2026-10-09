@@ -120,7 +120,11 @@ class ConvertServiceTests(unittest.TestCase):
             )
 
             rules = {
+                "schema_version": "1.0",
                 "profile_id": "guanyi_tiantian_test",
+                "source_profile_id": "tiantian_warehouse_v2",
+                "target_profile_id": "guanyi_order_import_v1",
+                "version": 1,
                 "platform_order_number": {
                     "strategy": "source_order_no",
                     "confirmed": True,
@@ -177,7 +181,7 @@ class ConvertServiceTests(unittest.TestCase):
                         "TEST-CONVERSION-RULE": {
                             "status": "implemented",
                             "confirmed": True,
-                            "implementation_ref": "test.impl",
+                            "implementation_ref": "guanyi.defaults.zero_amounts",
                         }
                     },
                 },
@@ -199,7 +203,9 @@ class ConvertServiceTests(unittest.TestCase):
                                 "module": "test",
                                 "phase": "conversion",
                                 "source_refs": ["test"],
-                                "allowed_implementation_refs": ["test.impl"],
+                                "allowed_implementation_refs": [
+                                    "guanyi.defaults.zero_amounts"
+                                ],
                             }
                         },
                         "scopes": {

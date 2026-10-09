@@ -116,9 +116,10 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 - 上传前预检：阻断表头变化、缺失必填值、公式、错误单元格、非法数值、标识列格式变化和同单订单字段不一致，并以哈希绑定 Excel。
 - 阻断式不确定项：未确认的平台单号策略或 SKU 映射会进入问题列表，不允许被误判为可提交。
 - SOP业务规则目录：任何适用规则缺失、待确认、待实现或实现引用不合法时阻断转换，详见 [docs/BUSINESS_RULE_COVERAGE.md](docs/BUSINESS_RULE_COVERAGE.md)。
+- 规则包治理：轻量Schema只固定核心身份、版本和覆盖声明；实现注册表验证`implemented`引用确实绑定代码和测试，不限制公司业务字段扩展。
 - 默认脱敏预览：姓名、手机号和详细地址不会直接输出到终端。
 
-旧恬田V1仅保留在开发仓库作为历史诊断资料，不进入Skill正式运行包。`preview`命令必须显式提供来源配置；正式处理只使用`convert`或`convert-batch`。
+旧恬田V1已从当前仓库和Skill运行包移除，历史版本由Git提交记录保留。`preview`命令必须显式提供来源配置；正式处理只使用`convert`或`convert-batch`。
 
 ## 本地预览
 

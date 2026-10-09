@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/platform-rule-pack-v1.json",
+  "title": "Shangyu Platform Rule Pack Core Contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile_id",
+    "source_profile_id",
+    "target_profile_id",
+    "version",
+    "business_rule_coverage"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "source_profile_id": {"type": "string", "minLength": 1},
+    "target_profile_id": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "policy_module_refs": {"type": "object"},
+    "policy_module_overrides": {"type": "object"},
+    "business_rule_coverage": {
+      "type": "object",
+      "required": ["catalog_id", "scope_id", "rules"],
+      "properties": {
+        "catalog_id": {"type": "string", "minLength": 1},
+        "scope_id": {"type": "string", "minLength": 1},
+        "rules": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "required": ["status", "confirmed"],
+            "properties": {
+              "status": {
+                "enum": [
+                  "implemented",
+                  "not_applicable",
+                  "pending_confirmation",
+                  "pending_implementation",
+                  "partial"
+                ]
+              },
+              "confirmed": {"type": "boolean"},
+              "implementation_ref": {"type": "string", "minLength": 1},
+              "evidence": {"type": "string"},
+              "question": {"type": "string"},
+              "reason": {"type": "string"}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"status": {"const": "implemented"}}},
+                "then": {"required": ["implementation_ref"]}
+              }
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

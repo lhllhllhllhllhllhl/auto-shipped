@@ -22,6 +22,13 @@ def select_store(
 
     policy = rules.get("store_assignment_policy") or {}
     strategy = str(policy.get("strategy") or "")
+    if strategy == "fixed":
+        if policy.get("confirmed") is not True:
+            raise GuanyiStoreAssignmentError("固定店铺策略尚未确认")
+        store = str(policy.get("store") or "").strip()
+        if not store:
+            raise GuanyiStoreAssignmentError("固定店铺策略缺少店铺名称")
+        return store
     if strategy == "source_extension_exact_map":
         field = str(policy.get("source_extension_field") or "").strip()
         if not field:

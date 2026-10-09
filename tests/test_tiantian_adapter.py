@@ -7,7 +7,7 @@ from auto_shipped.source_adapters import TiantianWarehouseAdapter
 
 
 PROFILE = {
-    "profile_id": "tiantian_warehouse_v1",
+    "profile_id": "legacy_adapter_test_fixture",
     "company": "恬田代发仓",
     "defaults": {
         "buyer_member": "张",

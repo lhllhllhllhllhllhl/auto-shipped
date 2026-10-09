@@ -9,6 +9,8 @@
 ## 文件边界
 
 - `config/business_rules/shangyu_sop_rule_catalog_v1.json`：SOP事实目录。记录规则ID、来源页、模块、执行阶段和适用范围，不保存公司运行值。
+- `contracts/platform_rule_pack.schema.json`：规则包轻量核心合同，只固定身份、版本和覆盖声明；公司特有策略字段允许扩展。
+- `config/business_rules/implementation_registry_v1.json`：实现引用注册表，把已实现规则绑定到真实代码入口和测试文件。
 - `config/platform_rules/<platform>/<source>.json`：来源到平台的规则包。记录每条适用规则的状态、确认信息和实现引用。
 - `src/auto_shipped/rules/coverage.py`：只负责比对目录与规则包，返回结构化阻断问题；不执行物流、备注或模板写入。
 - `src/auto_shipped/platforms/guanyi/`：执行已经确认的管易业务规则并渲染模板。
@@ -23,7 +25,7 @@
 | `pending_implementation` | 规则已知但代码尚未实现 | 否 |
 | `partial` | 只实现了规则的一部分 | 否 |
 
-`implemented` 和 `not_applicable` 只有在 `confirmed=true` 时才有效。`implemented` 还必须提供规则目录允许的 `implementation_ref`，避免仅修改状态文字就绕过门禁。
+`implemented` 和 `not_applicable` 只有在 `confirmed=true` 时才有效。`implemented` 还必须提供规则目录允许、并且已在实现注册表登记的 `implementation_ref`，避免仅修改状态文字就绕过门禁。
 
 ## 阶段
 

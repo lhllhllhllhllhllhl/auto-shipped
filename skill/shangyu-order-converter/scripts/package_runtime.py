@@ -34,26 +34,14 @@ INCLUDED_PATHS = [
     "docs/PACKAGE_SEMANTICS_GOVERNANCE.md",
 ]
 
-LEGACY_RUNTIME_FILES = {
-    "config/source_profiles/tiantian_warehouse_v1.json",
-    "config/platform_rules/guanyi/tiantian_warehouse_v1.json",
-}
-
-
 def ignore(directory: str, names: list[str]) -> set[str]:
     blocked = {"__pycache__", ".pytest_cache", "node_modules", "runtime"}
-    current = Path(directory)
     return {
         name
         for name in names
         if name in blocked
         or name.endswith(".pyc")
         or name.endswith(".egg-info")
-        or any(
-            current.as_posix().endswith(Path(relative).parent.as_posix())
-            and name == Path(relative).name
-            for relative in LEGACY_RUNTIME_FILES
-        )
     }
 
 

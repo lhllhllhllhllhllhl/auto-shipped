@@ -87,10 +87,48 @@ class GuanyiPolicyModuleTests(unittest.TestCase):
             )
         self.assertEqual(module_ids, {"note.courier_instruction_to_address.v1"})
 
-    def test_source_override_is_explicit_and_does_not_copy_module(self) -> None:
-        rules = load_rules("sam_order_v1.json")
-        self.assertEqual(rules["defaults"]["store"]["value"], "sam")
+    def test_sam_store_and_blank_freight_are_narrow_overrides(self) -> None:
+        raw = json.loads(
+            (PROJECT_ROOT / "config/platform_rules/guanyi/sam_order_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            raw["policy_module_refs"]["store_assignment_policy"]["module_id"],
+            "store.sam_fixed.v1",
+        )
+        self.assertEqual(
+            raw["policy_module_refs"]["defaults"]["module_id"],
+            "defaults.standard_sales.v1",
+        )
+        self.assertEqual(
+            set(raw["policy_module_overrides"]["defaults"]),
+            {"freight"},
+        )
+        rules = resolve_guanyi_policy_modules(raw, RULES_DIR)
+        self.assertNotIn("store", rules["defaults"])
+        self.assertEqual(rules["store_assignment_policy"]["strategy"], "fixed")
+        self.assertEqual(rules["store_assignment_policy"]["store"], "sam")
         self.assertEqual(rules["defaults"]["freight"]["value"], "")
+
+    def test_all_rule_packs_share_one_standard_sales_defaults_module(self) -> None:
+        module_ids = set()
+        for name in (
+            "tiantian_warehouse_v2.json",
+            "sam_order_v1.json",
+            "ndd_order_v1.json",
+            "self_operated_text_v1.json",
+            "rongzhida_text_v1.json",
+            "taojuzi_taobao_text_v1.json",
+            "taojuzi_kqyd_text_v1.json",
+        ):
+            raw = json.loads(
+                (PROJECT_ROOT / "config/platform_rules/guanyi" / name).read_text(
+                    encoding="utf-8"
+                )
+            )
+            module_ids.add(raw["policy_module_refs"]["defaults"]["module_id"])
+        self.assertEqual(module_ids, {"defaults.standard_sales.v1"})
 
     def test_self_operated_jd_carrier_alias_is_source_scoped(self) -> None:
         self_operated = load_rules("self_operated_text_v1.json")

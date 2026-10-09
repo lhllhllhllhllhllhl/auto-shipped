@@ -99,6 +99,8 @@ python3 <skill-dir>/scripts/audit_rules.py --phase conversion
 python3 <skill-dir>/scripts/audit_rules.py --phase upload
 ```
 
+规则包只对身份、版本和覆盖声明执行轻量Schema校验，公司特有业务字段仍可扩展。标记为`implemented`的实现引用必须在内置实现注册表中绑定真实代码入口和测试文件；注册缺失时停止转换。
+
 来源识别后还必须通过公司库校验。公司库只索引稳定公司ID、来源、路由、平台规则和商品映射范围，不复制业务规则。需要检查公司记录和模块引用时运行：
 
 ```bash
