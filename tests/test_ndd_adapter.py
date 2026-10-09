@@ -10,7 +10,10 @@ from openpyxl import Workbook, load_workbook
 
 from auto_shipped.catalog import ProductCatalog, ProductRecord
 from auto_shipped.detection import detect_source, load_source_profiles
-from auto_shipped.platforms.guanyi import build_custom_import_lines
+from auto_shipped.platforms.guanyi import (
+    build_custom_import_lines,
+    resolve_guanyi_policy_modules,
+)
 from auto_shipped.services.convert import convert_order_file
 from auto_shipped.source_adapters import NddGiftOrderParsedAdapter
 
@@ -21,11 +24,11 @@ PROFILE = json.loads(
         encoding="utf-8"
     )
 )
-RULES = json.loads(
+RULES = resolve_guanyi_policy_modules(json.loads(
     (PROJECT_ROOT / "config/platform_rules/guanyi/ndd_order_v1.json").read_text(
         encoding="utf-8"
     )
-)
+), PROJECT_ROOT / "config/platform_rules")
 GUANYI_PROFILE = json.loads(
     (PROJECT_ROOT / "config/platform_profiles/guanyi_order_import_v1.json").read_text(
         encoding="utf-8"

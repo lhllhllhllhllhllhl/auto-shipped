@@ -6,6 +6,7 @@ import re
 import unicodedata
 import uuid
 import warnings
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "product_name": ("商品名称", "礼品名称", "套餐名称", "商品", "品名"),
     "source_spec": ("规格编码", "规格代码", "商品规格", "礼品规格", "规格"),
     "quantity": ("数量", "商品数量", "件数"),
+    "unit": ("单位", "计量单位"),
     "carrier": ("快递公司", "物流公司", "指定物流"),
     "tracking_no": ("快递单号", "物流单号"),
     "source_note": ("备注", "客户备注", "买家备注", "卖家备注", "送货时间"),
@@ -311,6 +313,65 @@ def _generated_order_number(
     return f"{prefix}{business_date.strftime('%y%m%d')}{start + sequence_no - 1:0{width}d}"
 
 
+def _merge_order_rows(
+    orders: list[ParsedOrder],
+    requests: list[ClarificationRequest],
+) -> list[ParsedOrder]:
+    """Merge repeated source order numbers into one multi-item canonical order."""
+
+    grouped: dict[str, list[ParsedOrder]] = {}
+    order_keys: list[str] = []
+    for order in orders:
+        source_order_no = str(order.source.source_order_no or "")
+        if source_order_no not in grouped:
+            grouped[source_order_no] = []
+            order_keys.append(source_order_no)
+        grouped[source_order_no].append(order)
+
+    merged: list[ParsedOrder] = []
+    for source_order_no in order_keys:
+        group = grouped[source_order_no]
+        first = group[0]
+        if len(group) == 1:
+            merged.append(first)
+            continue
+        conflicts: list[str] = []
+        for candidate in group[1:]:
+            for field, first_value, candidate_value in (
+                ("recipient", first.recipient, candidate.recipient),
+                ("ordered_at", first.ordered_at, candidate.ordered_at),
+                ("source_note", first.source_note, candidate.source_note),
+                ("shipment_facts", first.shipment_facts, candidate.shipment_facts),
+                ("source_extensions", first.source_extensions, candidate.source_extensions),
+            ):
+                if first_value != candidate_value:
+                    conflicts.append(field)
+        row_numbers = tuple(
+            row_no
+            for candidate in group
+            for row_no in candidate.source.row_numbers
+        )
+        if conflicts:
+            requests.append(
+                ClarificationRequest(
+                    code="ADAPTIVE_ORDER_FIELDS_CONFLICT",
+                    scope="order",
+                    source_ref=(
+                        f"{first.source.sheet_name}!"
+                        f"{min(row_numbers)}:{max(row_numbers)}"
+                    ),
+                    question="同一来源单号的多条商品行存在订单字段冲突，请修正后重试。",
+                    reason="冲突字段：" + ", ".join(sorted(set(conflicts))),
+                    answer_type="file",
+                )
+            )
+            continue
+        first.source = replace(first.source, row_numbers=row_numbers)
+        first.items = [item for candidate in group for item in candidate.items]
+        merged.append(first)
+    return merged
+
+
 class AdaptiveExcelParsedAdapter:
     """Parse a one-off Excel layout through a validated, non-PII mapping plan."""
 
@@ -348,6 +409,9 @@ class AdaptiveExcelParsedAdapter:
         mapping = plan.get("field_mapping") or {}
         if not isinstance(mapping, dict):
             raise AdaptiveExcelPlanError("field_mapping必须是对象。")
+        extension_mapping = plan.get("extension_mapping") or {}
+        if not isinstance(extension_mapping, dict):
+            raise AdaptiveExcelPlanError("extension_mapping必须是对象。")
         uses_assumptions = bool(plan.get("batch_defaults")) or (
             (plan.get("order_number") or {}).get("strategy") == "date_sequence"
         )
@@ -379,7 +443,7 @@ class AdaptiveExcelParsedAdapter:
                 raise AdaptiveExcelPlanError("自适应计划指定的工作表不存在。")
             sheet = workbook[sheet_name]
             header_row = int(plan.get("header_row") or 1)
-            for field, spec in mapping.items():
+            for field, spec in {**mapping, **extension_mapping}.items():
                 columns = list((spec or {}).get("columns") or [])
                 expected_headers = list((spec or {}).get("expected_headers") or [])
                 if len(columns) != len(expected_headers) or not columns:
@@ -554,6 +618,9 @@ class AdaptiveExcelParsedAdapter:
                                     sheet, row_no, mapping.get("source_spec")
                                 ),
                                 quantity=quantity,
+                                unit=_mapping_value(
+                                    sheet, row_no, mapping.get("unit")
+                                ),
                                 source_line_no=row_no,
                             )
                         ],
@@ -576,6 +643,10 @@ class AdaptiveExcelParsedAdapter:
                             "adaptive_structure_signature": str(
                                 plan.get("structure_signature") or ""
                             ),
+                            **{
+                                str(field): _mapping_value(sheet, row_no, spec)
+                                for field, spec in extension_mapping.items()
+                            },
                         },
                     )
                 )
@@ -615,6 +686,10 @@ class AdaptiveExcelParsedAdapter:
                     answer_type="text",
                 )
             )
+        requests = deduplicate_clarifications(requests)
+        if requests:
+            return ParseResult(orders=[], clarifications=requests)
+        orders = _merge_order_rows(orders, requests)
         requests = deduplicate_clarifications(requests)
         if requests:
             return ParseResult(orders=[], clarifications=requests)

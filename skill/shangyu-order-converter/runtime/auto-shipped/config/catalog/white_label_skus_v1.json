@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "library_id": "white_label_skus_v1",
   "version": 1,
-  "status": "approved_not_integrated",
+  "status": "active",
   "effective_from": "2026-09-29",
   "purpose": "登记需要在管易卖家备注中标记为白标商品的精确SKU；与来源解析、商品映射和备注拼接逻辑分离。",
   "match_policy": {
@@ -61,6 +61,6 @@
       "effective_date"
     ],
     "removal_policy": "retire_entry_in_new_version_do_not_delete_history",
-    "integration_policy": "规则文档冻结并完成精确匹配测试后，才允许转换服务读取本库。"
+    "integration_policy": "转换服务在商品精确映射后读取本库；新增或停用SKU只修改本文件并通过白标库测试。"
   }
 }

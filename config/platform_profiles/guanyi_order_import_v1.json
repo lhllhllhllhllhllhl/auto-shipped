@@ -2,7 +2,7 @@
   "profile_id": "guanyi_order_import_v1",
   "platform": "guanyi",
   "operation": "custom_order_import",
-  "version": 4,
+  "version": 5,
   "status": "verified_template_structure",
   "enabled": true,
   "input_contract": "parsed-order/1.0",
@@ -127,11 +127,11 @@
       ["联系电话", "联系手机"]
     ],
     "pattern_columns": {
-      "联系电话": "^(?:1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8}(?:-\\d{1,6})?|\\d{7,8})$",
-      "联系手机": "^1[3-9]\\d{9}$"
+      "联系电话": "^(?:1[3-9]\\d{9}(?:-\\d{1,6})?|0\\d{2,3}-?\\d{7,8}(?:-\\d{1,6})?|\\d{7,8})$",
+      "联系手机": "^1[3-9]\\d{9}(?:-\\d{1,6})?$"
     },
     "allowed_values": {
-      "物流公司": ["韵达快递", "中通快递（重货）"]
+      "物流公司": ["韵达快递", "中通快递（重货）", "京东中通"]
     },
     "required_text_suffixes": {
       "平台单号": "A"

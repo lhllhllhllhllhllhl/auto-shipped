@@ -19,6 +19,8 @@ COMMANDS = {
     "sync-native": "sync-feishu-official-mappings-from-payload",
     "provision": "provision-pending-sheet",
     "submit": "submit-mapping-proposal",
+    "plan-publish": "plan-pending-mapping-publish",
+    "publish": "publish-pending-mappings",
 }
 
 
@@ -29,7 +31,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|plan-publish|publish [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -45,7 +47,7 @@ def main() -> int:
         print('{"status":"invalid","code":"PYTHON_RUNTIME_MISSING"}')
         return 2
     forwarded = list(sys.argv[2:])
-    if sys.argv[1] in {"sync", "sync-native"}:
+    if sys.argv[1] in {"sync", "sync-native", "plan-publish", "publish"}:
         if "--catalog" not in forwarded:
             registry_path = project_root / "config/catalog/current_product_catalog.json"
             try:
@@ -59,7 +61,7 @@ def main() -> int:
                 print('{"status":"invalid","code":"CATALOG_FILE_MISSING"}')
                 return 2
             forwarded.extend(["--catalog", str(catalog.resolve())])
-        if "--output" not in forwarded:
+        if sys.argv[1] in {"sync", "sync-native"} and "--output" not in forwarded:
             snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
             forwarded.extend(["--output", str(snapshot)])
     command = [

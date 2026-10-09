@@ -7,6 +7,7 @@ from typing import Any
 
 
 MAINLAND_MOBILE_RE = re.compile(r"^1[3-9]\d{9}$")
+PLATFORM_HIDDEN_MOBILE_RE = re.compile(r"^1[3-9]\d{9}-\d{1,6}$")
 LANDLINE_RE = re.compile(r"^(?:0\d{2,3}-?\d{7,8}|\d{7,8})(?:-\d{1,6})?$")
 SCIENTIFIC_IDENTIFIER_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?[eE][+-]?\d+$")
 
@@ -17,6 +18,8 @@ def normalize_contact(value: Any) -> tuple[str, str] | None:
     text = unicodedata.normalize("NFKC", str(value or "")).strip()
     compact = re.sub(r"\s+", "", text).replace("—", "-").replace("–", "-")
     if MAINLAND_MOBILE_RE.fullmatch(compact):
+        return compact, ""
+    if PLATFORM_HIDDEN_MOBILE_RE.fullmatch(compact):
         return compact, ""
     if LANDLINE_RE.fullmatch(compact):
         return "", compact

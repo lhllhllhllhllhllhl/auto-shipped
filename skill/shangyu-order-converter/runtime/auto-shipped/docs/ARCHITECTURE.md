@@ -1,8 +1,8 @@
 # 尚舆订单转换 Skill 架构
 
-状态：恬田到管易主链路已实现；正在确认商品映射并补充百礼汇后台来源连接器。
+状态：恬田、SAM、NDD、自营文字单和荣之达文字单的管易Excel转换链路已实现；自动上传仍受独立门禁控制。
 
-业务规则讨论稿见 [ORDER_AUTOMATION_RULES_V0.1.md](ORDER_AUTOMATION_RULES_V0.1.md)，完整规则判断流程见 [RULE_DECISION_FLOW_V0.1.md](RULE_DECISION_FLOW_V0.1.md)，规则来源和证据追溯见 [RULE_SOURCE_LEDGER.md](RULE_SOURCE_LEDGER.md)。架构文档不替代业务规则和来源台账。
+业务规则讨论稿见 [ORDER_AUTOMATION_RULES_V0.1.md](ORDER_AUTOMATION_RULES_V0.1.md)，完整规则判断流程见 [RULE_DECISION_FLOW_V0.1.md](RULE_DECISION_FLOW_V0.1.md)，规则的唯一权威结构见 [RULE_MODULE_STRUCTURE.md](RULE_MODULE_STRUCTURE.md)，规则来源和证据追溯见 [RULE_SOURCE_LEDGER.md](RULE_SOURCE_LEDGER.md)。架构文档不替代业务规则和来源台账。
 
 ## 1. 目标与边界
 
@@ -198,6 +198,12 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 
 转换服务会强制执行双向归属与工作流引用校验。公司未登记、一个来源同时归属多个公司、公司库与路由引用不一致、工作流未启用时均停止，不继续猜测。`audit-companies` 可在不读取订单数据的情况下检查全部引用。
 
+### 3.4.2 共享平台策略模块
+
+管易跨公司的同类业务值不再复制到每个公司规则包。`config/platform_rules/guanyi/policy_modules_v1.json`是共享店铺、普通买家会员、公共默认值、物流、备注分流和卖家备注组合策略的唯一可执行权威；公司规则包通过`policy_module_refs`引用，并只保存公司专属的单号、字段显示、套餐和显式例外。给快递员的配送指令由共享备注分流模块追加到收货地址末尾，非快递员备注再进入卖家备注组合模块。
+
+加载规则时先解析共享模块，再执行SOP覆盖门禁和转换。引用缺失、模块目标类型不匹配、覆盖格式错误，或同一个规则既内联又引用时全部fail-close。公司库审计也会验证所有活动工作流的模块引用。
+
 ### 3.5 来源适配器与后台连接器
 
 两者职责相同：
@@ -369,7 +375,7 @@ ParsedOrder
 
 待确认工作簿按当前飞书`user_id`自动路由到个人Sheet。路由表由Agent自动创建和修复；路由表缺失时通过个人Sheet的`owner_user_id`元数据重建。没有Sheet时复制模板创建；同一用户出现多个Sheet时阻断，不自动合并或删除。
 
-飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。待确认写入要求用户身份、确定性`mapping_key`、幂等`proposal_id`和写后精确回读。详细合同与未完成项见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
+飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。待确认写入要求用户身份、确定性`mapping_key`、幂等`proposal_id`和写后精确回读。所有者发布器在独立模块中完成全局查重、商品主档与公司来源校验、冲突整批阻断、两阶段失败关闭、正式版本递增、发布日志和待确认状态回写；普通转换器没有正式表写权限。详细合同见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
 
 ## 5. 校验分层
 
@@ -523,6 +529,6 @@ Skill 在管易链路稳定前先保留为项目内设计，不安装到个人 S
 ## 10. 本阶段需要业务确认
 
 1. 员工核对并手工导入首份恬田管易Excel后的验收结果。
-2. 小红书寄样、七份地址、孚泽和 NDD 是否都进入管易自定义订单导入；SAM核心样本转换规则已完整接入，下一步由员工验收生成Excel。
+2. 小红书寄样、七份地址和孚泽是否进入管易自定义订单导入；SAM与NDD核心样本转换规则已经完整接入。
 3. 百礼汇后台采用 Excel 导出、官方 API 还是已授权网页读取，并提供一份脱敏样本。
-4. 第一版是否接受只生成非敏感处理摘要、不建设数据库和长期操作记录。
+4. 订单运行只生成非敏感处理摘要；包装语义等可复用知识使用独立待登记提案回收，不保存订单或收件信息。

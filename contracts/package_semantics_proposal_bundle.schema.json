@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/contracts/package-semantics-proposal-bundle.schema.json",
+  "title": "Package semantics proposal bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "exported_at",
+    "proposal_count",
+    "conflicting_rule_keys",
+    "proposals",
+    "privacy"
+  ],
+  "properties": {
+    "schema_version": {"const": "package-semantics-proposal-bundle/1.0"},
+    "status": {"enum": ["empty", "needs_owner_review"]},
+    "exported_at": {"type": "string", "format": "date-time"},
+    "proposal_count": {"type": "integer", "minimum": 0},
+    "conflicting_rule_keys": {
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "proposals": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/proposal"}
+    },
+    "privacy": {"const": "contains_no_order_recipient_or_address_data"}
+  },
+  "$defs": {
+    "proposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "proposal_id",
+        "rule_key",
+        "status",
+        "company_id",
+        "source_profile_id",
+        "product_family",
+        "source_expression",
+        "semantic_type",
+        "quantity_strategy",
+        "sticks_per_target_unit",
+        "confirmed_scope",
+        "created_at",
+        "privacy"
+      ],
+      "properties": {
+        "schema_version": {"const": "package-semantics-proposal/1.0"},
+        "proposal_id": {"type": "string", "pattern": "^pkg-proposal-[0-9a-f]{20}$"},
+        "rule_key": {"type": "string", "pattern": "^pkg-rule-[0-9a-f]{20}$"},
+        "status": {"const": "pending_owner_review"},
+        "company_id": {"type": "string", "minLength": 1},
+        "source_profile_id": {"type": "string", "minLength": 1},
+        "product_family": {"type": "string", "minLength": 1},
+        "source_expression": {"type": "string", "minLength": 1},
+        "semantic_type": {
+          "enum": [
+            "single_stick_packaged",
+            "eight_stick_family_pack",
+            "pack_content_count",
+            "bundle"
+          ]
+        },
+        "quantity_strategy": {
+          "enum": [
+            "same_as_source",
+            "divide_by_sticks_per_target_unit",
+            "requires_bundle_expansion"
+          ]
+        },
+        "sticks_per_target_unit": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "confirmed_scope": {"const": "future_reuse"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "privacy": {"const": "contains_no_order_recipient_or_address_data"}
+      }
+    }
+  }
+}

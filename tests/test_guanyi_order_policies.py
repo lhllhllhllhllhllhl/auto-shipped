@@ -13,6 +13,7 @@ from auto_shipped.domain import (
 from auto_shipped.platforms.guanyi.order_policies import (
     GuanyiOrderPolicyError,
     ResolvedOrderItem,
+    apply_contact_suffix_policy,
     compose_seller_remark,
     select_buyer_member,
     select_logistics_carrier,
@@ -69,6 +70,105 @@ def rules() -> dict:
 
 
 class GuanyiOrderPolicyTests(unittest.TestCase):
+    def test_jd_zhongtong_appends_verified_name_marker_to_both_contacts(self) -> None:
+        jd_order = order("京东中通")
+        jd_order.source_extensions["source_channel"] = "京东"
+        jd_order.recipient = ParsedRecipient(
+            name="测试用户[0534]",
+            raw_address="测试地址[0534]",
+        )
+        policy = {
+            "strategy": "append_verified_recipient_marker",
+            "source_channels": ["京东"],
+            "source_carriers": ["京东中通"],
+            "marker_pattern": r"[\[【](?P<code>[0-9]{4})[\]】]$",
+            "explicit_extension_field": "jd_zto_contact_suffix",
+            "require_recipient_name_marker": True,
+            "cross_check_address_marker_if_present": True,
+            "separator": "-",
+            "confirmed": True,
+        }
+
+        resolved = apply_contact_suffix_policy(
+            jd_order,
+            "13800138000",
+            "13800138000",
+            policy,
+        )
+
+        self.assertEqual(resolved.phone, "13800138000-0534")
+        self.assertEqual(resolved.mobile, "13800138000-0534")
+
+    def test_jd_zhongtong_blocks_conflicting_name_and_address_markers(self) -> None:
+        jd_order = order("京东中通")
+        jd_order.source_extensions["source_channel"] = "京东"
+        jd_order.recipient = ParsedRecipient(
+            name="测试用户[0534]",
+            raw_address="测试地址[9999]",
+        )
+        policy = {
+            "strategy": "append_verified_recipient_marker",
+            "source_channels": ["京东"],
+            "source_carriers": ["京东中通"],
+            "marker_pattern": r"[\[【](?P<code>[0-9]{4})[\]】]$",
+            "require_recipient_name_marker": True,
+            "cross_check_address_marker_if_present": True,
+            "confirmed": True,
+        }
+
+        with self.assertRaises(GuanyiOrderPolicyError):
+            apply_contact_suffix_policy(
+                jd_order,
+                "13800138000",
+                "13800138000",
+                policy,
+            )
+
+    def test_jd_zhongtong_blocks_when_name_marker_is_missing(self) -> None:
+        jd_order = order("京东中通")
+        jd_order.source_extensions.update(
+            {"source_channel": "京东", "jd_zto_contact_suffix": "0534"}
+        )
+        policy = {
+            "strategy": "append_verified_recipient_marker",
+            "source_channels": ["京东"],
+            "source_carriers": ["京东中通"],
+            "marker_pattern": r"[\[【](?P<code>[0-9]{4})[\]】]$",
+            "explicit_extension_field": "jd_zto_contact_suffix",
+            "require_recipient_name_marker": True,
+            "confirmed": True,
+        }
+
+        with self.assertRaises(GuanyiOrderPolicyError):
+            apply_contact_suffix_policy(
+                jd_order,
+                "13800138000",
+                "13800138000",
+                policy,
+            )
+
+    def test_contact_suffix_policy_does_not_change_non_jd_orders(self) -> None:
+        tmall_order = order("京东中通")
+        tmall_order.source_extensions["source_channel"] = "天猫"
+        policy = {
+            "strategy": "append_verified_recipient_marker",
+            "source_channels": ["京东"],
+            "source_carriers": ["京东中通"],
+            "marker_pattern": r"[\[【](?P<code>[0-9]{4})[\]】]$",
+            "require_recipient_name_marker": True,
+            "confirmed": True,
+        }
+
+        resolved = apply_contact_suffix_policy(
+            tmall_order,
+            "13800138000",
+            "13800138000",
+            policy,
+        )
+
+        self.assertEqual(resolved.phone, "13800138000")
+        self.assertEqual(resolved.mobile, "13800138000")
+
     def test_buyer_member_is_fixed_for_normal_sources(self) -> None:
         self.assertEqual(
             select_buyer_member(
@@ -200,6 +300,25 @@ class GuanyiOrderPolicyTests(unittest.TestCase):
         resolved = [ResolvedOrderItem(1, "OTHER", "S1", "普通商品", "")]
         with self.assertRaises(GuanyiOrderPolicyError):
             select_logistics_carrier(order("随便快递"), resolved, rules())
+
+    def test_non_heavy_text_order_uses_source_override_then_default_yunda(self) -> None:
+        policy = {
+            "logistics_policy": {
+                "strategy": "source_override_then_default",
+                "source_carrier_priority": True,
+                "source_carrier_aliases": {"韵达": "韵达快递"},
+                "default_carrier": "韵达快递",
+            }
+        }
+        resolved = [ResolvedOrderItem(1, "P1", "S1", "普通日用品", "")]
+        self.assertEqual(
+            select_logistics_carrier(order(), resolved, policy),
+            "韵达快递",
+        )
+        self.assertEqual(
+            select_logistics_carrier(order("韵达"), resolved, policy),
+            "韵达快递",
+        )
 
     def test_source_carrier_priority_switch_changes_heavy_order_result(self) -> None:
         resolved = [

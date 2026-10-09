@@ -1,0 +1,107 @@
+{
+  "profile_id": "guanyi_self_operated_text_v1",
+  "source_profile_id": "self_operated_text_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 6,
+  "policy_module_refs": {
+    "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales_zero_freight.v1"},
+    "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
+    "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
+    "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
+  },
+  "policy_module_overrides": {
+    "logistics_policy": {
+      "source_carrier_aliases": {
+        "京东中通": "京东中通"
+      }
+    }
+  },
+  "platform_order_number": {
+    "strategy": "source_order_no",
+    "confirmed": true,
+    "source": "用户于2026-10-08确认：自营天猫和京东文字单复制消息中的平台单号；管易公共规则再追加A。"
+  },
+  "store_assignment_policy": {
+    "strategy": "source_extension_exact_map",
+    "source_extension_field": "source_channel",
+    "confirmed": true,
+    "on_unmatched": "ask_user",
+    "rules": [
+      {
+        "rule_id": "self_operated_tmall_store",
+        "source_values": ["天猫", "TMALL", "Tmall"],
+        "store": "MANYANGCHI旗舰店（天猫）",
+        "evidence": "用户于2026-10-08确认自营天猫玉米订单使用该店铺。"
+      },
+      {
+        "rule_id": "self_operated_jd_store",
+        "source_values": ["京东", "JD", "Jingdong"],
+        "store": "MAN YUAN QI旗舰店（京东）",
+        "evidence": "用户于2026-10-08确认自营京东玉米订单使用该店铺。"
+      }
+    ],
+    "source": "用户确认的自营平台与管易店铺对应关系：2026-10-08"
+  },
+  "field_output_policy": {
+    "product_name": {
+      "strategy": "catalog_product_name",
+      "confirmed": true,
+      "source": "商品名称使用管易商品资料"
+    },
+    "spec_name": {
+      "strategy": "catalog_spec_name",
+      "confirmed": true,
+      "source": "规格名称使用管易商品资料"
+    },
+    "order_created_at": {
+      "strategy": "blank",
+      "confirmed": true,
+      "source": "当前文字订单只提供发货日期，不把发货日期误写成下单时间"
+    },
+    "contact_columns": {
+      "strategy": "mobile_to_both_phone_preserved",
+      "confirmed": true,
+      "source": "用户于2026-10-08确认平台隐藏号后缀整体保留并直接填写"
+    },
+    "recipient_region": {
+      "strategy": "source_components",
+      "confirmed": true,
+      "source": "Agent从明确地址中提取省、市、区；不确定时追问"
+    }
+  },
+  "contact_suffix_policy": {
+    "strategy": "append_verified_recipient_marker",
+    "source_channel_field": "source_channel",
+    "source_channels": ["京东", "JD", "Jingdong"],
+    "source_carriers": ["京东中通"],
+    "marker_pattern": "[\\[【](?P<code>[0-9]{4})[\\]】]$",
+    "explicit_extension_field": "jd_zto_contact_suffix",
+    "require_recipient_name_marker": true,
+    "cross_check_address_marker_if_present": true,
+    "separator": "-",
+    "confirmed": true,
+    "source": "用户于2026-10-09确认：尚舆自营京东中通订单把收货人姓名后的四位数字追加到联系电话和联系手机，格式为号码-四位码；地址末尾也有四位码时必须一致。"
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "self_operated_text_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认天猫和京东对应两家自营旗舰店。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.source_order_no", "evidence": "复制文字中的平台单号，公共层追加A。"},
+      "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
+      "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "手工订单金额默认规则。"},
+      "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},
+      "GY-PAYMENT-METHOD": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.payment_method", "evidence": "显式填写网银在线。"},
+      "GY-ORDER-TYPE": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_type", "evidence": "显式填写销售订单。"},
+      "GY-ORDER-FLAGS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_flags", "evidence": "三个导入标记为0。"},
+      "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "自营文字玉米单的袋按正式包装语义库匹配8棒家庭装；根尚未登记，首次出现时追问；裸棒禁止普通发货。"},
+      "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "文字草稿门禁校验收件字段与平台隐藏号。"},
+      "GY-JD-ZTO-CONTACT-SUFFIX": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.contact_suffix.jd_zhongtong_recipient_marker", "evidence": "自营京东中通订单把姓名后的四位码追加到联系电话与联系手机；地址码存在时交叉核验。"},
+      "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.corn_packaging_policy", "evidence": "自营京东文字中的京东中通原样写入物流公司；其他情况继续使用来源指定优先与当前玉米包装规则。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "备注分流后的非快递员备注写入卖家备注。"},
+      "GY-DAILY-GOODS-WHITE-LABEL": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.white_label_sku_library", "evidence": "商品精确映射后读取独立白标SKU库；任一商品命中则整单卖家备注追加白标商品。"},
+      "GY-DELIVERY-INSTRUCTION-ADDRESS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.note_routing.courier_instruction_to_address", "evidence": "共享备注分流模块把快递员指令追加到收货地址末尾。"}
+    }
+  }
+}

@@ -155,6 +155,16 @@ class ConvertServiceTests(unittest.TestCase):
                         }
                     ],
                 },
+                "note_routing_policy": {
+                    "strategy": "courier_instructions_to_address_other_notes_to_seller",
+                    "explicit_extension_field": "delivery_instruction",
+                    "courier_keywords": ["送货上门", "放门口"],
+                    "split_pattern": r"[；;，,\n\r]+",
+                    "address_note_open": "（",
+                    "address_note_close": "）",
+                    "separator": "；",
+                    "confirmed": True,
+                },
                 "seller_remark_policy": {
                     "strategy": "source_note_then_system_notes_deduplicated",
                     "separator": "；",

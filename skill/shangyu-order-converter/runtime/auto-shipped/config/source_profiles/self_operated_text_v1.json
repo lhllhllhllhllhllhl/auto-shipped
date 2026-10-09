@@ -1,0 +1,17 @@
+{
+  "profile_id": "self_operated_text_v1",
+  "company_id": "self_operated",
+  "source_label": "自营天猫/京东文字订单",
+  "source_kind": "text_or_image",
+  "order_type": "manual_channel_order",
+  "adapter": "adaptive_excel_parsed",
+  "version": 2,
+  "enabled": true,
+  "detection": {},
+  "text_intake": {
+    "allowed_source_channels": ["天猫", "京东"],
+    "source_order_number": "required_from_message",
+    "product_identity": "corn_variety_plus_registered_package_semantics",
+    "evidence": "用户于2026-10-08确认：带天猫/京东和单号的文字玉米订单通常为自营订单，袋表示8棒家庭装；2026-10-09确认裸棒禁用，自营根尚未登记时必须追问。"
+  }
+}

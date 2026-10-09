@@ -6,8 +6,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 from auto_shipped.catalog import (
+    PackageSemanticsStoreError,
     ProductCatalog,
     ProductMappingStoreError,
+    export_package_semantics_proposals,
+    list_package_semantics_proposals,
+    save_package_semantics_proposal,
     save_confirmed_mapping,
 )
 from auto_shipped.companies import audit_company_registry, load_company_registry
@@ -18,6 +22,8 @@ from auto_shipped.integrations.feishu import (
     build_official_mapping_snapshot,
     build_pending_mapping_proposal,
     load_official_mapping_snapshot,
+    plan_pending_mapping_publish,
+    publish_pending_mappings,
     resolve_or_provision_user_sheet,
     submit_pending_mapping_proposal,
     write_official_mapping_snapshot,
@@ -30,6 +36,11 @@ from auto_shipped.services.adaptive import (
 )
 from auto_shipped.services.ingest import ingest_file
 from auto_shipped.services.redaction import redact_order
+from auto_shipped.services.text_intake import (
+    TextOrderDraftError,
+    prepare_text_order_draft,
+    validate_text_order_draft,
+)
 from auto_shipped.platforms.guanyi import preflight_custom_import
 from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
 from auto_shipped.source_adapters import AdaptiveExcelPlanError, inspect_excel_structure
@@ -49,7 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     preview.add_argument("--catalog", required=True)
     preview.add_argument(
         "--profile",
-        default=str(PROJECT_ROOT / "config/source_profiles/tiantian_warehouse_v1.json"),
+        required=True,
+        help="仅用于开发诊断的显式来源配置；正式转换请使用convert或convert-batch",
     )
     preview.add_argument(
         "--mappings",
@@ -174,6 +186,31 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
     )
     propose_adaptive.add_argument("--output", required=True)
+
+    validate_text = subparsers.add_parser(
+        "validate-text-order-draft",
+        help="校验Agent从文字或截图提取的订单草稿，并只输出脱敏预览和集中追问",
+    )
+    validate_text.add_argument("--draft", required=True)
+    validate_text.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+
+    prepare_text = subparsers.add_parser(
+        "prepare-text-order-draft",
+        help="在用户确认后把文字订单草稿生成标准化Excel和一次性字段计划",
+    )
+    prepare_text.add_argument("--draft", required=True)
+    prepare_text.add_argument("--output-dir", required=True)
+    prepare_text.add_argument(
+        "--order-number-state-dir",
+        help="可选的平台单号本机占号目录；默认使用Skill跨平台状态目录",
+    )
+    prepare_text.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
 
     preflight = subparsers.add_parser(
         "preflight",
@@ -312,6 +349,45 @@ def build_parser() -> argparse.ArgumentParser:
     submit_proposal.add_argument("--operation-id")
     submit_proposal.add_argument("--confirmation-token", required=True)
 
+    plan_publish = subparsers.add_parser(
+        "plan-pending-mapping-publish",
+        help="只读预检所有待确认商品映射，输出去重、冲突和正式版本计划",
+    )
+    plan_publish.add_argument(
+        "--config",
+        default=str(DEFAULT_FEISHU_MAPPING_CONFIG),
+    )
+    plan_publish.add_argument("--catalog", required=True)
+    plan_publish.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    plan_publish.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    plan_publish.add_argument("--operation-id")
+
+    publish_pending = subparsers.add_parser(
+        "publish-pending-mappings",
+        help="所有者专用：经冲突预检后把全部pending映射发布到正式库",
+    )
+    publish_pending.add_argument(
+        "--config",
+        default=str(DEFAULT_FEISHU_MAPPING_CONFIG),
+    )
+    publish_pending.add_argument("--catalog", required=True)
+    publish_pending.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    publish_pending.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    publish_pending.add_argument("--operation-id")
+    publish_pending.add_argument("--confirmation-token", required=True)
+
     save_mapping = subparsers.add_parser(
         "save-product-mapping",
         help="在用户明确授权后，把已确认商品映射写入覆盖层",
@@ -334,6 +410,50 @@ def build_parser() -> argparse.ArgumentParser:
     save_mapping.add_argument("--spec-code", required=True)
     save_mapping.add_argument("--reason", default="用户确认")
     save_mapping.add_argument("--confirmation-token", required=True)
+
+    save_package_semantics = subparsers.add_parser(
+        "save-package-semantics-proposal",
+        help="在用户明确要求以后沿用后，把包装含义保存到本机待登记库",
+    )
+    save_package_semantics.add_argument("--state-dir", required=True)
+    save_package_semantics.add_argument("--company-id", required=True)
+    save_package_semantics.add_argument("--source-profile", required=True)
+    save_package_semantics.add_argument("--product-family", required=True)
+    save_package_semantics.add_argument("--source-expression", required=True)
+    save_package_semantics.add_argument(
+        "--semantic-type",
+        required=True,
+        choices=[
+            "single_stick_packaged",
+            "eight_stick_family_pack",
+            "pack_content_count",
+            "bundle",
+        ],
+    )
+    save_package_semantics.add_argument(
+        "--quantity-strategy",
+        required=True,
+        choices=[
+            "same_as_source",
+            "divide_by_sticks_per_target_unit",
+            "requires_bundle_expansion",
+        ],
+    )
+    save_package_semantics.add_argument("--sticks-per-target-unit", type=int)
+    save_package_semantics.add_argument("--confirmation-token", required=True)
+
+    list_package_semantics = subparsers.add_parser(
+        "list-package-semantics-proposals",
+        help="列出本机待回收的包装含义提案，不返回订单或收件信息",
+    )
+    list_package_semantics.add_argument("--state-dir", required=True)
+
+    export_package_semantics = subparsers.add_parser(
+        "export-package-semantics-proposals",
+        help="导出本机待回收包装含义提案，供主系统所有者审核",
+    )
+    export_package_semantics.add_argument("--state-dir", required=True)
+    export_package_semantics.add_argument("--output", required=True)
     return parser
 
 
@@ -541,6 +661,55 @@ def run_propose_adaptive_plan(args: argparse.Namespace) -> int:
     payload["output"] = str(output) if output else None
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if proposal.status == "ready" else 2
+
+
+def run_validate_text_order_draft(args: argparse.Namespace) -> int:
+    try:
+        result, _ = validate_text_order_draft(
+            args.draft,
+            company_registry_path=args.registry,
+            require_confirmation=True,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, TextOrderDraftError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "TEXT_ORDER_DRAFT_INVALID",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
+    return 0 if result.status == "ready" else 2
+
+
+def run_prepare_text_order_draft(args: argparse.Namespace) -> int:
+    try:
+        result = prepare_text_order_draft(
+            args.draft,
+            args.output_dir,
+            company_registry_path=args.registry,
+            order_number_state_dir=args.order_number_state_dir,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, TextOrderDraftError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "TEXT_ORDER_PREPARATION_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
+    return 0 if result.status == "ready" else 2
 
 
 def run_preflight(args: argparse.Namespace) -> int:
@@ -868,6 +1037,109 @@ def run_submit_mapping_proposal(args: argparse.Namespace) -> int:
     return 0 if result.status in {"submitted", "already_submitted", "already_pending"} else 2
 
 
+def _load_mapping_publisher_context(args: argparse.Namespace) -> tuple[
+    LarkCliFeishuSheetGateway,
+    ProductCatalog,
+    list[str],
+    list[str],
+    list[str],
+]:
+    config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    registry = load_company_registry(args.registry)
+    publisher_policy = config.get("publisher_policy") or {}
+    owners = [
+        str(value).strip()
+        for value in publisher_policy.get("allowed_user_ids") or []
+        if str(value).strip()
+    ]
+    if not owners:
+        raise ValueError("飞书映射治理配置缺少publisher_policy.allowed_user_ids。")
+    companies: list[str] = []
+    source_profiles: list[str] = []
+    for company in registry.get("companies", []):
+        if company.get("status") != "active" or company.get("enabled", True) is False:
+            continue
+        companies.append(str(company.get("company_id") or ""))
+        source_profiles.extend(
+            str(item.get("source_profile_id") or "")
+            for item in company.get("source_profiles", [])
+            if item.get("status") == "active" and item.get("enabled", True) is not False
+        )
+    catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+    return _lark_gateway(args.config), catalog, owners, companies, source_profiles
+
+
+def run_plan_pending_mapping_publish(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, owners, companies, source_profiles = (
+            _load_mapping_publisher_context(args)
+        )
+        plan = plan_pending_mapping_publish(
+            gateway,
+            catalog,
+            allowed_owner_user_ids=owners,
+            allowed_company_ids=companies,
+            allowed_source_profile_ids=source_profiles,
+            operation_id=args.operation_id,
+        )
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "MAPPING_PUBLISH_PLAN_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(plan.to_public_dict(), ensure_ascii=False, indent=2))
+    return 0 if plan.status in {"ready", "no_changes"} else 2
+
+
+def run_publish_pending_mappings(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, owners, companies, source_profiles = (
+            _load_mapping_publisher_context(args)
+        )
+        result = publish_pending_mappings(
+            gateway,
+            catalog,
+            allowed_owner_user_ids=owners,
+            allowed_company_ids=companies,
+            allowed_source_profile_ids=source_profiles,
+            confirmation_token=args.confirmation_token,
+            operation_id=args.operation_id,
+        )
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "MAPPING_PUBLISH_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"published", "no_changes"} else 2
+
+
 def run_save_product_mapping(args: argparse.Namespace) -> int:
     try:
         catalog = ProductCatalog.from_files(args.catalog, args.mappings)
@@ -915,6 +1187,87 @@ def run_save_product_mapping(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_save_package_semantics_proposal(args: argparse.Namespace) -> int:
+    try:
+        result = save_package_semantics_proposal(
+            args.state_dir,
+            company_id=args.company_id,
+            source_profile_id=args.source_profile,
+            product_family=args.product_family,
+            source_expression=args.source_expression,
+            semantic_type=args.semantic_type,
+            quantity_strategy=args.quantity_strategy,
+            sticks_per_target_unit=args.sticks_per_target_unit,
+            confirmation_token=args.confirmation_token,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, PackageSemanticsStoreError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "PACKAGE_SEMANTICS_PROPOSAL_NOT_SAVED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps({"status": "saved", **result}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_list_package_semantics_proposals(args: argparse.Namespace) -> int:
+    try:
+        proposals = list_package_semantics_proposals(args.state_dir)
+    except (OSError, ValueError, json.JSONDecodeError, PackageSemanticsStoreError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "PACKAGE_SEMANTICS_PROPOSALS_UNREADABLE",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {
+                "status": "ready",
+                "proposal_count": len(proposals),
+                "proposals": proposals,
+                "privacy": "contains_no_order_recipient_or_address_data",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def run_export_package_semantics_proposals(args: argparse.Namespace) -> int:
+    try:
+        result = export_package_semantics_proposals(args.state_dir, args.output)
+    except (OSError, ValueError, json.JSONDecodeError, PackageSemanticsStoreError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "PACKAGE_SEMANTICS_EXPORT_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -928,6 +1281,10 @@ def main() -> int:
         return run_inspect_source_structure(args)
     if args.command == "propose-adaptive-plan":
         return run_propose_adaptive_plan(args)
+    if args.command == "validate-text-order-draft":
+        return run_validate_text_order_draft(args)
+    if args.command == "prepare-text-order-draft":
+        return run_prepare_text_order_draft(args)
     if args.command == "preflight":
         return run_preflight(args)
     if args.command == "audit-rules":
@@ -946,8 +1303,18 @@ def main() -> int:
         return run_provision_pending_sheet(args)
     if args.command == "submit-mapping-proposal":
         return run_submit_mapping_proposal(args)
+    if args.command == "plan-pending-mapping-publish":
+        return run_plan_pending_mapping_publish(args)
+    if args.command == "publish-pending-mappings":
+        return run_publish_pending_mappings(args)
     if args.command == "save-product-mapping":
         return run_save_product_mapping(args)
+    if args.command == "save-package-semantics-proposal":
+        return run_save_package_semantics_proposal(args)
+    if args.command == "list-package-semantics-proposals":
+        return run_list_package_semantics_proposals(args)
+    if args.command == "export-package-semantics-proposals":
+        return run_export_package_semantics_proposals(args)
     parser.error(f"未知命令: {args.command}")
     return 2
 

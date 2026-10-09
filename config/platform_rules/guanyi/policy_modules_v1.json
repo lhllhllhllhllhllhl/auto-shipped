@@ -1,0 +1,169 @@
+{
+  "schema_version": "1.0",
+  "registry_id": "guanyi_policy_modules_v1",
+  "version": 2,
+  "design_note": "跨公司的同类管易规则只在此保存一份可执行定义；公司平台规则包只引用模块并保存公司特有规则。",
+  "modules": {
+    "store.corn_to_guangming_manyuanqi.v1": {
+      "target_key": "store_assignment_policy",
+      "value": {
+        "strategy": "all_items_same_store_by_product",
+        "confirmed": true,
+        "on_unmatched": "ask_user",
+        "on_multiple_stores": "ask_user",
+        "rules": [
+          {
+            "rule_id": "all_confirmed_corn_products",
+            "store": "光明满元气",
+            "match": {"product_name_contains_all": ["玉米"]}
+          }
+        ],
+        "source": "用户于2026-10-08确认：恬田、NDD、荣之达的已确认玉米商品统一进入光明满元气；非玉米或混合店铺订单追问。"
+      }
+    },
+    "store.taojuzi_manual_channels.v1": {
+      "target_key": "store_assignment_policy",
+      "value": {
+        "strategy": "source_extension_exact_map",
+        "source_extension_field": "source_channel",
+        "confirmed": true,
+        "on_unmatched": "ask_user",
+        "rules": [
+          {
+            "rule_id": "taojuzi_taobao_store",
+            "source_values": ["淘宝", "TAOBAO", "Taobao"],
+            "store": "淘橘子"
+          },
+          {
+            "rule_id": "taojuzi_kqyd_store",
+            "source_values": ["KQYD", "kqyd", "企业店"],
+            "store": "淘橘子"
+          }
+        ],
+        "source": "用户于2026-10-09确认：本批淘宝文字单与KQYD企业店文字单均进入淘橘子；PDF既有规则也将淘宝、企业店KQYD和日货定制归入淘橘子。"
+      }
+    },
+    "buyer.normal_zhang.v1": {
+      "target_key": "buyer_member_policy",
+      "value": {
+        "strategy": "fixed",
+        "value": "张",
+        "confirmed": true,
+        "source": "用户确认普通来源买家会员统一填写张；SAM使用独立策略。"
+      }
+    },
+    "defaults.standard_sales_zero_freight.v1": {
+      "target_key": "defaults",
+      "value": {
+        "payment_amount": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
+        "unit_price": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
+        "freight": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
+        "warehouse_name": {"value": "上海尚舆商贸有限公司", "confirmed": true, "source": "发货SOP统一仓库"},
+        "payment_method": {"value": "网银在线", "confirmed": true, "source": "已确认管易显式默认值"},
+        "order_type": {"value": "销售订单", "confirmed": true, "source": "已确认管易显式默认值"},
+        "is_mobile_order": {"value": 0, "confirmed": true, "source": "管易导入说明"},
+        "is_cod": {"value": 0, "confirmed": true, "source": "管易导入说明"},
+        "is_distributor_order": {"value": 0, "confirmed": true, "source": "管易导入说明"}
+      }
+    },
+    "defaults.standard_sales_blank_freight.v1": {
+      "target_key": "defaults",
+      "value": {
+        "payment_amount": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
+        "unit_price": {"value": 0, "confirmed": true, "source": "已确认普通销售订单规则"},
+        "freight": {"value": "", "confirmed": true, "source": "已确认人工成品运费留空"},
+        "warehouse_name": {"value": "上海尚舆商贸有限公司", "confirmed": true, "source": "发货SOP统一仓库"},
+        "payment_method": {"value": "网银在线", "confirmed": true, "source": "已确认管易显式默认值"},
+        "order_type": {"value": "销售订单", "confirmed": true, "source": "已确认管易显式默认值"},
+        "is_mobile_order": {"value": 0, "confirmed": true, "source": "管易导入说明"},
+        "is_cod": {"value": 0, "confirmed": true, "source": "管易导入说明"},
+        "is_distributor_order": {"value": 0, "confirmed": true, "source": "管易导入说明"}
+      }
+    },
+    "logistics.source_override_then_corn_packaging.v1": {
+      "target_key": "logistics_policy",
+      "value": {
+        "strategy": "source_override_then_confirmed_packaging_rules",
+        "source_carrier_priority": true,
+        "source_carrier_aliases": {
+          "韵达": "韵达快递",
+          "韵达快递": "韵达快递",
+          "中通重货": "中通快递（重货）",
+          "中通快递(重货)": "中通快递（重货）",
+          "中通快递（重货）": "中通快递（重货）"
+        },
+        "default_carrier": "韵达快递",
+        "heavy_carrier": "中通快递（重货）",
+        "heavy_conditions": [
+          {
+            "rule_id": "corn_8_pack_quantity_gte_2",
+            "description": "已确认的8棒家庭装合计达到2件（16根）",
+            "match": {"product_codes": ["JTW8E1", "JTTZE1", "JTBN1E1-EH"]},
+            "minimum_quantity": 2
+          },
+          {
+            "rule_id": "corn_10_pack_any_quantity",
+            "description": "已确认映射的玉米10根或10棒礼盒，任意1件",
+            "match": {"product_name_contains_all": ["玉米"], "any_text_contains": ["10根", "10棒"]},
+            "minimum_quantity": 1
+          }
+        ],
+        "confirmed": true,
+        "source": "用户确认的玉米包装物流规则；来源明确指定物流优先。"
+      }
+    },
+    "logistics.source_override_then_default_yunda.v1": {
+      "target_key": "logistics_policy",
+      "value": {
+        "strategy": "source_override_then_default",
+        "source_carrier_priority": true,
+        "source_carrier_aliases": {
+          "韵达": "韵达快递",
+          "韵达快递": "韵达快递"
+        },
+        "default_carrier": "韵达快递",
+        "confirmed": true,
+        "source": "发货SOP确认普通非重货订单默认韵达；来源明确指定物流时仍须命中来源规则包登记的标准名称。"
+      }
+    },
+    "note.courier_instruction_to_address.v1": {
+      "target_key": "note_routing_policy",
+      "value": {
+        "strategy": "courier_instructions_to_address_other_notes_to_seller",
+        "explicit_extension_field": "delivery_instruction",
+        "courier_keywords": [
+          "送货上门",
+          "送达",
+          "派送",
+          "配送",
+          "放门口",
+          "驿站",
+          "快递柜",
+          "丰巢",
+          "电话联系",
+          "来电",
+          "联系收件人",
+          "敲门",
+          "门铃",
+          "轻放"
+        ],
+        "split_pattern": "[；;，,\\n\\r]+",
+        "address_note_open": "（",
+        "address_note_close": "）",
+        "separator": "；",
+        "confirmed": true,
+        "source": "用户于2026-10-09确认：送货上门、不准放门口等给快递员的指令统一追加到收货地址末尾；其余备注继续进入卖家备注。"
+      }
+    },
+    "remark.source_then_system.v1": {
+      "target_key": "seller_remark_policy",
+      "value": {
+        "strategy": "source_note_then_system_notes_deduplicated",
+        "target_field": "卖家备注",
+        "separator": "；",
+        "confirmed": true,
+        "source": "备注分流后的非快递员备注进入卖家备注，系统提示随后追加并去重。"
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "profile_id": "rongzhida_text_v1",
+  "company_id": "rongzhida",
+  "source_label": "荣之达文字订单",
+  "source_kind": "text_or_image",
+  "order_type": "manual_channel_order",
+  "adapter": "adaptive_excel_parsed",
+  "version": 4,
+  "enabled": true,
+  "detection": {},
+  "text_intake": {
+    "source_channel_markers": ["RZD", "rzd", "荣之达"],
+    "product_identity": "corn_variety_plus_registered_package_semantics",
+    "order_number_policy": {
+      "strategy": "current_datetime_sequence",
+      "prefix": "RZD",
+      "datetime_format": "%Y%m%d%H%M",
+      "sequence_start": 1,
+      "minimum_sequence_width": 2,
+      "timezone": "Asia/Shanghai",
+      "sequence_scope": "single_computer_local_minute_ledger",
+      "confirmed": true
+    },
+    "evidence": "用户于2026-10-08确认RZD为荣之达公司及分钟编号；2026-10-09确认RZD的一根、两根表示彩袋单棒装，裸棒不进入普通发货，其他未登记包装表达追问。"
+  }
+}

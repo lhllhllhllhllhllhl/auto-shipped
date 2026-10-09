@@ -9,6 +9,10 @@ from .preflight import (
     PreflightIssue,
     preflight_custom_import,
 )
+from .policy_modules import (
+    GuanyiPolicyModuleError,
+    resolve_guanyi_policy_modules,
+)
 
 __all__ = [
     "GuanyiBuildResult",
@@ -18,4 +22,6 @@ __all__ = [
     "GuanyiPreflightResult",
     "PreflightIssue",
     "preflight_custom_import",
+    "GuanyiPolicyModuleError",
+    "resolve_guanyi_policy_modules",
 ]

@@ -136,6 +136,15 @@ class GuanyiPreflightTests(unittest.TestCase):
             self.assertEqual(result.status, "blocked")
             self.assertIn("FIELD_PATTERN_INVALID", {issue.code for issue in result.issues})
 
+    def test_platform_hidden_mobile_suffix_is_preserved_and_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            line = valid_line()
+            line["联系电话"] = "13800138000-6762"
+            line["联系手机"] = "13800138000-6762"
+            output = self.render(Path(tmp), [line])
+            result = preflight_custom_import(output, profile())
+            self.assertEqual(result.status, "ready")
+
     def test_unknown_carrier_blocks_upload_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             line = valid_line()
@@ -144,6 +153,14 @@ class GuanyiPreflightTests(unittest.TestCase):
             result = preflight_custom_import(output, profile())
             self.assertEqual(result.status, "blocked")
             self.assertIn("FIELD_VALUE_NOT_ALLOWED", {issue.code for issue in result.issues})
+
+    def test_jd_zhongtong_is_an_allowed_guanyi_carrier_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            line = valid_line()
+            line["物流公司"] = "京东中通"
+            output = self.render(Path(tmp), [line])
+            result = preflight_custom_import(output, profile())
+            self.assertEqual(result.status, "ready")
 
     def test_missing_automation_suffix_blocks_upload_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

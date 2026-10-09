@@ -18,7 +18,8 @@
       "allowed_implementation_refs": [
         "guanyi.defaults.store",
         "guanyi.store_policy.by_route",
-        "guanyi.store_assignment.by_product"
+        "guanyi.store_assignment.by_product",
+        "guanyi.store_assignment.by_source_channel"
       ]
     },
     "GY-PLATFORM-ORDER-NUMBER": {
@@ -30,6 +31,7 @@
         "guanyi.platform_order.source_order_no",
         "guanyi.platform_order.purchase_order_no",
         "guanyi.platform_order.prefix_date_sequence",
+        "guanyi.platform_order.prefix_minute_sequence",
         "guanyi.platform_order.affixed_source_order_no"
       ]
     },
@@ -104,6 +106,16 @@
       "source_refs": ["尚舆发货流程.pdf p.5", "p.8", "p.10"],
       "allowed_implementation_refs": ["source.recipient.required_fields"]
     },
+    "GY-JD-ZTO-CONTACT-SUFFIX": {
+      "title": "自营京东中通订单把姓名后的四位码追加到联系方式",
+      "module": "guanyi.contact_suffix_policy",
+      "phase": "conversion",
+      "source_refs": ["SRC-SAMPLE-TEXT-ORDER-001", "DEC-USER-JD-ZTO-CONTACT-SUFFIX-001"],
+      "allowed_implementation_refs": [
+        "guanyi.contact_suffix.jd_zhongtong_recipient_marker"
+      ],
+      "reason": "京东中通订单需要以号码-四位码形式传递平台隐私号后缀；四位码缺失或姓名、地址、已有号码尾码冲突时必须阻断并追问。"
+    },
     "GY-LOGISTICS-SELECTION": {
       "title": "按商品与数量选择韵达或中通重货",
       "module": "guanyi.logistics_policy",
@@ -112,6 +124,7 @@
       "allowed_implementation_refs": [
         "guanyi.logistics.source_passthrough",
         "guanyi.logistics.corn_packaging_policy",
+        "guanyi.logistics.default_yunda",
         "guanyi.logistics.weight_threshold"
       ],
       "question": "如果以后用重量公式替换当前包装规则，请提供重量阈值和适用商品重量。",
@@ -135,14 +148,26 @@
       "question": "后续新增系统提示时，按已确认的卖家备注组合策略接入。",
       "reason": "客户备注写入卖家备注已经确认；系统提示按固定顺序追加并精确去重。"
     },
+    "GY-DELIVERY-INSTRUCTION-ADDRESS": {
+      "title": "把快递员配送指令追加到收货地址末尾",
+      "module": "guanyi.note_routing_policy",
+      "phase": "conversion",
+      "source_refs": ["用户确认：2026-10-09", "codex-clipboard-0e8d0696-b4b1-41fd-868a-56d28e506fe3.jpg"],
+      "allowed_implementation_refs": [
+        "guanyi.note_routing.courier_instruction_to_address"
+      ],
+      "reason": "送货上门、不准放门口等给快递员的指令必须随收货地址传递；非快递员备注继续进入卖家备注。"
+    },
     "GY-DAILY-GOODS-WHITE-LABEL": {
-      "title": "日货订单添加白标商品备注并排除指定系列",
+      "title": "精确白标SKU命中后整单添加白标商品备注",
       "module": "guanyi.seller_remark_policy",
       "phase": "conversion",
-      "source_refs": ["尚舆发货流程.pdf p.3"],
-      "allowed_implementation_refs": ["guanyi.seller_remark.daily_goods_white_label"],
-      "question": "请确认日货商品识别方式，以及showa滑溜手套和885丁腈系列的准确商品范围。",
-      "reason": "只有文字例外名称，没有稳定商品编码或标签，不能安全自动判断。"
+      "source_refs": [
+        "DEC-USER-WHITELABEL-LIB-001",
+        "config/catalog/white_label_skus_v1.json"
+      ],
+      "allowed_implementation_refs": ["guanyi.seller_remark.white_label_sku_library"],
+      "reason": "商品完成管易代码和规格代码映射后精确匹配版本化白标库；任一商品命中则整单卖家备注追加白标商品。"
     },
     "GY-IMPORT-STATUS-PENDING-REVIEW": {
       "title": "导入订单状态选择待审核",
@@ -219,7 +244,9 @@
           "GY-PRODUCT-MAPPING",
           "GY-RECIPIENT-COMPLETENESS",
           "GY-LOGISTICS-SELECTION",
-          "GY-SELLER-REMARK-POLICY"
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
         ],
         "upload": [
           "GY-IMPORT-STATUS-PENDING-REVIEW",
@@ -248,7 +275,9 @@
           "GY-ITEM-EXPANSION",
           "GY-RECIPIENT-COMPLETENESS",
           "GY-LOGISTICS-SELECTION",
-          "GY-SELLER-REMARK-POLICY"
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
         ],
         "upload": [
           "GY-IMPORT-STATUS-PENDING-REVIEW",
@@ -273,7 +302,114 @@
           "GY-ITEM-EXPANSION",
           "GY-RECIPIENT-COMPLETENESS",
           "GY-LOGISTICS-SELECTION",
-          "GY-SELLER-REMARK-POLICY"
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "self_operated_text_to_guanyi_v1": {
+      "route_id": "self_operated_text_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-JD-ZTO-CONTACT-SUFFIX",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "rongzhida_text_to_guanyi_v1": {
+      "route_id": "rongzhida_text_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "taojuzi_taobao_text_to_guanyi_v1": {
+      "route_id": "taojuzi_taobao_text_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "taojuzi_kqyd_text_to_guanyi_v1": {
+      "route_id": "taojuzi_kqyd_text_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
         ],
         "upload": [
           "GY-IMPORT-STATUS-PENDING-REVIEW",
@@ -295,7 +431,9 @@
           "GY-ORDER-FLAGS",
           "GY-PRODUCT-MAPPING",
           "GY-RECIPIENT-COMPLETENESS",
-          "GY-SELLER-REMARK-POLICY"
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
         ],
         "post_fulfillment": ["BLH-SHIPPING-BACKFILL"]
       }
@@ -312,6 +450,7 @@
           "GY-RECIPIENT-COMPLETENESS",
           "GY-LOGISTICS-SELECTION",
           "GY-SELLER-REMARK-POLICY",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS",
           "GY-DAILY-GOODS-WHITE-LABEL"
         ]
       }

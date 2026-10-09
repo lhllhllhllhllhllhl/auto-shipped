@@ -9,7 +9,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from auto_shipped.catalog import ProductCatalog
+from auto_shipped.catalog import ProductCatalog, WhiteLabelLibrary
 from auto_shipped.domain import (
     ClarificationRequest,
     ParsedOrder,
@@ -18,7 +18,9 @@ from auto_shipped.domain import (
 from auto_shipped.platforms.guanyi.order_policies import (
     GuanyiOrderPolicyError,
     ResolvedOrderItem,
+    apply_contact_suffix_policy,
     compose_seller_remark,
+    route_order_notes,
     select_buyer_member,
     select_logistics_carrier,
 )
@@ -181,6 +183,7 @@ def _rule_clarifications(rules: dict[str, Any]) -> list[ClarificationRequest]:
         "buyer_member_policy": "买家会员",
         "item_expansion_policy": "组合商品展开",
         "logistics_policy": "物流公司",
+        "note_routing_policy": "收货地址/卖家备注",
         "seller_remark_policy": "卖家备注",
     }.items():
         policy = rules.get(policy_key)
@@ -208,6 +211,19 @@ def _rule_clarifications(rules: dict[str, Any]) -> list[ClarificationRequest]:
                     answer_type="confirmation",
                 )
             )
+    contact_suffix_policy = rules.get("contact_suffix_policy")
+    if contact_suffix_policy and not contact_suffix_policy.get("confirmed", False):
+        requests.append(
+            ClarificationRequest(
+                code="CONFIRM_GUANYI_CONTACT_SUFFIX_POLICY",
+                scope="batch",
+                field="联系电话/联系手机",
+                question=contact_suffix_policy.get("question")
+                or "请确认京东中通订单的联系电话尾码规则。",
+                reason="联系电话尾码规则尚未确认。",
+                answer_type="confirmation",
+            )
+        )
     return requests
 
 
@@ -261,6 +277,7 @@ def build_custom_import_lines(
     rules: dict[str, Any],
     platform_profile: dict[str, Any],
     *,
+    white_label_library: WhiteLabelLibrary | None = None,
     business_date: date | None = None,
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
@@ -325,7 +342,35 @@ def build_custom_import_lines(
                 resolved_products[resolution_key] = resolution
             source_label = _product_source_label(item)
             source_ref = f"商品:{source_label}"
-            if resolution.status == "unconfirmed" and resolution.product:
+            if resolution.match_method == "shipping_expression_forbidden":
+                result.clarifications.append(
+                    ClarificationRequest(
+                        code="SHIPPING_PRODUCT_FORBIDDEN",
+                        scope="batch",
+                        source_ref=source_ref,
+                        field="发货商品",
+                        question="裸棒属于试吃商品，普通发货流程已禁用；请确认改用哪个正式发货商品。",
+                        reason=resolution.reason,
+                        answer_type="text",
+                    )
+                )
+            elif resolution.match_method == "package_semantics_unregistered":
+                result.clarifications.append(
+                    ClarificationRequest(
+                        code="CONFIRM_PACKAGE_SEMANTICS",
+                        scope="batch",
+                        source_ref=source_ref,
+                        field="包装含义",
+                        question=(
+                            f"请确认来源商品“{source_label}”中的包装单位表示彩袋单棒装，"
+                            "还是表示家庭装中的总根数；并说明仅本次使用还是以后沿用。"
+                        ),
+                        reason=resolution.reason,
+                        answer_type="text",
+                        next_action="record_package_semantics_proposal_if_reusable",
+                    )
+                )
+            elif resolution.status == "unconfirmed" and resolution.product:
                 result.clarifications.append(
                     ClarificationRequest(
                         code="CONFIRM_GUANYI_PRODUCT_MAPPING",
@@ -354,11 +399,59 @@ def build_custom_import_lines(
                     )
                 )
             elif resolution.product:
+                forbidden_reason = catalog.shipping_forbidden_reason(resolution.product)
+                if forbidden_reason:
+                    result.clarifications.append(
+                        ClarificationRequest(
+                            code="SHIPPING_PRODUCT_FORBIDDEN",
+                            scope="batch",
+                            source_ref=source_ref,
+                            field="发货商品",
+                            question="该商品属于试吃裸棒，普通发货流程已禁用；请确认改用哪个正式发货商品。",
+                            reason=forbidden_reason,
+                            answer_type="text",
+                        )
+                    )
+                    continue
+                target_quantity = item.quantity
+                if resolution.quantity_strategy == "divide_by_sticks_per_target_unit":
+                    sticks_per_unit = resolution.sticks_per_target_unit or 0
+                    quotient = item.quantity / sticks_per_unit if sticks_per_unit else 0
+                    if sticks_per_unit <= 0 or abs(quotient - round(quotient)) > 1e-9:
+                        result.clarifications.append(
+                            ClarificationRequest(
+                                code="CONFIRM_PACKAGE_QUANTITY_CONVERSION",
+                                scope="batch",
+                                source_ref=source_ref,
+                                field="包装数量换算",
+                                question=(
+                                    f"来源数量{item.quantity:g}无法按每件{sticks_per_unit or '未知'}根"
+                                    "完整换算，请确认是否需要家庭装与单根装混合拆分。"
+                                ),
+                                reason="包装语义规则只允许整件换算，不能自动决定余数商品。",
+                                answer_type="text",
+                            )
+                        )
+                        continue
+                    target_quantity = int(round(quotient))
+                elif resolution.quantity_strategy == "requires_bundle_expansion":
+                    result.clarifications.append(
+                        ClarificationRequest(
+                            code="GUANYI_ITEM_EXPANSION_UNCONFIRMED",
+                            scope="batch",
+                            source_ref=source_ref,
+                            field="组合商品展开",
+                            question="该包装含义需要组合商品展开，请先登记具体组成和数量倍数。",
+                            reason="包装语义只描述了组合类型，没有可执行的组成规则。",
+                            answer_type="text",
+                        )
+                    )
+                    continue
                 order_lines.append(
                     ResolvedLineItem(
                         source_item=item,
                         product=resolution.product,
-                        quantity=item.quantity,
+                        quantity=target_quantity,
                     )
                 )
         resolved_lines_by_order[id(order)] = order_lines
@@ -412,7 +505,11 @@ def build_custom_import_lines(
         ]
         try:
             store_name = (
-                select_store(resolved_order_items, rules)
+                select_store(
+                    resolved_order_items,
+                    rules,
+                    source_extensions=order.source_extensions,
+                )
                 if rules.get("store_assignment_policy")
                 else _rule_value(rules, "store")
             )
@@ -464,6 +561,33 @@ def build_custom_import_lines(
                 )
             )
             continue
+        note_routing_policy = rules.get("note_routing_policy") or {}
+        explicit_extension_field = str(
+            note_routing_policy.get("explicit_extension_field")
+            or "delivery_instruction"
+        )
+        try:
+            routed_notes = route_order_notes(
+                order.recipient.full_address,
+                order.source_note,
+                note_routing_policy,
+                explicit_delivery_instruction=order.source_extensions.get(
+                    explicit_extension_field
+                ),
+            )
+        except GuanyiOrderPolicyError as exc:
+            result.clarifications.append(
+                ClarificationRequest(
+                    code="GUANYI_NOTE_ROUTING_POLICY_INVALID",
+                    scope="batch",
+                    source_ref=f"订单:{platform_no}",
+                    field="收货地址/卖家备注",
+                    question="当前备注分流规则无法安全执行，请先修正规则配置。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            )
+            continue
         seller_policy = rules.get("seller_remark_policy") or {}
         seller_strategy = str(seller_policy.get("strategy") or "")
         if seller_strategy != "source_note_then_system_notes_deduplicated":
@@ -480,7 +604,16 @@ def build_custom_import_lines(
             )
             continue
         separator = str(seller_policy.get("separator") or "；")
-        seller_remark = compose_seller_remark(order.source_note, separator=separator)
+        system_notes: list[str] = []
+        if white_label_library and white_label_library.matches_any(
+            resolved_order_items
+        ):
+            system_notes.append(white_label_library.remark_token)
+        seller_remark = compose_seller_remark(
+            routed_notes.seller_source_note,
+            system_notes,
+            separator=separator,
+        )
         if contact_strategy == "mobile_to_both_phone_preserved":
             contact_phone = order.recipient.mobile or order.recipient.phone
             contact_mobile = order.recipient.mobile
@@ -491,6 +624,28 @@ def build_custom_import_lines(
             raise GuanyiCustomImportError(
                 f"未知联系电话/联系手机输出策略: {contact_strategy}"
             )
+        try:
+            resolved_contacts = apply_contact_suffix_policy(
+                order,
+                contact_phone,
+                contact_mobile,
+                rules.get("contact_suffix_policy"),
+            )
+        except GuanyiOrderPolicyError as exc:
+            result.clarifications.append(
+                ClarificationRequest(
+                    code="GUANYI_CONTACT_SUFFIX_POLICY_INVALID",
+                    scope="order",
+                    source_ref=f"订单:{platform_no}",
+                    field="联系电话/联系手机",
+                    question="请确认京东中通订单姓名后的四位码，并确保姓名、地址和已有号码尾码一致。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            )
+            continue
+        contact_phone = resolved_contacts.phone
+        contact_mobile = resolved_contacts.mobile
         if recipient_region_strategy == "source_components":
             province = order.recipient.province
             city = order.recipient.city
@@ -540,7 +695,7 @@ def build_custom_import_lines(
                     "收货人": order.recipient.name,
                     "联系电话": contact_phone,
                     "联系手机": contact_mobile,
-                    "收货地址": order.recipient.full_address,
+                    "收货地址": routed_notes.recipient_address,
                     "省": province,
                     "市": city,
                     "区": district,

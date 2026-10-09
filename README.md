@@ -111,22 +111,22 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 - `corn_inbound_order_v1`：识别玉米入仓样本并先向用户确认文件用途。
 - `bailihui_backend_v1`：已确认“百礼汇后台取单 -> 管易”的路由，连接器等待后台取单方式和脱敏样本。
 - 管易商品主数据索引：映射按来源公司隔离；日常转换只自动加载飞书正式映射快照，本地配置保存来源匹配政策和身份保护。新映射经明确授权后提交待确认Sheet，正式发布后才生效。
-- 白标SKU库：`config/catalog/white_label_skus_v1.json` 独立维护需要白标备注的精确商品与规格；当前已建库，尚未接入转换服务。
+- 白标SKU库：`config/catalog/white_label_skus_v1.json` 独立维护需要白标备注的精确商品与规格；转换在商品映射后精确匹配，任一商品命中即在整单卖家备注追加“白标商品”。
 - 管易自定义订单导入：复制已确认的48列模板，删除示例行，一件商品输出一行。
 - 上传前预检：阻断表头变化、缺失必填值、公式、错误单元格、非法数值、标识列格式变化和同单订单字段不一致，并以哈希绑定 Excel。
 - 阻断式不确定项：未确认的平台单号策略或 SKU 映射会进入问题列表，不允许被误判为可提交。
 - SOP业务规则目录：任何适用规则缺失、待确认、待实现或实现引用不合法时阻断转换，详见 [docs/BUSINESS_RULE_COVERAGE.md](docs/BUSINESS_RULE_COVERAGE.md)。
 - 默认脱敏预览：姓名、手机号和详细地址不会直接输出到终端。
 
-旧的 `preview` 命令和双模板记录转换仍保留为兼容原型，不属于第一版正式输出路径。
+旧恬田V1仅保留在开发仓库作为历史诊断资料，不进入Skill正式运行包。`preview`命令必须显式提供来源配置；正式处理只使用`convert`或`convert-batch`。
 
 ## 本地预览
 
 ```bash
 PYTHONPATH=src python -m auto_shipped.cli preview \
-  --source "/path/to/仓库订单.xlsx" \
+  --source "/path/to/测试订单.xlsx" \
   --catalog "/path/to/商品信息.csv" \
-  --profile config/source_profiles/tiantian_warehouse_v1.json
+  --profile "/path/to/显式开发诊断来源配置.json"
 ```
 
 ## 自动识别与转换

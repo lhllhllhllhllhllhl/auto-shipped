@@ -18,10 +18,14 @@ from .pending_mappings import (
     PendingSheetMetadata,
     UserSheetRoute,
 )
+from .owner_publisher import (
+    MappingPublishLogRecord,
+    OfficialMappingRecord,
+)
 
 
 CommandRunner = Callable[[Sequence[str]], dict[str, Any]]
-_ROW_PREFIX = re.compile(r"(?m)^\[row=\d+\] ")
+_ROW_PREFIX = re.compile(r"(?m)^\[row=(\d+)\] ")
 
 
 class LarkCliGatewayError(RuntimeError):
@@ -40,6 +44,7 @@ class LarkCliFeishuSheetGateway:
         official_spreadsheet_token: str,
         official_mapping_sheet_id: str,
         official_metadata_sheet_id: str,
+        official_publish_log_sheet_id: str,
         executable: str = "lark-cli",
         runner: CommandRunner | None = None,
     ) -> None:
@@ -64,6 +69,10 @@ class LarkCliFeishuSheetGateway:
             official_metadata_sheet_id,
             "official_metadata_sheet_id",
         )
+        self.official_publish_log_sheet_id = self._required(
+            official_publish_log_sheet_id,
+            "official_publish_log_sheet_id",
+        )
         self.executable = executable
         self._runner = runner or self._subprocess_runner
 
@@ -85,6 +94,7 @@ class LarkCliFeishuSheetGateway:
             official_spreadsheet_token=official.get("spreadsheet_token"),
             official_mapping_sheet_id=official.get("mapping_sheet_id"),
             official_metadata_sheet_id=official.get("metadata_sheet_id"),
+            official_publish_log_sheet_id=official.get("publish_log_sheet_id"),
             executable=executable,
             runner=runner,
         )
@@ -157,12 +167,31 @@ class LarkCliFeishuSheetGateway:
         annotated = str(data.get("annotated_csv") or "")
         if not annotated:
             return []
+        annotated_row_indices = [int(value) for value in _ROW_PREFIX.findall(annotated)]
         plain_csv = _ROW_PREFIX.sub("", annotated)
         rows = list(csv.reader(io.StringIO(plain_csv)))
-        row_indices = data.get("row_indices") or []
-        if len(rows) != len(row_indices):
+        if (
+            len(annotated_row_indices) == len(rows) + 1
+            and annotated.rstrip("\n").endswith(
+                f"[row={annotated_row_indices[-1]}] "
+            )
+        ):
+            # csv.reader drops a final one-column empty record. Feishu still
+            # reports its annotated row prefix, so restore that explicit blank.
+            rows.append([""])
+        response_row_indices = [int(value) for value in data.get("row_indices") or []]
+        if len(rows) == len(response_row_indices):
+            row_indices = response_row_indices
+        elif len(rows) == len(annotated_row_indices):
+            # Feishu may report the full requested row index vector while omitting
+            # a trailing all-empty row from annotated_csv. The row prefixes remain
+            # the authoritative coordinates for every returned logical record.
+            row_indices = annotated_row_indices
+        else:
             raise LarkCliGatewayError(
-                f"飞书CSV行号与内容数量不一致：{len(row_indices)} != {len(rows)}"
+                "飞书CSV行号与内容数量不一致："
+                f"response={len(response_row_indices)}, "
+                f"annotated={len(annotated_row_indices)}, rows={len(rows)}"
             )
         return [(int(index), [str(value) for value in row]) for index, row in zip(row_indices, rows)]
 
@@ -405,7 +434,7 @@ class LarkCliFeishuSheetGateway:
         rows = self._read_rows(
             spreadsheet_token=self.pending_spreadsheet_token,
             sheet_id=sheet_id,
-            cell_range="A7:Q5000",
+            cell_range="A7:Q200",
         )
         field_names = [field.name for field in fields(PendingMappingProposal)]
         proposals: list[PendingMappingProposal] = []
@@ -428,7 +457,7 @@ class LarkCliFeishuSheetGateway:
         rows = self._read_rows(
             spreadsheet_token=self.pending_spreadsheet_token,
             sheet_id=sheet_id,
-            cell_range="A7:A5000",
+            cell_range="A7:A200",
         )
         target_row = self._first_empty_row(rows, 7)
         values = [str(getattr(proposal, field.name)) for field in fields(proposal)]
@@ -439,6 +468,49 @@ class LarkCliFeishuSheetGateway:
             end_column="Q",
             values=values,
         )
+
+    def update_pending_proposal_status(
+        self,
+        sheet_id: str,
+        proposal_id: str,
+        status: str,
+    ) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.pending_spreadsheet_token,
+            sheet_id=sheet_id,
+            cell_range="A7:Q200",
+        )
+        matching = [
+            row_number
+            for row_number, values in rows
+            if values and values[0].strip() == proposal_id
+        ]
+        if len(matching) != 1:
+            raise LarkCliGatewayError(
+                f"待确认proposal_id必须唯一，实际{len(matching)}条：{proposal_id}"
+            )
+        self._run(
+            "sheets",
+            "+cells-set",
+            "--as",
+            "user",
+            "--spreadsheet-token",
+            self.pending_spreadsheet_token,
+            "--sheet-id",
+            sheet_id,
+            "--range",
+            f"P{matching[0]}",
+            "--cells",
+            json.dumps([[{"value": status}]], ensure_ascii=False),
+            "--json",
+        )
+        readback = [
+            item
+            for item in self.list_pending_proposals(sheet_id)
+            if item.proposal_id == proposal_id
+        ]
+        if len(readback) != 1 or readback[0].proposal_status != status:
+            raise LarkCliGatewayError("待确认提案状态写入后回读不一致。")
 
     def get_official_repository_metadata(self) -> dict[str, str]:
         rows = self._read_rows(
@@ -451,6 +523,44 @@ class LarkCliFeishuSheetGateway:
             for _, values in rows
             if len(values) >= 2 and values[0].strip()
         }
+
+    def update_official_repository_metadata(
+        self,
+        updates: dict[str, str],
+    ) -> None:
+        if not updates:
+            return
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_metadata_sheet_id,
+            cell_range="A1:B50",
+        )
+        by_key = {
+            values[0].strip(): row_number
+            for row_number, values in rows
+            if values and values[0].strip()
+        }
+        next_row = self._first_empty_row(rows, 2)
+        for key, value in updates.items():
+            row_number = by_key.get(key)
+            if row_number is None:
+                row_number = next_row
+                next_row += 1
+                by_key[key] = row_number
+            self._write_row(
+                spreadsheet_token=self.official_spreadsheet_token,
+                sheet_id=self.official_metadata_sheet_id,
+                row_number=row_number,
+                end_column="B",
+                values=[key, value],
+            )
+        metadata = self.get_official_repository_metadata()
+        for key, value in updates.items():
+            if metadata.get(key, "") != value:
+                raise LarkCliGatewayError(
+                    f"正式映射库元数据{key}写入后回读不一致。"
+                )
+
     def get_official_mapping_revision(self) -> str:
         revision = self.get_official_repository_metadata().get(
             "mapping_revision",
@@ -495,3 +605,158 @@ class LarkCliFeishuSheetGateway:
                 continue
             records.append(dict(zip(expected, padded)))
         return records
+
+    def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None:
+        existing = self.list_official_mapping_records()
+        same_key = [
+            item for item in existing
+            if item.get("mapping_key", "").strip() == record.mapping_key
+        ]
+        if same_key:
+            expected = record.to_dict()
+            if same_key == [expected]:
+                return
+            raise LarkCliGatewayError(
+                f"正式映射mapping_key已存在不同内容，拒绝覆盖：{record.mapping_key}"
+            )
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            cell_range="A2:A5000",
+        )
+        row_number = self._first_empty_row(rows, 2)
+        self._write_row(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            row_number=row_number,
+            end_column="O",
+            values=[str(getattr(record, field.name)) for field in fields(record)],
+        )
+        readback = [
+            item for item in self.list_official_mapping_records()
+            if item.get("mapping_key") == record.mapping_key
+        ]
+        if readback != [record.to_dict()]:
+            raise LarkCliGatewayError("正式映射写入后回读不一致。")
+
+    def update_official_mapping_status(self, mapping_key: str, status: str) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            cell_range="A2:O5000",
+        )
+        matching = [
+            row_number
+            for row_number, values in rows
+            if len(values) >= 2 and values[1].strip() == mapping_key
+        ]
+        if len(matching) != 1:
+            raise LarkCliGatewayError(
+                f"正式映射mapping_key必须唯一，实际{len(matching)}条：{mapping_key}"
+            )
+        self._run(
+            "sheets",
+            "+cells-set",
+            "--as",
+            "user",
+            "--spreadsheet-token",
+            self.official_spreadsheet_token,
+            "--sheet-id",
+            self.official_mapping_sheet_id,
+            "--range",
+            f"K{matching[0]}",
+            "--cells",
+            json.dumps([[{"value": status}]], ensure_ascii=False),
+            "--json",
+        )
+        readback = [
+            item for item in self.list_official_mapping_records()
+            if item.get("mapping_key") == mapping_key
+        ]
+        if len(readback) != 1 or readback[0].get("status") != status:
+            raise LarkCliGatewayError("正式映射状态写入后回读不一致。")
+
+    def list_mapping_publish_logs(self) -> list[dict[str, str]]:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_publish_log_sheet_id,
+            cell_range="A1:N5000",
+        )
+        expected = [field.name for field in fields(MappingPublishLogRecord)]
+        if not rows:
+            raise LarkCliGatewayError("正式映射发布日志Sheet为空。")
+        header = (rows[0][1] + [""] * len(expected))[: len(expected)]
+        if header != expected:
+            raise LarkCliGatewayError("正式映射发布日志表头与合同不一致。")
+        records: list[dict[str, str]] = []
+        for _, values in rows[1:]:
+            padded = (values + [""] * len(expected))[: len(expected)]
+            if padded[0].strip():
+                records.append(dict(zip(expected, padded)))
+        return records
+
+    def upsert_mapping_publish_log(self, record: MappingPublishLogRecord) -> None:
+        existing = self.list_mapping_publish_logs()
+        same_id = [item for item in existing if item.get("event_id") == record.event_id]
+        if same_id:
+            if same_id == [record.to_dict()]:
+                return
+            raise LarkCliGatewayError(
+                f"正式映射发布日志event_id已存在不同内容：{record.event_id}"
+            )
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_publish_log_sheet_id,
+            cell_range="A2:A5000",
+        )
+        row_number = self._first_empty_row(rows, 2)
+        self._write_row(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_publish_log_sheet_id,
+            row_number=row_number,
+            end_column="N",
+            values=[str(getattr(record, field.name)) for field in fields(record)],
+        )
+        readback = [
+            item for item in self.list_mapping_publish_logs()
+            if item.get("event_id") == record.event_id
+        ]
+        if readback != [record.to_dict()]:
+            raise LarkCliGatewayError("正式映射发布日志写入后回读不一致。")
+
+    def update_mapping_publish_log_status(self, event_id: str, status: str) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_publish_log_sheet_id,
+            cell_range="A2:N5000",
+        )
+        matching = [
+            row_number
+            for row_number, values in rows
+            if values and values[0].strip() == event_id
+        ]
+        if len(matching) != 1:
+            raise LarkCliGatewayError(
+                f"发布日志event_id必须唯一，实际{len(matching)}条：{event_id}"
+            )
+        self._run(
+            "sheets",
+            "+cells-set",
+            "--as",
+            "user",
+            "--spreadsheet-token",
+            self.official_spreadsheet_token,
+            "--sheet-id",
+            self.official_publish_log_sheet_id,
+            "--range",
+            f"M{matching[0]}",
+            "--cells",
+            json.dumps([[{"value": status}]], ensure_ascii=False),
+            "--json",
+        )
+        readback = [
+            item for item in self.list_mapping_publish_logs()
+            if item.get("event_id") == event_id
+        ]
+        if len(readback) != 1 or readback[0].get("status") != status:
+            raise LarkCliGatewayError("正式映射发布日志状态写入后回读不一致。")

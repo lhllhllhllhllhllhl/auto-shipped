@@ -68,8 +68,18 @@ class CompanyRegistryTests(unittest.TestCase):
             mappings_path=PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
         )
         self.assertEqual(result["status"], "ready", result["issues"])
-        self.assertEqual(result["company_count"], 3)
-        self.assertEqual(result["workflow_count"], 3)
+        self.assertEqual(result["company_count"], 5)
+        self.assertEqual(result["workflow_count"], 7)
+
+    def test_taojuzi_text_profiles_belong_to_self_operated_company(self) -> None:
+        for profile_id in (
+            "taojuzi_taobao_text_v1",
+            "taojuzi_kqyd_text_v1",
+        ):
+            result = resolve_company_by_source_profile(self.registry, profile_id)
+            self.assertEqual(result.status, "resolved")
+            self.assertIsNotNone(result.company)
+            self.assertEqual(result.company.company_id, "self_operated")
 
 
 if __name__ == "__main__":

@@ -153,6 +153,132 @@
         "docs/RULE_SOURCE_LEDGER.md"
       ],
       "last_verified_on": "2026-10-08"
+    },
+    {
+      "company_id": "self_operated",
+      "display_name": "尚舆自营平台",
+      "aliases": ["我们自己的", "自营天猫", "自营京东", "淘橘子", "淘宝文字单", "KQYD企业店"],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "self_operated_text_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        },
+        {
+          "source_profile_id": "taojuzi_taobao_text_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        },
+        {
+          "source_profile_id": "taojuzi_kqyd_text_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "self_operated_text_guanyi_v1",
+          "source_profile_id": "self_operated_text_v1",
+          "route_id": "self_operated_text_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_self_operated_text_v1",
+          "product_mapping_scope_id": "self_operated_text_v1",
+          "runtime_enabled": true
+        },
+        {
+          "workflow_id": "taojuzi_taobao_text_guanyi_v1",
+          "source_profile_id": "taojuzi_taobao_text_v1",
+          "route_id": "taojuzi_taobao_text_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_taojuzi_taobao_text_v1",
+          "product_mapping_scope_id": "taojuzi_taobao_text_v1",
+          "runtime_enabled": true
+        },
+        {
+          "workflow_id": "taojuzi_kqyd_text_guanyi_v1",
+          "source_profile_id": "taojuzi_kqyd_text_v1",
+          "route_id": "taojuzi_kqyd_text_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_taojuzi_kqyd_text_v1",
+          "product_mapping_scope_id": "taojuzi_kqyd_text_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "agent_text_intake_requires_user_confirmation"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "文字单先完成生成Excel验收，自动提交保持关闭。"
+        }
+      },
+      "source_refs": [
+        "文字订单截图样本：2026-10-08",
+        "用户确认自营天猫/京东店铺、单号和袋商品规则：2026-10-08；根的含义待首次确认",
+        "用户确认淘宝与KQYD文字单均进入淘橘子并使用分钟弹性序号：2026-10-09",
+        "docs/TEXT_ORDER_INTAKE_V0.1.md"
+      ],
+      "last_verified_on": "2026-10-09"
+    },
+    {
+      "company_id": "rongzhida",
+      "display_name": "荣之达",
+      "aliases": ["RZD", "rzd"],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "rongzhida_text_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "rongzhida_text_guanyi_v1",
+          "source_profile_id": "rongzhida_text_v1",
+          "route_id": "rongzhida_text_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_rongzhida_text_v1",
+          "product_mapping_scope_id": "rongzhida_text_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "ready_from_explicit_text_marker"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false
+        }
+      },
+      "source_refs": [
+        "文字订单截图样本：2026-10-08",
+        "用户确认RZD代表荣之达、整批生成分钟弹性序号，以及玉米店铺与恬田/NDD一致：2026-10-08",
+        "用户确认RZD根表示彩袋单棒装且裸棒禁止普通发货：2026-10-09"
+      ],
+      "last_verified_on": "2026-10-09"
     }
   ]
 }

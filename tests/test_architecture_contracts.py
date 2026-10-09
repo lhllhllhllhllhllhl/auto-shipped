@@ -2,12 +2,21 @@ import json
 import unittest
 from pathlib import Path
 
+from auto_shipped.platforms.guanyi import resolve_guanyi_policy_modules
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_json(relative_path: str) -> dict:
     return json.loads((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
+
+
+def load_guanyi_rules(file_name: str) -> dict:
+    return resolve_guanyi_policy_modules(
+        load_json(f"config/platform_rules/guanyi/{file_name}"),
+        PROJECT_ROOT / "config/platform_rules",
+    )
 
 
 class ArchitectureContractTests(unittest.TestCase):
@@ -117,7 +126,13 @@ class ArchitectureContractTests(unittest.TestCase):
         )
 
     def test_tiantian_store_is_product_routed_not_source_default(self):
-        rules = load_json("config/platform_rules/guanyi/tiantian_warehouse_v2.json")
+        raw = load_json("config/platform_rules/guanyi/tiantian_warehouse_v2.json")
+        self.assertNotIn("store_assignment_policy", raw)
+        self.assertEqual(
+            raw["policy_module_refs"]["store_assignment_policy"]["module_id"],
+            "store.corn_to_guangming_manyuanqi.v1",
+        )
+        rules = load_guanyi_rules("tiantian_warehouse_v2.json")
         self.assertNotIn("store", rules["defaults"])
         policy = rules["store_assignment_policy"]
         self.assertEqual(policy["strategy"], "all_items_same_store_by_product")
@@ -125,10 +140,13 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(policy["on_unmatched"], "ask_user")
         self.assertEqual(policy["on_multiple_stores"], "ask_user")
         self.assertEqual(policy["rules"][0]["store"], "光明满元气")
-        self.assertEqual(policy["rules"][0]["match"]["product_codes"], ["JTW8E1"])
+        self.assertEqual(
+            policy["rules"][0]["match"]["product_name_contains_all"],
+            ["玉米"],
+        )
 
     def test_tiantian_buyer_member_uses_explicit_policy(self):
-        rules = load_json("config/platform_rules/guanyi/tiantian_warehouse_v2.json")
+        rules = load_guanyi_rules("tiantian_warehouse_v2.json")
         self.assertNotIn("buyer_member", rules["defaults"])
         policy = rules["buyer_member_policy"]
         self.assertEqual(policy["strategy"], "fixed")
@@ -136,7 +154,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertTrue(policy["confirmed"])
 
     def test_sam_buyer_member_and_bundle_rules_are_explicit(self):
-        rules = load_json("config/platform_rules/guanyi/sam_order_v1.json")
+        rules = load_guanyi_rules("sam_order_v1.json")
         self.assertEqual(
             rules["field_output_policy"]["product_name"]["strategy"],
             "source_name_with_display_spec_for_standard_items",
@@ -218,6 +236,31 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(guard["source_value"], "2026DFYUMI001")
         self.assertTrue(guard["allowed_product_names"])
 
+    def test_package_semantics_are_separate_and_bare_sticks_are_forbidden(self):
+        mappings = load_json("config/catalog/external_sku_mappings.json")
+        self.assertNotIn(
+            "semantic_catalog_match",
+            mappings["source_policies"]["rongzhida_text_v1"],
+        )
+        registry = load_json("config/catalog/package_semantics_v1.json")
+        self.assertEqual(registry["registry_id"], "package_semantics_v1")
+        rzd_rule = registry["source_semantics"]["rongzhida_text_v1"]["rules"][0]
+        self.assertIn("根", rzd_rule["source_spec_values"])
+        self.assertEqual(rzd_rule["semantic_type"], "single_stick_packaged")
+        self.assertEqual(rzd_rule["target_name_contains_all"], ["彩袋单棒装"])
+        forbidden = {
+            (item["product_code"], item["spec_code"])
+            for item in registry["forbidden_shipping_products"]
+        }
+        self.assertEqual(
+            forbidden,
+            {
+                ("HN-RB1", "HNLB40"),
+                ("CN-RB1", "CNLB40"),
+                ("BN-RB1", "BNLB40"),
+            },
+        )
+
     def test_business_rule_catalog_references_known_rules(self):
         schema = load_json("contracts/business_rule_catalog.schema.json")
         catalog = load_json(
@@ -228,6 +271,39 @@ class ArchitectureContractTests(unittest.TestCase):
         for scope in catalog["scopes"].values():
             for rule_ids in scope["required_rules"].values():
                 self.assertTrue(set(rule_ids).issubset(known))
+
+    def test_all_approved_guanyi_routes_govern_white_label_library(self):
+        routing = load_json("config/routing/order_routes_v1.json")
+        catalog = load_json(
+            "config/business_rules/shangyu_sop_rule_catalog_v1.json"
+        )
+        rule_profiles = {
+            payload["profile_id"]: payload
+            for path in (PROJECT_ROOT / "config/platform_rules/guanyi").glob("*.json")
+            if (payload := json.loads(path.read_text(encoding="utf-8"))).get(
+                "profile_id"
+            )
+        }
+        approved = [
+            route
+            for route in routing["routes"]
+            if route.get("approval_status") == "approved_for_conversion_test"
+        ]
+        self.assertTrue(approved)
+        for route in approved:
+            scope = catalog["scopes"][route["business_rule_scope_id"]]
+            self.assertIn(
+                "GY-DAILY-GOODS-WHITE-LABEL",
+                scope["required_rules"]["conversion"],
+            )
+            coverage = rule_profiles[route["platform_rules_profile_id"]][
+                "business_rule_coverage"
+            ]["rules"]["GY-DAILY-GOODS-WHITE-LABEL"]
+            self.assertEqual(coverage["status"], "implemented")
+            self.assertEqual(
+                coverage["implementation_ref"],
+                "guanyi.seller_remark.white_label_sku_library",
+            )
 
     def test_company_registry_indexes_modules_without_copying_business_rules(self):
         schema = load_json("contracts/company_registry.schema.json")
@@ -269,7 +345,7 @@ class ArchitectureContractTests(unittest.TestCase):
             "guanyi_sam_order_v1",
         )
 
-    def test_feishu_mapping_governance_has_runtime_sync_but_owner_publisher_is_pending(self):
+    def test_feishu_mapping_governance_has_owner_publisher_and_fail_closed_controls(self):
         config = load_json(
             "config/integrations/feishu_mapping_governance_v1.json"
         )
@@ -282,7 +358,7 @@ class ArchitectureContractTests(unittest.TestCase):
 
         self.assertEqual(
             config["status"],
-            "shared_mapping_runtime_ready_publisher_pending",
+            "shared_mapping_runtime_ready",
         )
         self.assertEqual(
             config["adapter_status"]["lark_cli_pending_gateway"],
@@ -292,7 +368,13 @@ class ArchitectureContractTests(unittest.TestCase):
             config["adapter_status"]["official_mapping_snapshot"],
             "ready",
         )
-        self.assertEqual(config["adapter_status"]["owner_publisher"], "pending")
+        self.assertEqual(config["adapter_status"]["owner_publisher"], "ready")
+        self.assertTrue(config["publisher_policy"]["allowed_user_ids"])
+        self.assertEqual(
+            config["publisher_policy"]["conflict_policy"],
+            "fail_entire_batch",
+        )
+        self.assertTrue(config["publisher_policy"]["change_log_required"])
         self.assertEqual(
             config["official_repository"]["spreadsheet_token"],
             "QsLYsongYhoIdXtaL2GcB8Rinwe",

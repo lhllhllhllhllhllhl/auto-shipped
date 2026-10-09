@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "registry_id": "package_semantics_v1",
+  "version": 1,
+  "status": "active",
+  "purpose": "把公司文字订单中的数量单位与管易商品包装分离；正式规则随Skill分发，未登记表达必须追问。",
+  "product_family_rules": [
+    {
+      "family_id": "yellow_corn",
+      "source_name_contains_any": ["黄糯"],
+      "target_name_contains_all": ["黄糯", "玉米"]
+    },
+    {
+      "family_id": "flower_corn",
+      "source_name_contains_any": ["花糯"],
+      "target_name_contains_all": ["花糯", "玉米"]
+    },
+    {
+      "family_id": "white_corn",
+      "source_name_contains_any": ["白糯"],
+      "target_name_contains_all": ["白糯", "玉米"]
+    }
+  ],
+  "tracked_source_units": ["根", "袋", "盒", "份", "套", "礼盒", "家庭装", "裸棒"],
+  "default_candidate": {
+    "source_unit": "根",
+    "semantic_type": "single_stick_packaged",
+    "target_name_contains_all": ["彩袋单棒装"],
+    "action": "require_first_confirmation_per_source_profile"
+  },
+  "source_semantics": {
+    "rongzhida_text_v1": {
+      "confirmed": true,
+      "rules": [
+        {
+          "rule_id": "rzd_root_to_single_stick_v1",
+          "source_spec_values": ["根", "单根", "单棒", "单根装", "单棒装"],
+          "semantic_type": "single_stick_packaged",
+          "quantity_strategy": "same_as_source",
+          "target_name_contains_all": ["彩袋单棒装"]
+        }
+      ],
+      "source": "用户于2026-10-09确认：RZD文字订单中的一根、两根表示彩袋单棒装，数量按根数原样写入。"
+    },
+    "self_operated_text_v1": {
+      "confirmed": true,
+      "rules": [
+        {
+          "rule_id": "self_operated_bag_to_eight_pack_v1",
+          "source_spec_values": ["袋"],
+          "semantic_type": "eight_stick_family_pack",
+          "quantity_strategy": "same_as_source",
+          "sticks_per_target_unit": 8,
+          "target_name_contains_all": ["8棒家庭装"]
+        }
+      ],
+      "source": "用户于2026-10-08确认：尚舆自营天猫/京东文字玉米单中的袋表示8棒家庭装；自营根尚未登记，首次出现时追问。"
+    }
+  },
+  "forbidden_shipping_products": [
+    {
+      "product_code": "HN-RB1",
+      "spec_code": "HNLB40",
+      "reason": "黄糯裸棒仅用于试吃，不允许进入普通发货订单。"
+    },
+    {
+      "product_code": "CN-RB1",
+      "spec_code": "CNLB40",
+      "reason": "花糯裸棒仅用于试吃，不允许进入普通发货订单。"
+    },
+    {
+      "product_code": "BN-RB1",
+      "spec_code": "BNLB40",
+      "reason": "白糯裸棒仅用于试吃，不允许进入普通发货订单。"
+    }
+  ],
+  "proposal_governance": {
+    "local_state": "state/package-semantics/pending",
+    "exportable": true,
+    "contains_order_or_recipient_data": false,
+    "publication_policy": "用户Agent只保存待登记提案；主系统所有者审核后更新本正式库并重新发布Skill。"
+  }
+}

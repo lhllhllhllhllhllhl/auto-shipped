@@ -5,6 +5,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from auto_shipped.platforms.guanyi.policy_modules import (
+    GuanyiPolicyModuleError,
+    resolve_guanyi_policy_modules,
+)
+
 
 class CompanyRegistryError(ValueError):
     """Raised when the company registry itself is structurally unsafe to use."""
@@ -269,6 +274,14 @@ def audit_company_registry(
             rules_profile_id = workflow.get("platform_rules_profile_id")
             if rules_profile_id and str(rules_profile_id) not in platform_rules:
                 add("PLATFORM_RULES_REFERENCE_MISSING", location, str(rules_profile_id))
+            elif rules_profile_id:
+                try:
+                    resolve_guanyi_policy_modules(
+                        platform_rules[str(rules_profile_id)],
+                        platform_rules_dir,
+                    )
+                except GuanyiPolicyModuleError as exc:
+                    add("PLATFORM_POLICY_MODULE_INVALID", location, str(exc))
             mapping_scope = str(workflow.get("product_mapping_scope_id") or "")
             if mapping_scope and mapping_scope not in mapping_scopes:
                 add("PRODUCT_MAPPING_SCOPE_MISSING", location, mapping_scope)

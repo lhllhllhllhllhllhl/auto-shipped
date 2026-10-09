@@ -1,0 +1,26 @@
+{
+  "profile_id": "taojuzi_taobao_text_v1",
+  "company_id": "self_operated",
+  "source_label": "淘橘子淘宝文字订单",
+  "source_kind": "text_or_image",
+  "order_type": "manual_channel_order",
+  "adapter": "adaptive_excel_parsed",
+  "version": 1,
+  "enabled": true,
+  "detection": {},
+  "text_intake": {
+    "source_channel_markers": ["淘宝", "TAOBAO", "Taobao"],
+    "product_identity": "confirmed_source_name_and_spec_mapping",
+    "order_number_policy": {
+      "strategy": "current_datetime_sequence",
+      "prefix": "TB",
+      "datetime_format": "%Y%m%d%H%M",
+      "sequence_start": 1,
+      "minimum_sequence_width": 2,
+      "timezone": "Asia/Shanghai",
+      "sequence_scope": "single_computer_local_minute_ledger",
+      "confirmed": true
+    },
+    "evidence": "用户于2026-10-09确认：淘宝文字单进入淘橘子；缺来源单号时使用TB+上海时区整批生成分钟YYYYMMDDHHmm+最少两位弹性序号，公共管易层再追加A。"
+  }
+}

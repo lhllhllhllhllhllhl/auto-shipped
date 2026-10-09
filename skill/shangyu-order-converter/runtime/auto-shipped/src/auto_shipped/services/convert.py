@@ -6,7 +6,11 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from auto_shipped.catalog import ProductCatalog
+from auto_shipped.catalog import (
+    ProductCatalog,
+    WhiteLabelLibraryError,
+    load_white_label_library,
+)
 from auto_shipped.companies import (
     CompanyRegistryError,
     load_company_registry,
@@ -17,9 +21,11 @@ from auto_shipped.detection import DetectionResult, detect_source, load_source_p
 from auto_shipped.domain import ClarificationRequest, deduplicate_clarifications
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
+    GuanyiPolicyModuleError,
     build_custom_import_lines,
     preflight_custom_import,
     render_custom_import,
+    resolve_guanyi_policy_modules,
 )
 from auto_shipped.routing import RouteDecision, load_routing, resolve_route
 from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
@@ -197,6 +203,10 @@ def convert_order_file(
     business_rule_catalog_path: str | Path = PROJECT_ROOT
     / "config/business_rules/shangyu_sop_rule_catalog_v1.json",
     mappings_path: str | Path = PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+    package_semantics_path: str | Path = PROJECT_ROOT
+    / "config/catalog/package_semantics_v1.json",
+    white_label_library_path: str | Path = PROJECT_ROOT
+    / "config/catalog/white_label_skus_v1.json",
     guanyi_template_path: str | Path = PROJECT_ROOT
     / "assets/templates/guanyi/自定义订单导入模板.xlsx",
     source_profile_hint: str | None = None,
@@ -588,6 +598,24 @@ def convert_order_file(
             route=route,
             parsed_order_count=len(parsed.orders),
         )
+    try:
+        rules = resolve_guanyi_policy_modules(rules, platform_rules_dir)
+    except GuanyiPolicyModuleError as exc:
+        return _needs_input(
+            source_file,
+            [
+                ClarificationRequest(
+                    code="PLATFORM_POLICY_MODULE_INVALID",
+                    scope="batch",
+                    question="管易共享规则模块无法解析，请先修复规则配置。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            ],
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+        )
 
     if not route.business_rule_scope_id:
         return _needs_input(
@@ -642,6 +670,7 @@ def convert_order_file(
         catalog = ProductCatalog.from_files(
             catalog_csv,
             mappings_path,
+            policy_paths=(package_semantics_path,),
             mapping_overlay_paths=mapping_overlay_paths,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -660,11 +689,30 @@ def convert_order_file(
             route=route,
             parsed_order_count=len(parsed.orders),
         )
+    try:
+        white_label_library = load_white_label_library(white_label_library_path)
+    except WhiteLabelLibraryError as exc:
+        return _needs_input(
+            source_file,
+            [
+                ClarificationRequest(
+                    code="WHITE_LABEL_LIBRARY_UNAVAILABLE",
+                    scope="batch",
+                    question="白标SKU库无法安全使用，请先修复版本化白标配置。",
+                    reason=str(exc),
+                    answer_type="file",
+                )
+            ],
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+        )
     built = build_custom_import_lines(
         parsed.orders,
         catalog,
         rules,
         platform_profile,
+        white_label_library=white_label_library,
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )

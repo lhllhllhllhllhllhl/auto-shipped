@@ -33,6 +33,34 @@
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_bundle_expansion_only",
       "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "self_operated_text_v1": {
+      "source_identifier_type": "product_name",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": true,
+      "name_matching": "semantic_name_and_unit_exact_unique",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "taojuzi_taobao_text_v1": {
+      "source_identifier_type": "product_name",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": false,
+      "name_matching": "confirmed_mapping_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "taojuzi_kqyd_text_v1": {
+      "source_identifier_type": "product_name",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": false,
+      "name_matching": "confirmed_mapping_only",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "rongzhida_text_v1": {
+      "source_identifier_type": "product_name",
+      "allow_direct_catalog_identifier": false,
+      "allow_exact_catalog_name": true,
+      "name_matching": "semantic_name_and_unit_exact_unique",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
     }
   },
   "mappings": []

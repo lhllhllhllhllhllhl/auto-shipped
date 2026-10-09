@@ -8,6 +8,9 @@ from pathlib import Path
 from auto_shipped.catalog import ProductCatalog, ProductRecord
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
 class ProductCatalogTests(unittest.TestCase):
     def test_unconfirmed_external_mapping_resolves_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -285,6 +288,150 @@ class ProductCatalogTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "unconfirmed")
         self.assertIn("缺少已登记", result.reason)
+
+    def test_confirmed_semantic_name_and_unit_match_unique_catalog_product(self) -> None:
+        records = [
+            ProductRecord("HN-RB1", "黄糯玉米（裸棒）", "HNLB40", "40棒/箱", 0, "仓"),
+            ProductRecord("GMHN-1", "光明满元气 黄糯玉米 彩袋单棒装", "BC1", "50棒/箱", 0, "仓"),
+            ProductRecord("GMCN-1", "光明满元气 花糯玉米 彩袋单棒装", "BC2", "50棒/箱", 0, "仓"),
+        ]
+        policies = {
+            "manual_text": {
+                "semantic_catalog_match": {
+                    "strategy": "configured_name_tokens_and_source_spec",
+                    "confirmed": True,
+                    "name_rules": [
+                        {
+                            "source_name_contains_any": ["黄糯"],
+                            "target_name_contains_all": ["黄糯", "玉米"],
+                        },
+                        {
+                            "source_name_contains_any": ["花糯"],
+                            "target_name_contains_all": ["花糯", "玉米"],
+                        },
+                    ],
+                    "spec_rules": [
+                        {
+                            "source_spec_values": ["根"],
+                            "target_name_contains_all": ["裸棒"],
+                        },
+                        {
+                            "source_spec_values": ["袋"],
+                            "target_name_contains_all": ["彩袋单棒装"],
+                        },
+                    ],
+                }
+            }
+        }
+        catalog = ProductCatalog(records, [], policies)
+        root = catalog.resolve(
+            "",
+            source_profile_id="manual_text",
+            source_product_name="黄糯",
+            source_spec="根",
+        )
+        bag = catalog.resolve(
+            "",
+            source_profile_id="manual_text",
+            source_product_name="花糯",
+            source_spec="袋",
+        )
+        self.assertEqual(root.status, "confirmed")
+        self.assertEqual(root.product.product_code, "HN-RB1")
+        self.assertEqual(bag.status, "confirmed")
+        self.assertEqual(bag.product.product_code, "GMCN-1")
+
+    def test_self_operated_bag_resolves_to_eight_stick_family_pack(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            policy_paths=(
+                PROJECT_ROOT / "config/catalog/package_semantics_v1.json",
+            ),
+        )
+        flower = catalog.resolve(
+            "",
+            source_profile_id="self_operated_text_v1",
+            source_product_name="花糯",
+            source_spec="袋",
+        )
+        yellow = catalog.resolve(
+            "",
+            source_profile_id="self_operated_text_v1",
+            source_product_name="黄糯",
+            source_spec="袋",
+        )
+        self.assertEqual(flower.status, "confirmed")
+        self.assertEqual(flower.product.product_code, "JTTZE1")
+        self.assertEqual(flower.product.spec_code, "6974768564835")
+        self.assertEqual(yellow.status, "confirmed")
+        self.assertEqual(yellow.product.product_code, "JTW8E1")
+        self.assertEqual(yellow.product.spec_code, "6974768564811")
+
+    def test_rongzhida_root_resolves_to_packaged_single_stick(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            policy_paths=(
+                PROJECT_ROOT / "config/catalog/package_semantics_v1.json",
+            ),
+        )
+        yellow = catalog.resolve(
+            "",
+            source_profile_id="rongzhida_text_v1",
+            source_product_name="黄糯",
+            source_spec="根",
+        )
+        self.assertEqual(yellow.status, "confirmed")
+        self.assertEqual(yellow.product.product_code, "GMHN-1")
+        self.assertEqual(yellow.product.spec_code, "6974768564729")
+
+    def test_unregistered_source_unit_requires_package_semantics_confirmation(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            policy_paths=(
+                PROJECT_ROOT / "config/catalog/package_semantics_v1.json",
+            ),
+        )
+        result = catalog.resolve(
+            "",
+            source_profile_id="self_operated_text_v1",
+            source_product_name="黄糯",
+            source_spec="根",
+        )
+        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.match_method, "package_semantics_unregistered")
+        self.assertIsNone(result.product)
+
+        pack_expression = catalog.resolve(
+            "",
+            source_profile_id="self_operated_text_v1",
+            source_product_name="黄糯",
+            source_spec="8根装",
+        )
+        self.assertEqual(pack_expression.status, "unconfirmed")
+        self.assertEqual(
+            pack_expression.match_method,
+            "package_semantics_unregistered",
+        )
+
+    def test_bare_stick_expression_is_forbidden_for_shipping(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            policy_paths=(
+                PROJECT_ROOT / "config/catalog/package_semantics_v1.json",
+            ),
+        )
+        result = catalog.resolve(
+            "",
+            source_profile_id="rongzhida_text_v1",
+            source_product_name="黄糯",
+            source_spec="裸棒",
+        )
+        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.match_method, "shipping_expression_forbidden")
 
 
 if __name__ == "__main__":

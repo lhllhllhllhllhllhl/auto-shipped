@@ -8,6 +8,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from auto_shipped.catalog import WhiteLabelLibrary
 from auto_shipped.catalog.product_catalog import ProductCatalog, ProductRecord
 from auto_shipped.domain import (
     ParsedItem,
@@ -88,6 +89,31 @@ def confirmed_rules() -> dict:
                     "minimum_quantity": 2,
                 }
             ],
+        },
+        "note_routing_policy": {
+            "strategy": "courier_instructions_to_address_other_notes_to_seller",
+            "explicit_extension_field": "delivery_instruction",
+            "courier_keywords": [
+                "送货上门",
+                "送达",
+                "派送",
+                "配送",
+                "放门口",
+                "驿站",
+                "快递柜",
+                "丰巢",
+                "电话联系",
+                "来电",
+                "联系收件人",
+                "敲门",
+                "门铃",
+                "轻放",
+            ],
+            "split_pattern": r"[；;，,\n\r]+",
+            "address_note_open": "（",
+            "address_note_close": "）",
+            "separator": "；",
+            "confirmed": True,
         },
         "seller_remark_policy": {
             "strategy": "source_note_then_system_notes_deduplicated",
@@ -173,6 +199,133 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(line["区"], "宝山区")
         self.assertEqual(line["订单创建时间"], "2026-09-20 14:09:15")
         self.assertEqual(line["物流公司"], "中通快递（重货）")
+
+    def test_white_label_library_adds_one_order_level_system_remark(self) -> None:
+        order = parsed_order()
+        order.source_note = "周末发货"
+        library = WhiteLabelLibrary(
+            library_id="test_white_label",
+            version=1,
+            remark_token="白标商品",
+            sku_keys=frozenset({("P1", "S1")}),
+        )
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+            white_label_library=library,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.lines[0]["卖家备注"], "周末发货；白标商品")
+
+    def test_confirmed_bare_stick_mapping_is_blocked_for_shipping(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "黄糯玉米（裸棒）", "S1", "40棒/箱", 100, "上海仓")],
+            {
+                "EXT-1": {
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            },
+            package_semantics_registry={
+                "forbidden_shipping_products": [
+                    {
+                        "product_code": "P1",
+                        "spec_code": "S1",
+                        "reason": "裸棒仅用于试吃",
+                    }
+                ]
+            },
+        )
+        result = build_custom_import_lines(
+            [parsed_order()],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "needs_input")
+        self.assertEqual(result.lines, [])
+        self.assertIn(
+            "SHIPPING_PRODUCT_FORBIDDEN",
+            {item.code for item in result.clarifications},
+        )
+
+    def test_registered_pack_content_count_converts_only_complete_packs(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "黄糯玉米8棒家庭装", "S1", "8袋/箱", 100, "上海仓")],
+            package_semantics_registry={
+                "product_family_rules": [
+                    {
+                        "source_name_contains_any": ["黄糯"],
+                        "target_name_contains_all": ["黄糯", "玉米"],
+                    }
+                ],
+                "tracked_source_units": ["根"],
+                "source_semantics": {
+                    "company_x_text_v1": {
+                        "confirmed": True,
+                        "rules": [
+                            {
+                                "rule_id": "company_x_roots_to_eight_pack_v1",
+                                "source_spec_values": ["根"],
+                                "target_name_contains_all": ["8棒家庭装"],
+                                "quantity_strategy": "divide_by_sticks_per_target_unit",
+                                "sticks_per_target_unit": 8,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        order = parsed_order()
+        order.source = ParsedSource(
+            profile_id="company_x_text_v1",
+            source_label="公司X文字单",
+            order_type="manual_channel_order",
+            source_order_no="SRC-001",
+            file_name="sample.xlsx",
+            file_fingerprint="sha256:test",
+            sheet_name="Sheet1",
+            row_numbers=(2,),
+        )
+        order.items = [
+            ParsedItem(
+                source_product_name="黄糯",
+                source_spec="根",
+                quantity=16,
+                source_line_no=2,
+            )
+        ]
+        ready = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(ready.status, "ready")
+        self.assertEqual(ready.lines[0]["数量"], 2)
+
+        order.items = [
+            ParsedItem(
+                source_product_name="黄糯",
+                source_spec="根",
+                quantity=10,
+                source_line_no=2,
+            )
+        ]
+        blocked = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(blocked.status, "needs_input")
+        self.assertIn(
+            "CONFIRM_PACKAGE_QUANTITY_CONVERSION",
+            {item.code for item in blocked.clarifications},
+        )
 
     def test_platform_order_number_supports_company_prefix_and_agent_suffix(self) -> None:
         rules = confirmed_rules()
@@ -393,7 +546,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
 
     def test_customer_note_is_written_to_seller_remark(self) -> None:
         order = parsed_order()
-        order.source_note = "周末送达"
+        order.source_note = "抓紧发货"
         result = build_custom_import_lines(
             [order],
             self.catalog,
@@ -401,11 +554,84 @@ class GuanyiCustomImportTests(unittest.TestCase):
             self.profile,
         )
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.lines[0]["卖家备注"], "周末送达")
+        self.assertEqual(result.lines[0]["卖家备注"], "抓紧发货")
+
+    def test_courier_instruction_is_appended_to_recipient_address(self) -> None:
+        order = parsed_order()
+        order.source_note = "送货上门，不准放门口"
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(
+            result.lines[0]["收货地址"],
+            "上海市宝山区测试路1号（送货上门；不准放门口）",
+        )
+        self.assertEqual(result.lines[0]["卖家备注"], "")
+
+    def test_mixed_notes_are_split_between_address_and_seller_remark(self) -> None:
+        order = parsed_order()
+        order.source_note = "抓紧发货；不准放门口"
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(
+            result.lines[0]["收货地址"],
+            "上海市宝山区测试路1号（不准放门口）",
+        )
+        self.assertEqual(result.lines[0]["卖家备注"], "抓紧发货")
+
+    def test_address_instruction_is_not_duplicated(self) -> None:
+        order = parsed_order()
+        order.recipient = ParsedRecipient(
+            name="测试用户",
+            mobile="13800138000",
+            province="上海",
+            city="上海市",
+            district="宝山区",
+            raw_address="上海市宝山区测试路1号（不准放门口）",
+        )
+        order.source_note = "不准放门口"
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(
+            result.lines[0]["收货地址"],
+            "上海市宝山区测试路1号（不准放门口）",
+        )
+        self.assertEqual(result.lines[0]["卖家备注"], "")
+
+    def test_explicit_delivery_instruction_extension_is_supported(self) -> None:
+        order = parsed_order()
+        order.source_note = "抓紧发货"
+        order.source_extensions["delivery_instruction"] = "送货上门"
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(
+            result.lines[0]["收货地址"],
+            "上海市宝山区测试路1号（送货上门）",
+        )
+        self.assertEqual(result.lines[0]["卖家备注"], "抓紧发货")
 
     def test_seller_remark_separator_is_read_from_configuration(self) -> None:
         order = parsed_order()
-        order.source_note = "周末送达"
+        order.source_note = "抓紧发货"
         rules = confirmed_rules()
         rules["seller_remark_policy"]["separator"] = "/"
         result = build_custom_import_lines(
@@ -415,7 +641,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             self.profile,
         )
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.lines[0]["卖家备注"], "周末送达")
+        self.assertEqual(result.lines[0]["卖家备注"], "抓紧发货")
 
     def test_unconfirmed_field_output_policy_blocks_build(self) -> None:
         rules = confirmed_rules()
@@ -474,6 +700,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             confirmed_rules(),
             self.profile,
         )
+        built.lines[0]["规格代码"] = "4548404200030"
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "output.xlsx"
             render_custom_import(
@@ -489,7 +716,9 @@ class GuanyiCustomImportTests(unittest.TestCase):
             self.assertEqual(sheet.max_row, 2)
             self.assertEqual(sheet["B2"].value, "SRC-001A")
             self.assertEqual(sheet["F2"].value, "P1")
+            self.assertEqual(sheet["G2"].value, "4548404200030")
             self.assertEqual(sheet["B2"].number_format, "@")
+            self.assertEqual(sheet["G2"].number_format, "@")
             self.assertEqual(sheet["P2"].value, "13800138000")
             self.assertEqual(sheet["Q2"].value, "13800138000")
             self.assertEqual(sheet["AA2"].value, "中通快递（重货）")

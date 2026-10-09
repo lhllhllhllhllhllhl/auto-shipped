@@ -34,6 +34,12 @@
       "type": "object",
       "additionalProperties": {"$ref": "#/$defs/fieldMapping"}
     },
+    "extension_mapping": {
+      "type": "object",
+      "description": "需要保留给公司规则使用、但不属于统一订单核心字段的来源扩展字段。",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
+      "additionalProperties": {"$ref": "#/$defs/fieldMapping"}
+    },
     "batch_defaults": {
       "type": "object",
       "properties": {

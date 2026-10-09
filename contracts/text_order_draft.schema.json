@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/text-order-draft-v1.json",
+  "title": "Shangyu Agent Text Order Draft",
+  "description": "Agent从文字或截图提取的订单草稿。草稿包含收件信息，只能作为本次任务临时输入；对外结果必须脱敏。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "draft_type",
+    "draft_id",
+    "source",
+    "company_id",
+    "orders",
+    "confirmation"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "draft_type": {"const": "agent_text_order_draft"},
+    "draft_id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "required": ["kind", "sha256"],
+      "properties": {
+        "kind": {"enum": ["plain_text", "image_ocr"]},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "business_date": {"type": ["string", "null"], "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "company_id": {"type": ["string", "null"]},
+    "rule_source_profile_id": {"type": ["string", "null"]},
+    "order_number_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["strategy"],
+          "properties": {"strategy": {"const": "source"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "strategy",
+            "business_date",
+            "prefix",
+            "sequence_start",
+            "sequence_width",
+            "confirmation_token"
+          ],
+          "properties": {
+            "strategy": {"const": "date_sequence"},
+            "business_date": {"type": "string", "format": "date"},
+            "prefix": {"type": "string", "pattern": "^[0-9A-Za-z_-]{0,16}$"},
+            "date_format": {"enum": ["%Y%m%d", "%y%m%d"]},
+            "sequence_start": {"type": "integer", "minimum": 0},
+            "sequence_width": {"type": "integer", "minimum": 1, "maximum": 8},
+            "confirmation_token": {"const": "CONFIRM_TEXT_ORDER_NUMBER_GENERATION"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "orders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/order"}
+    },
+    "confirmation": {
+      "type": "object",
+      "required": ["token"],
+      "properties": {
+        "token": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": ["source_product_code", "source_product_name", "source_spec", "quantity", "unit"],
+      "properties": {
+        "source_product_code": {"type": "string"},
+        "source_product_name": {"type": "string"},
+        "source_spec": {"type": "string"},
+        "quantity": {"type": "number", "exclusiveMinimum": 0},
+        "unit": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "uncertainty": {
+      "type": "object",
+      "required": ["field", "reason", "question"],
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "question": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "order": {
+      "type": "object",
+      "required": [
+        "order_ref",
+        "source_channel",
+        "source_order_no",
+        "recipient",
+        "items",
+        "source_carrier",
+        "source_note",
+        "ordered_at",
+        "source_extensions",
+        "field_provenance",
+        "uncertainties"
+      ],
+      "properties": {
+        "order_ref": {"type": "string", "minLength": 1},
+        "source_channel": {"type": "string"},
+        "source_order_no": {"type": ["string", "null"]},
+        "recipient": {
+          "type": "object",
+          "required": ["name", "contact", "province", "city", "district", "address"],
+          "properties": {
+            "name": {"type": "string"},
+            "contact": {"type": "string"},
+            "province": {"type": "string"},
+            "city": {"type": "string"},
+            "district": {"type": "string"},
+            "address": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/item"}},
+        "source_carrier": {"type": "string"},
+        "source_note": {"type": "string"},
+        "ordered_at": {"type": ["string", "null"]},
+        "source_extensions": {
+          "type": "object",
+          "properties": {
+            "delivery_instruction": {"type": "string"},
+            "jd_zto_contact_suffix": {"type": "string", "pattern": "^[0-9]{4}$"}
+          },
+          "additionalProperties": {"type": "string"}
+        },
+        "field_provenance": {
+          "type": "object",
+          "required": ["source_channel", "source_order_no", "recipient_name", "contact", "address", "items"],
+          "properties": {
+            "source_channel": {"$ref": "#/$defs/provenance"},
+            "source_order_no": {"$ref": "#/$defs/provenance"},
+            "recipient_name": {"$ref": "#/$defs/provenance"},
+            "contact": {"$ref": "#/$defs/provenance"},
+            "address": {"$ref": "#/$defs/provenance"},
+            "items": {"$ref": "#/$defs/provenance"}
+          },
+          "additionalProperties": {"$ref": "#/$defs/provenance"}
+        },
+        "uncertainties": {"type": "array", "items": {"$ref": "#/$defs/uncertainty"}}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "enum": ["explicit", "user_confirmed", "inferred", "missing"]
+    }
+  }
+}

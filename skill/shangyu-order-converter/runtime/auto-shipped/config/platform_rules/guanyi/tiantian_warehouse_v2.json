@@ -2,7 +2,15 @@
   "profile_id": "guanyi_tiantian_warehouse_v2",
   "source_profile_id": "tiantian_warehouse_v2",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 3,
+  "version": 5,
+  "policy_module_refs": {
+    "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
+    "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales_zero_freight.v1"},
+    "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
+    "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
+    "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
+  },
   "platform_order_number": {
     "strategy": "source_order_no_with_affixes",
     "prefix": "TT",
@@ -10,24 +18,6 @@
     "prefix_meaning": "恬田来源标识",
     "confirmed": true,
     "source": "用户确认：2026-09-30；机器人尾缀A于2026-10-05提升到管易公共平台策略"
-  },
-  "store_assignment_policy": {
-    "strategy": "all_items_same_store_by_product",
-    "confirmed": true,
-    "on_unmatched": "ask_user",
-    "on_multiple_stores": "ask_user",
-    "source": "PDF玉米订单规则、恬田原始样本、人工导入样本和用户确认：2026-09-30",
-    "rules": [
-      {
-        "rule_id": "guangming_corn_jtw8e1",
-        "store": "光明满元气",
-        "match": {
-          "product_codes": ["JTW8E1"],
-          "spec_codes": ["6974768564811"]
-        },
-        "evidence": "外部SKU 2026DFYUMI001已确认映射到JTW8E1/6974768564811；PDF规定玉米订单选择光明满元气；人工样本一致。"
-      }
-    ]
   },
   "field_output_policy": {
     "product_name": {
@@ -56,102 +46,6 @@
       "source": "用户复核人工结果后确认：2026-09-30"
     }
   },
-  "buyer_member_policy": {
-    "strategy": "fixed",
-    "value": "张",
-    "confirmed": true,
-    "source": "用户确认：2026-10-01",
-    "global_rule_note": "所有普通来源填写张；SAM由独立规则包按平台、商品类型、当日日期和跟团号生成。"
-  },
-  "defaults": {
-    "payment_amount": {
-      "value": 0,
-      "confirmed": true,
-      "source": "用户确认：2026-09-27"
-    },
-    "unit_price": {
-      "value": 0,
-      "confirmed": true,
-      "source": "用户确认：2026-09-27"
-    },
-    "freight": {
-      "value": 0,
-      "confirmed": true,
-      "source": "现有规则"
-    },
-    "warehouse_name": {
-      "value": "上海尚舆商贸有限公司",
-      "confirmed": true,
-      "source": "发货SOP"
-    },
-    "payment_method": {
-      "value": "网银在线",
-      "confirmed": true,
-      "source": "现有规则"
-    },
-    "order_type": {
-      "value": "销售订单",
-      "confirmed": true,
-      "source": "发货SOP"
-    },
-    "is_mobile_order": {
-      "value": 0,
-      "confirmed": true,
-      "source": "管易导入说明"
-    },
-    "is_cod": {
-      "value": 0,
-      "confirmed": true,
-      "source": "管易导入说明"
-    },
-    "is_distributor_order": {
-      "value": 0,
-      "confirmed": true,
-      "source": "管易导入说明"
-    }
-  },
-  "logistics_policy": {
-    "strategy": "source_override_then_confirmed_packaging_rules",
-    "source_carrier_priority": true,
-    "source_carrier_aliases": {
-      "韵达": "韵达快递",
-      "韵达快递": "韵达快递",
-      "中通重货": "中通快递（重货）",
-      "中通快递(重货)": "中通快递（重货）",
-      "中通快递（重货）": "中通快递（重货）"
-    },
-    "default_carrier": "韵达快递",
-    "heavy_carrier": "中通快递（重货）",
-    "heavy_conditions": [
-      {
-        "rule_id": "corn_8_pack_quantity_gte_2",
-        "description": "已确认的8棒家庭装合计达到2件（16根）",
-        "match": {
-          "product_codes": ["JTW8E1", "JTTZE1", "JTBN1E1-EH"]
-        },
-        "minimum_quantity": 2
-      },
-      {
-        "rule_id": "corn_10_pack_any_quantity",
-        "description": "已确认映射的玉米10根或10棒礼盒，任意1件",
-        "match": {
-          "product_name_contains_all": ["玉米"],
-          "any_text_contains": ["10根", "10棒"]
-        },
-        "minimum_quantity": 1
-      }
-    ],
-    "future_replacement": "取得ROY确认的重量公式后，仅替换本策略模块，不修改来源解析或模板渲染。",
-    "confirmed": true,
-    "source": "用户确认：2026-09-30；用户于2026-10-05同意来源物流先标准化，未登记名称必须追问。"
-  },
-  "seller_remark_policy": {
-    "strategy": "source_note_then_system_notes_deduplicated",
-    "target_field": "卖家备注",
-    "separator": "；",
-    "confirmed": true,
-    "source": "用户确认：2026-09-29"
-  },
   "business_rule_coverage": {
     "catalog_id": "shangyu_shipping_sop_v1",
     "scope_id": "tiantian_to_guanyi_v1",
@@ -160,7 +54,7 @@
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.store_assignment.by_product",
-        "evidence": "用户于2026-09-30确认不能把恬田来源直接等同于光明满元气店铺；当前仅对已确认商品JTW8E1/6974768564811精确分配光明满元气，未命中或多店铺订单必须追问。"
+        "evidence": "共享玉米店铺模块按已确认管易商品名称中的玉米标识分配光明满元气；非玉米、未映射商品或多店铺订单必须追问。"
       },
       "GY-PLATFORM-ORDER-NUMBER": {
         "status": "implemented",
@@ -226,7 +120,19 @@
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.seller_remark.rule_composition",
-        "evidence": "用户确认客户备注写入卖家备注；按来源备注、系统提示顺序拼接并精确去重。"
+        "evidence": "备注分流后的非快递员备注写入卖家备注；按来源备注、系统提示顺序拼接并精确去重。"
+      },
+      "GY-DAILY-GOODS-WHITE-LABEL": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.seller_remark.white_label_sku_library",
+        "evidence": "商品精确映射后读取独立白标SKU库；任一商品命中则整单卖家备注追加白标商品。"
+      },
+      "GY-DELIVERY-INSTRUCTION-ADDRESS": {
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "guanyi.note_routing.courier_instruction_to_address",
+        "evidence": "共享备注分流模块把送货上门、不准放门口等快递员指令追加到收货地址末尾。"
       },
       "GY-IMPORT-STATUS-PENDING-REVIEW": {
         "status": "implemented",

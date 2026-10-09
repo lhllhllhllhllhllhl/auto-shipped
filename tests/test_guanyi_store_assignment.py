@@ -52,3 +52,54 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
         }
         with self.assertRaises(GuanyiStoreAssignmentError):
             select_store([item("P1"), item("P2")], rules)
+
+    def test_source_channel_assigns_confirmed_store(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "source_extension_exact_map",
+                "source_extension_field": "source_channel",
+                "rules": [
+                    {
+                        "source_values": ["天猫"],
+                        "store": "MANYANGCHI旗舰店（天猫）",
+                    },
+                    {
+                        "source_values": ["京东"],
+                        "store": "MAN YUAN QI旗舰店（京东）",
+                    },
+                ],
+            }
+        }
+        self.assertEqual(
+            select_store(
+                [item("P1")],
+                rules,
+                source_extensions={"source_channel": "天猫"},
+            ),
+            "MANYANGCHI旗舰店（天猫）",
+        )
+        self.assertEqual(
+            select_store(
+                [item("P1")],
+                rules,
+                source_extensions={"source_channel": "京东"},
+            ),
+            "MAN YUAN QI旗舰店（京东）",
+        )
+
+    def test_unknown_source_channel_fails_closed(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "source_extension_exact_map",
+                "source_extension_field": "source_channel",
+                "rules": [
+                    {"source_values": ["天猫"], "store": "天猫店"},
+                ],
+            }
+        }
+        with self.assertRaises(GuanyiStoreAssignmentError):
+            select_store(
+                [item("P1")],
+                rules,
+                source_extensions={"source_channel": "未知平台"},
+            )

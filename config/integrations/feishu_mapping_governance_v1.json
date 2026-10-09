@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "profile_id": "feishu_mapping_governance_v1",
-  "status": "shared_mapping_runtime_ready_publisher_pending",
+  "status": "shared_mapping_runtime_ready",
   "provider_priority": [
     "agent_native_feishu",
     "lark_cli"
@@ -11,7 +11,7 @@
     "agent_native_feishu_gateway": "ready_via_validated_payload_bridge",
     "official_mapping_snapshot": "ready",
     "conversion_fail_closed_gate": "ready",
-    "owner_publisher": "pending"
+    "owner_publisher": "ready"
   },
   "identity_policy": {
     "required_identity_type": "user",
@@ -27,6 +27,16 @@
     "publish_log_sheet_id": "jl3rEi",
     "employee_access": "read_only",
     "publisher_access": "owner_only"
+  },
+  "publisher_policy": {
+    "allowed_user_ids": [
+      "ou_ad7801667206bd5bca7b0a53c053a366"
+    ],
+    "confirmation_token": "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS",
+    "conflict_policy": "fail_entire_batch",
+    "duplicate_policy": "skip_exact_block_conflicting_target",
+    "write_protocol": "fail_closed_two_phase_with_readback",
+    "change_log_required": true
   },
   "pending_repository": {
     "role": "untrusted_proposal_inbox",

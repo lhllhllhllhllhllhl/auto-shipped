@@ -1,0 +1,84 @@
+{
+  "profile_id": "guanyi_taojuzi_taobao_text_v1",
+  "source_profile_id": "taojuzi_taobao_text_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 2,
+  "policy_module_refs": {
+    "store_assignment_policy": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "store.taojuzi_manual_channels.v1"
+    },
+    "buyer_member_policy": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "buyer.normal_zhang.v1"
+    },
+    "defaults": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "defaults.standard_sales_zero_freight.v1"
+    },
+    "logistics_policy": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "logistics.source_override_then_default_yunda.v1"
+    },
+    "note_routing_policy": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "note.courier_instruction_to_address.v1"
+    },
+    "seller_remark_policy": {
+      "registry_id": "guanyi_policy_modules_v1",
+      "module_id": "remark.source_then_system.v1"
+    }
+  },
+  "platform_order_number": {
+    "strategy": "source_order_no",
+    "confirmed": true,
+    "source": "淘宝文字入口先生成TB+上海时间整批生成分钟YYYYMMDDHHmm+最少两位弹性序号；管易公共规则再追加A。"
+  },
+  "field_output_policy": {
+    "product_name": {
+      "strategy": "catalog_product_name",
+      "confirmed": true,
+      "source": "商品名称使用管易商品资料"
+    },
+    "spec_name": {
+      "strategy": "catalog_spec_name",
+      "confirmed": true,
+      "source": "规格名称使用管易商品资料"
+    },
+    "order_created_at": {
+      "strategy": "blank",
+      "confirmed": true,
+      "source": "文字单未提供真实下单时间时留空"
+    },
+    "contact_columns": {
+      "strategy": "mobile_to_both_phone_preserved",
+      "confirmed": true,
+      "source": "平台隐藏号后缀整体保留"
+    },
+    "recipient_region": {
+      "strategy": "source_components",
+      "confirmed": true,
+      "source": "Agent只提取明确省市区；不确定时追问"
+    }
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "taojuzi_taobao_text_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认淘宝文字单进入淘橘子。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "用户确认TB+上海时间整批生成分钟+最少两位弹性序号，公共层追加A。"},
+      "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
+      "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通文字销售订单金额规则。"},
+      "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},
+      "GY-PAYMENT-METHOD": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.payment_method", "evidence": "显式填写网银在线。"},
+      "GY-ORDER-TYPE": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_type", "evidence": "显式填写销售订单。"},
+      "GY-ORDER-FLAGS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_flags", "evidence": "三个导入标记为0。"},
+      "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "来源商品名称与颜色规格通过飞书正式映射按淘橘子淘宝来源隔离。"},
+      "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "文字草稿门禁校验收件信息。"},
+      "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.default_yunda", "evidence": "普通非重货订单默认韵达，来源指定物流仍需登记。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "备注分流后的非快递员备注写入卖家备注。"},
+      "GY-DAILY-GOODS-WHITE-LABEL": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.white_label_sku_library", "evidence": "商品精确映射后读取独立白标SKU库；任一商品命中则整单卖家备注追加白标商品。"},
+      "GY-DELIVERY-INSTRUCTION-ADDRESS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.note_routing.courier_instruction_to_address", "evidence": "共享备注分流模块把快递员指令追加到收货地址末尾。"}
+    }
+  }
+}

@@ -20,6 +20,17 @@ from .official_mappings import (
     validate_official_mapping_snapshot,
     write_official_mapping_snapshot,
 )
+from .owner_publisher import (
+    MappingPublishItem,
+    MappingPublishLogRecord,
+    MappingPublishPlan,
+    MappingPublishResult,
+    OfficialMappingRecord,
+    OwnerMappingPublishError,
+    PUBLISH_CONFIRMATION_TOKEN,
+    plan_pending_mapping_publish,
+    publish_pending_mappings,
+)
 
 __all__ = [
     "FeishuIdentity",
@@ -41,4 +52,13 @@ __all__ = [
     "load_official_mapping_snapshot",
     "validate_official_mapping_snapshot",
     "write_official_mapping_snapshot",
+    "MappingPublishItem",
+    "MappingPublishLogRecord",
+    "MappingPublishPlan",
+    "MappingPublishResult",
+    "OfficialMappingRecord",
+    "OwnerMappingPublishError",
+    "PUBLISH_CONFIRMATION_TOKEN",
+    "plan_pending_mapping_publish",
+    "publish_pending_mappings",
 ]

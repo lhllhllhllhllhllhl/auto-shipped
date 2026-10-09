@@ -53,6 +53,9 @@ class ProductResolution:
     match_method: str = ""
     identifier_type: str = ""
     candidates: tuple[ProductRecord, ...] = ()
+    package_rule_id: str = ""
+    quantity_strategy: str = "same_as_source"
+    sticks_per_target_unit: int | None = None
 
 
 class ProductCatalog:
@@ -61,9 +64,22 @@ class ProductCatalog:
         records: list[ProductRecord],
         external_mappings: dict[str, dict[str, Any]] | list[dict[str, Any]] | None = None,
         source_policies: dict[str, dict[str, Any]] | None = None,
+        package_semantics_registry: dict[str, Any] | None = None,
     ) -> None:
         self.records = records
         self.source_policies = source_policies or {}
+        self.package_semantics_registry = package_semantics_registry or {}
+        self._forbidden_shipping_products = {
+            (
+                clean_identifier(item.get("product_code")),
+                clean_identifier(item.get("spec_code")),
+            ): clean_identifier(item.get("reason")) or "该商品不允许进入普通发货订单"
+            for item in self.package_semantics_registry.get(
+                "forbidden_shipping_products", []
+            )
+            if clean_identifier(item.get("product_code"))
+            and clean_identifier(item.get("spec_code"))
+        }
         self._by_product_code: dict[str, list[ProductRecord]] = {}
         self._by_spec_code: dict[str, list[ProductRecord]] = {}
         self._by_product_name: dict[str, list[ProductRecord]] = {}
@@ -125,6 +141,7 @@ class ProductCatalog:
         catalog_csv: str | Path,
         mappings_json: str | Path,
         *,
+        policy_paths: Iterable[str | Path] = (),
         mapping_overlay_paths: Iterable[str | Path] = (),
     ) -> "ProductCatalog":
         path = Path(catalog_csv)
@@ -151,6 +168,14 @@ class ProductCatalog:
             for row in rows
         ]
         documents = [json.loads(Path(mappings_json).read_text(encoding="utf-8"))]
+        package_semantics_registry: dict[str, Any] = {}
+        for policy_path in policy_paths:
+            policy = Path(policy_path)
+            if not policy.is_file():
+                continue
+            document = json.loads(policy.read_text(encoding="utf-8"))
+            if document.get("registry_id") == "package_semantics_v1":
+                package_semantics_registry = document
         for overlay_path in mapping_overlay_paths:
             overlay = Path(overlay_path)
             if overlay.is_file():
@@ -163,7 +188,18 @@ class ProductCatalog:
             mapping_records.extend(
                 cls._normalize_mapping_records(document.get("mappings") or {})
             )
-        return cls(records, mapping_records, source_policies)
+        return cls(
+            records,
+            mapping_records,
+            source_policies,
+            package_semantics_registry,
+        )
+
+    def shipping_forbidden_reason(self, product: ProductRecord) -> str:
+        return self._forbidden_shipping_products.get(
+            (product.product_code, product.spec_code),
+            "",
+        )
 
     def _unique_pair(self, product_code: str, spec_code: str) -> ProductRecord | None:
         candidates = [
@@ -320,6 +356,217 @@ class ProductCatalog:
                 return ""
         return "来源编码命中正式映射，但来源商品名称或规格与该映射的已确认身份不一致"
 
+    def _resolve_semantic_catalog_match(
+        self,
+        *,
+        source_profile_id: str,
+        source_product_name: Any,
+        source_spec: Any,
+    ) -> ProductResolution | None:
+        registry = self.package_semantics_registry
+        if registry:
+            normalized_name = normalize_product_text(source_product_name)
+            normalized_spec = normalize_product_text(source_spec)
+            family_rules = [
+                rule
+                for rule in registry.get("product_family_rules") or []
+                if any(
+                    normalize_product_text(token) in normalized_name
+                    for token in rule.get("source_name_contains_any") or []
+                    if normalize_product_text(token)
+                )
+            ]
+            if len(family_rules) == 1:
+                if "裸棒" in normalized_name or normalize_product_text("裸棒") in normalized_spec:
+                    return ProductResolution(
+                        status="unconfirmed",
+                        external_sku=f"{clean_identifier(source_product_name)} / {clean_identifier(source_spec)}",
+                        product=None,
+                        confirmed=False,
+                        reason="裸棒仅用于试吃，当前普通发货流程已禁用。请确认改用哪个正式发货商品。",
+                        match_method="shipping_expression_forbidden",
+                        identifier_type="product_name_spec",
+                    )
+                source_semantics = (
+                    registry.get("source_semantics", {}).get(source_profile_id) or {}
+                )
+                spec_rules = [
+                    rule
+                    for rule in source_semantics.get("rules") or []
+                    if normalized_spec
+                    in {
+                        normalize_product_text(value)
+                        for value in rule.get("source_spec_values") or []
+                        if normalize_product_text(value)
+                    }
+                ]
+                if len(spec_rules) == 1 and source_semantics.get("confirmed") is True:
+                    semantic = {
+                        "strategy": "configured_name_tokens_and_source_spec",
+                        "confirmed": True,
+                        "name_rules": family_rules,
+                        "spec_rules": spec_rules,
+                    }
+                else:
+                    tracked_units = {
+                        normalize_product_text(value)
+                        for value in registry.get("tracked_source_units") or []
+                        if normalize_product_text(value)
+                    }
+                    if normalized_spec and any(
+                        tracked in normalized_spec for tracked in tracked_units
+                    ):
+                        candidate = registry.get("default_candidate") or {}
+                        candidate_text = ""
+                        if normalized_spec == normalize_product_text(
+                            candidate.get("source_unit")
+                        ):
+                            candidate_text = "；当前全局候选是彩袋单棒装且目标数量等于来源根数"
+                        return ProductResolution(
+                            status="unconfirmed",
+                            external_sku=f"{clean_identifier(source_product_name)} / {clean_identifier(source_spec)}",
+                            product=None,
+                            confirmed=False,
+                            reason=(
+                                f"来源配置 {source_profile_id or '未登记来源'} 尚未登记包装表达“"
+                                f"{clean_identifier(source_spec)}”的业务含义{candidate_text}。"
+                            ),
+                            match_method="package_semantics_unregistered",
+                            identifier_type="product_name_spec",
+                        )
+                    semantic = {}
+                if semantic:
+                    return self._resolve_semantic_rules(
+                        semantic=semantic,
+                        source_product_name=source_product_name,
+                        source_spec=source_spec,
+                    )
+
+        policy = self.source_policies.get(source_profile_id) or {}
+        semantic = policy.get("semantic_catalog_match") or {}
+        if not semantic:
+            return None
+        strategy = str(semantic.get("strategy") or "")
+        if strategy != "configured_name_tokens_and_source_spec":
+            return ProductResolution(
+                status="unmapped",
+                external_sku=clean_identifier(source_product_name),
+                product=None,
+                confirmed=False,
+                reason=f"未知语义商品匹配策略：{strategy or '未配置'}",
+                match_method="semantic_catalog_rule_invalid",
+                identifier_type="product_name",
+            )
+        if semantic.get("confirmed") is not True:
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=clean_identifier(source_product_name),
+                product=None,
+                confirmed=False,
+                reason="语义商品匹配规则尚未确认",
+                match_method="semantic_catalog_rule_unconfirmed",
+                identifier_type="product_name",
+            )
+
+        return self._resolve_semantic_rules(
+            semantic=semantic,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+        )
+
+    def _resolve_semantic_rules(
+        self,
+        *,
+        semantic: dict[str, Any],
+        source_product_name: Any,
+        source_spec: Any,
+    ) -> ProductResolution | None:
+        normalized_name = normalize_product_text(source_product_name)
+        normalized_spec = normalize_product_text(source_spec)
+        name_rules = [
+            rule
+            for rule in semantic.get("name_rules") or []
+            if any(
+                normalize_product_text(token) in normalized_name
+                for token in rule.get("source_name_contains_any") or []
+                if normalize_product_text(token)
+            )
+        ]
+        spec_rules = [
+            rule
+            for rule in semantic.get("spec_rules") or []
+            if normalized_spec
+            in {
+                normalize_product_text(value)
+                for value in rule.get("source_spec_values") or []
+                if normalize_product_text(value)
+            }
+        ]
+        if len(name_rules) != 1 or len(spec_rules) != 1:
+            return None
+        target_tokens = [
+            normalize_product_text(value)
+            for value in (
+                list(name_rules[0].get("target_name_contains_all") or [])
+                + list(spec_rules[0].get("target_name_contains_all") or [])
+            )
+            if normalize_product_text(value)
+        ]
+        candidates = [
+            record
+            for record in self.records
+            if target_tokens
+            and all(
+                token in normalize_product_text(record.product_name)
+                for token in target_tokens
+            )
+        ]
+        unique_candidates = {
+            (record.product_code, record.spec_code): record for record in candidates
+        }
+        label = f"{clean_identifier(source_product_name)} / {clean_identifier(source_spec)}"
+        if len(unique_candidates) == 1:
+            product = next(iter(unique_candidates.values()))
+            return ProductResolution(
+                status="confirmed",
+                external_sku=label,
+                product=product,
+                confirmed=True,
+                reason="来源品类和包装单位按已确认规则在管易商品资料中唯一命中",
+                match_method="semantic_catalog_exact_unique",
+                identifier_type="product_name_spec",
+                package_rule_id=clean_identifier(spec_rules[0].get("rule_id")),
+                quantity_strategy=clean_identifier(
+                    spec_rules[0].get("quantity_strategy")
+                )
+                or "same_as_source",
+                sticks_per_target_unit=(
+                    int(spec_rules[0]["sticks_per_target_unit"])
+                    if spec_rules[0].get("sticks_per_target_unit") is not None
+                    else None
+                ),
+            )
+        if unique_candidates:
+            return ProductResolution(
+                status="ambiguous",
+                external_sku=label,
+                product=None,
+                confirmed=False,
+                reason="来源品类和包装单位命中多个管易商品",
+                match_method="semantic_catalog_exact_unique",
+                identifier_type="product_name_spec",
+                candidates=tuple(unique_candidates.values()),
+            )
+        return ProductResolution(
+            status="unmapped",
+            external_sku=label,
+            product=None,
+            confirmed=False,
+            reason="来源品类和包装单位没有在管易商品资料中找到唯一商品",
+            match_method="semantic_catalog_exact_unique",
+            identifier_type="product_name_spec",
+        )
+
     def resolve(
         self,
         external_sku: Any,
@@ -450,6 +697,14 @@ class ProductCatalog:
                         "product_name",
                         tuple(unique_candidates.values()),
                     )
+
+        semantic_resolution = self._resolve_semantic_catalog_match(
+            source_profile_id=source_profile_id,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+        )
+        if semantic_resolution is not None:
+            return semantic_resolution
 
         display = key or name
         return ProductResolution(

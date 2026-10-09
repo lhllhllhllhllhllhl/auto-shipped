@@ -85,6 +85,7 @@ def gateway(runner: FakeLarkRunner) -> LarkCliFeishuSheetGateway:
         official_spreadsheet_token="official-token",
         official_mapping_sheet_id="mapping",
         official_metadata_sheet_id="meta",
+        official_publish_log_sheet_id="publish-log",
         runner=runner,
     )
 
@@ -133,6 +134,50 @@ class LarkCliGatewayTests(unittest.TestCase):
             )
             with self.assertRaises(LarkCliGatewayError):
                 LarkCliFeishuSheetGateway.from_config(path)
+
+    def test_annotated_row_prefixes_recover_when_response_has_extra_blank_index(self) -> None:
+        def runner(command: Sequence[str]) -> dict[str, Any]:
+            if "+csv-get" not in command:
+                raise AssertionError(f"unexpected command: {command}")
+            return {
+                "ok": True,
+                "data": {
+                    "annotated_csv": "[row=7] value\n[row=8] ",
+                    "row_indices": [7, 8, 9],
+                },
+            }
+
+        client = gateway(runner)  # type: ignore[arg-type]
+        self.assertEqual(
+            client._read_rows(
+                spreadsheet_token="pending-token",
+                sheet_id="personal",
+                cell_range="A7:A5000",
+            ),
+            [(7, ["value"]), (8, [""])],
+        )
+
+    def test_final_one_column_blank_row_is_not_dropped(self) -> None:
+        def runner(command: Sequence[str]) -> dict[str, Any]:
+            if "+csv-get" not in command:
+                raise AssertionError(f"unexpected command: {command}")
+            return {
+                "ok": True,
+                "data": {
+                    "annotated_csv": "[row=7] value\n[row=8] ",
+                    "row_indices": [7, 8],
+                },
+            }
+
+        client = gateway(runner)  # type: ignore[arg-type]
+        self.assertEqual(
+            client._read_rows(
+                spreadsheet_token="pending-token",
+                sheet_id="personal",
+                cell_range="A7:A200",
+            ),
+            [(7, ["value"]), (8, [""])],
+        )
 
 
 if __name__ == "__main__":
