@@ -3,7 +3,7 @@
   "profile_id": "guanyi_sam_order_v1",
   "source_profile_id": "sam_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 10,
+  "version": 11,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.sam_fixed.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -50,7 +50,7 @@
   },
   "buyer_member_policy": {
     "strategy": "sam_product_type_date_group",
-    "platform_prefix": "sam",
+    "platform_prefix_source": "company_abbreviation_lower",
     "group_number_field": "sam_group_number",
     "group_separator": "_",
     "date_format": "%y%m%d",

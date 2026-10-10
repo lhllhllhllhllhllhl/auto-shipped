@@ -2,6 +2,11 @@ import json
 import unittest
 from pathlib import Path
 
+from auto_shipped.companies import (
+    load_company_registry,
+    resolve_company_abbreviation_references,
+    resolve_company_by_source_profile,
+)
 from auto_shipped.platforms.guanyi import resolve_guanyi_policy_modules
 
 
@@ -13,10 +18,19 @@ def load_json(relative_path: str) -> dict:
 
 
 def load_guanyi_rules(file_name: str) -> dict:
-    return resolve_guanyi_policy_modules(
-        load_json(f"config/platform_rules/guanyi/{file_name}"),
+    raw = load_json(f"config/platform_rules/guanyi/{file_name}")
+    resolved = resolve_guanyi_policy_modules(
+        raw,
         PROJECT_ROOT / "config/platform_rules",
     )
+    registry = load_company_registry(
+        PROJECT_ROOT / "config/companies/company_registry_v1.json"
+    )
+    company = resolve_company_by_source_profile(
+        registry,
+        raw["source_profile_id"],
+    ).company
+    return resolve_company_abbreviation_references(resolved, company)
 
 
 class ArchitectureContractTests(unittest.TestCase):
@@ -193,7 +207,13 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertTrue(rules["defaults"]["order_type"]["confirmed"])
 
     def test_ndd_bundle_and_platform_number_rules_are_explicit(self):
-        rules = load_json("config/platform_rules/guanyi/ndd_order_v1.json")
+        raw = load_json("config/platform_rules/guanyi/ndd_order_v1.json")
+        self.assertEqual(
+            raw["platform_order_number"]["prefix_source"],
+            "company_abbreviation",
+        )
+        self.assertNotIn("prefix", raw["platform_order_number"])
+        rules = load_guanyi_rules("ndd_order_v1.json")
         number = rules["platform_order_number"]
         self.assertEqual(number["strategy"], "source_order_no_with_affixes")
         self.assertEqual(number["prefix"], "NDD")

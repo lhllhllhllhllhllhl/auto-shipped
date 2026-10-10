@@ -2,14 +2,16 @@
   "schema_version": "1.0",
   "registry_id": "shangyu_company_registry_v1",
   "status": "active",
-  "design_note": "公司库只保存稳定身份、模块引用和能力状态，不复制识别、字段转换、商品、店铺、物流或上传规则。",
+  "design_note": "公司库保存稳定身份、法定名称、公司简称、模块引用和能力状态；简称可用于公司识别，只有规则显式引用时才作为平台单号或买家会员前缀，不会自动启用未配置公司的转换。",
   "companies": [
     {
       "company_id": "tiantian",
       "display_name": "恬田",
       "aliases": [
         "恬田代发仓",
-        "代发仓-恬田"
+        "代发仓-恬田",
+        "上海恬田食品有限公司",
+        "TT"
       ],
       "status": "active",
       "enabled": true,
@@ -50,16 +52,20 @@
       "source_refs": [
         "docs/RULE_SOURCE_LEDGER.md",
         "docs/DECISIONS.md",
-        "用户确认与真实样本测试：2026-09-30至2026-10-01"
+        "用户确认与真实样本测试：2026-09-30至2026-10-01",
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
-      "last_verified_on": "2026-10-01"
+      "last_verified_on": "2026-10-10",
+      "legal_name": "上海恬田食品有限公司",
+      "abbreviation": "TT"
     },
     {
       "company_id": "sam",
       "display_name": "SAM",
       "aliases": [
         "sam哥的品牌号",
-        "SAM群接龙"
+        "SAM群接龙",
+        "上海欣略实业有限公司"
       ],
       "status": "active",
       "enabled": true,
@@ -101,14 +107,20 @@
         "docs/RULE_SOURCE_LEDGER.md",
         "docs/ORDER_AUTOMATION_RULES_V0.1.md",
         "用户确认真实SAM样本：2026-10-01",
-        "用户确认SAM组合商品与买家会员规则：2026-10-02"
+        "用户确认SAM组合商品与买家会员规则：2026-10-02",
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
-      "last_verified_on": "2026-10-02"
+      "last_verified_on": "2026-10-10",
+      "legal_name": "上海欣略实业有限公司",
+      "abbreviation": "SAM"
     },
     {
       "company_id": "ndd",
       "display_name": "NDD",
-      "aliases": ["NDD礼品订单"],
+      "aliases": [
+        "NDD礼品订单",
+        "上海牛多多电子商务有限公司"
+      ],
       "status": "active",
       "enabled": true,
       "source_profiles": [
@@ -150,14 +162,24 @@
         "尚舆发货流程.pdf p.10",
         "NDD原始样本与人工管易成品：2026-10-05",
         "NDD完整字段标准模板v1.2（Roy最终版）：2026-10-08",
-        "docs/RULE_SOURCE_LEDGER.md"
+        "docs/RULE_SOURCE_LEDGER.md",
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
-      "last_verified_on": "2026-10-08"
+      "last_verified_on": "2026-10-10",
+      "legal_name": "上海牛多多电子商务有限公司",
+      "abbreviation": "NDD"
     },
     {
       "company_id": "self_operated",
       "display_name": "尚舆自营平台",
-      "aliases": ["我们自己的", "自营天猫", "自营京东", "淘橘子", "淘宝文字单", "KQYD企业店"],
+      "aliases": [
+        "我们自己的",
+        "自营天猫",
+        "自营京东",
+        "淘橘子",
+        "淘宝文字单",
+        "KQYD企业店"
+      ],
       "status": "active",
       "enabled": true,
       "source_profiles": [
@@ -237,7 +259,11 @@
     {
       "company_id": "rongzhida",
       "display_name": "荣之达",
-      "aliases": ["RZD", "rzd"],
+      "aliases": [
+        "RZD",
+        "rzd",
+        "合肥荣之达智能科技有限公司"
+      ],
       "status": "active",
       "enabled": true,
       "source_profiles": [
@@ -276,9 +302,114 @@
       "source_refs": [
         "文字订单截图样本：2026-10-08",
         "用户确认RZD代表荣之达、整批生成分钟弹性序号，以及玉米店铺与恬田/NDD一致：2026-10-08",
-        "用户确认RZD根表示彩袋单棒装且裸棒禁止普通发货：2026-10-09"
+        "用户确认RZD根表示彩袋单棒装且裸棒禁止普通发货：2026-10-09",
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
-      "last_verified_on": "2026-10-09"
+      "last_verified_on": "2026-10-10",
+      "legal_name": "合肥荣之达智能科技有限公司",
+      "abbreviation": "RZD"
+    },
+    {
+      "company_id": "fuze",
+      "display_name": "上海孚泽经贸有限公司",
+      "legal_name": "上海孚泽经贸有限公司",
+      "abbreviation": "FZ",
+      "aliases": [
+        "FZ"
+      ],
+      "status": "identity_only",
+      "enabled": false,
+      "source_profiles": [],
+      "workflows": [],
+      "capabilities": {
+        "source_recognition": {
+          "status": "identity_only",
+          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+        },
+        "order_conversion": {
+          "status": "not_configured",
+          "runtime_enabled": false,
+          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "订单转换尚未配置。"
+        }
+      },
+      "source_refs": [
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
+        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
+      ],
+      "last_verified_on": "2026-10-10"
+    },
+    {
+      "company_id": "shanghai_shimao_plaza",
+      "display_name": "上海世茂国际广场有限责任公司",
+      "legal_name": "上海世茂国际广场有限责任公司",
+      "abbreviation": "KLD",
+      "aliases": [
+        "KLD"
+      ],
+      "status": "identity_only",
+      "enabled": false,
+      "source_profiles": [],
+      "workflows": [],
+      "capabilities": {
+        "source_recognition": {
+          "status": "identity_only",
+          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+        },
+        "order_conversion": {
+          "status": "not_configured",
+          "runtime_enabled": false,
+          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "订单转换尚未配置。"
+        }
+      },
+      "source_refs": [
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
+        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
+      ],
+      "last_verified_on": "2026-10-10"
+    },
+    {
+      "company_id": "meitian",
+      "display_name": "上海美天副食品配送中心",
+      "legal_name": "上海美天副食品配送中心",
+      "abbreviation": "MT",
+      "aliases": [
+        "MT"
+      ],
+      "status": "identity_only",
+      "enabled": false,
+      "source_profiles": [],
+      "workflows": [],
+      "capabilities": {
+        "source_recognition": {
+          "status": "identity_only",
+          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+        },
+        "order_conversion": {
+          "status": "not_configured",
+          "runtime_enabled": false,
+          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "订单转换尚未配置。"
+        }
+      },
+      "source_refs": [
+        "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
+        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
+      ],
+      "last_verified_on": "2026-10-10"
     }
   ]
 }

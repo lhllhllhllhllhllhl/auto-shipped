@@ -12,7 +12,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openpyxl import Workbook
 
-from auto_shipped.companies import CompanyRegistryError, load_company_registry
+from auto_shipped.companies import (
+    CompanyRegistryError,
+    load_company_registry,
+    resolve_company_abbreviation_references,
+    resolve_company_by_identity,
+)
 from auto_shipped.domain import ClarificationRequest, deduplicate_clarifications
 from auto_shipped.services.order_number_allocations import reserve_minute_sequence
 from auto_shipped.source_adapters.adaptive_excel import inspect_excel_structure
@@ -177,8 +182,8 @@ def _resolve_profile(
     registry: dict[str, Any],
     requests: list[ClarificationRequest],
 ) -> tuple[str | None, str | None]:
-    company_id = _text(payload.get("company_id")) or None
-    if company_id is None:
+    company_identity = _text(payload.get("company_id")) or None
+    if company_identity is None:
         requests.append(
             ClarificationRequest(
                 code="TEXT_ORDER_COMPANY_REQUIRED",
@@ -190,6 +195,25 @@ def _resolve_profile(
             )
         )
         return None, None
+
+    identity_resolution = resolve_company_by_identity(registry, company_identity)
+    company_id = (
+        identity_resolution.company.company_id
+        if identity_resolution.company is not None
+        else company_identity
+    )
+    if identity_resolution.status != "resolved":
+        requests.append(
+            ClarificationRequest(
+                code=identity_resolution.code or "TEXT_ORDER_COMPANY_WORKFLOW_UNAVAILABLE",
+                scope="batch",
+                field="company_id",
+                question="该公司尚未登记可用于文字订单的业务流程，请先补充公司规则。",
+                reason=identity_resolution.reason or f"company={company_identity}",
+                answer_type="text",
+            )
+        )
+        return company_id, None
 
     profiles = _active_workflow_profiles(registry, company_id)
     if not profiles:
@@ -455,6 +479,28 @@ def validate_text_order_draft(
         raise TextOrderDraftError(f"无法读取公司库：{exc}") from exc
     company_id, rule_profile = _resolve_profile(payload, registry, requests)
     source_profile = _load_source_profile(company_registry_path, rule_profile)
+    if company_id and source_profile:
+        identity_resolution = resolve_company_by_identity(registry, company_id)
+        if (
+            identity_resolution.status == "resolved"
+            and identity_resolution.company is not None
+        ):
+            try:
+                source_profile = resolve_company_abbreviation_references(
+                    source_profile,
+                    identity_resolution.company,
+                )
+            except CompanyRegistryError as exc:
+                requests.append(
+                    ClarificationRequest(
+                        code="TEXT_ORDER_COMPANY_ABBREVIATION_INVALID",
+                        scope="batch",
+                        field="company_id",
+                        question="当前公司简称无法用于文字订单编号，请先修复公司库。",
+                        reason=str(exc),
+                        answer_type="text",
+                    )
+                )
     order_number_policy = _date_sequence_policy(payload, requests, source_profile)
 
     orders = payload.get("orders")

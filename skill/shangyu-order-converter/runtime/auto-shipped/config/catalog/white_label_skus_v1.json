@@ -1,10 +1,17 @@
 {
   "schema_version": "1.0",
   "library_id": "white_label_skus_v1",
-  "version": 1,
+  "version": 2,
   "status": "active",
-  "effective_from": "2026-09-29",
-  "purpose": "登记需要在管易卖家备注中标记为白标商品的精确SKU；与来源解析、商品映射和备注拼接逻辑分离。",
+  "effective_from": "2026-10-10",
+  "purpose": "登记需要在管易卖家备注中标记为白标商品的精确SKU；与来源解析、商品映射和备注拼接逻辑分离。新表是当前唯一权威清单，未列出的旧SKU不再视为白标。",
+  "source_snapshot": {
+    "file_name": "商品白标.xlsx",
+    "sheet_name": "商品库存导出30日_20261007105554",
+    "sha256": "056a0b885d08917775599a378fe4ad2487b34d9dfadb0a17e705f4f02272f823",
+    "source_row_count": 131,
+    "normalization": "trim_surrounding_whitespace_and_tab_characters;skip_blank_rows"
+  },
   "match_policy": {
     "stage": "after_guanyi_product_mapping",
     "mode": "exact_product_and_spec_code",
@@ -20,33 +27,1313 @@
   },
   "entries": [
     {
-      "product_code": "SWHL3627",
-      "spec_code": "4901792023627",
-      "display_name": "滑溜手套蓝色L码",
+      "product_code": "SWJC8140",
+      "spec_code": "4901792038140",
+      "display_name": "OrgL",
       "status": "confirmed",
       "evidence_refs": [
-        "DEC-USER-WHITELABEL-LIB-001",
-        "SRC-GY-CATALOG-001"
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
       ]
     },
     {
-      "product_code": "SWHL3610",
-      "spec_code": "4901792023610",
-      "display_name": "滑溜手套蓝色M码",
+      "product_code": "SWJC8133",
+      "spec_code": "4901792038133",
+      "display_name": "OrgM",
       "status": "confirmed",
       "evidence_refs": [
-        "DEC-USER-WHITELABEL-LIB-001",
-        "SRC-GY-CATALOG-001"
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
       ]
     },
     {
-      "product_code": "SWHL3603",
-      "spec_code": "4901792023603",
-      "display_name": "滑溜手套粉色S码",
+      "product_code": "SWJC8126",
+      "spec_code": "4901792038126",
+      "display_name": "PinkM",
       "status": "confirmed",
       "evidence_refs": [
-        "DEC-USER-WHITELABEL-LIB-001",
-        "SRC-GY-CATALOG-001"
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWJC8119",
+      "spec_code": "4901792038119",
+      "display_name": "PinkS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWSH8102",
+      "spec_code": "4901792038102",
+      "display_name": "GreenL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWSH8096",
+      "spec_code": "4901792038096",
+      "display_name": "GreenM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWSH8089",
+      "spec_code": "4901792038089",
+      "display_name": "PinkM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWSH8072",
+      "spec_code": "4901792038072",
+      "display_name": "PinkS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWSH8065",
+      "spec_code": "4901792038065",
+      "display_name": "PinkXS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWHL7952",
+      "spec_code": "4901792037952",
+      "display_name": "PinkS / ShowaHLPinkS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWJH7693",
+      "spec_code": "4901792037693",
+      "display_name": "VioletL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWJH7686",
+      "spec_code": "4901792037686",
+      "display_name": "VioletM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWJH7679",
+      "spec_code": "4901792037679",
+      "display_name": "PinkM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWJH7662",
+      "spec_code": "4901792037662",
+      "display_name": "PinkS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWMXBO7594",
+      "spec_code": "4901792037594",
+      "display_name": "薄款家用 / 薄款 L(苹果绿)",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWMXBO7587",
+      "spec_code": "4901792037587",
+      "display_name": "薄款家用 / 薄款 M(苹果绿)",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWMXBO7563",
+      "spec_code": "4901792037563",
+      "display_name": "薄款家用 / 薄款 S(樱花粉)",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWDQ6955",
+      "spec_code": "4901792036955",
+      "display_name": "PinkM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWDQ6948",
+      "spec_code": "4901792036948",
+      "display_name": "PinkS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "SWCB3222",
+      "spec_code": "4901792013222",
+      "display_name": "GreenM",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CDSTS2346",
+      "spec_code": "4972379062346",
+      "display_name": "舌苔刷",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CDYX0640",
+      "spec_code": "4972379050640",
+      "display_name": "牙线S4",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CDJCC0511",
+      "spec_code": "4972379040511",
+      "display_name": "洁齿擦",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9954",
+      "spec_code": "4582193259954",
+      "display_name": "200D黑色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9947",
+      "spec_code": "4582193259947",
+      "display_name": "200D黑色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9794",
+      "spec_code": "4582193259794",
+      "display_name": "150D黑色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9787",
+      "spec_code": "4582193259787",
+      "display_name": "150D黑色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9640",
+      "spec_code": "4582193259640",
+      "display_name": "4P裸色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM9602",
+      "spec_code": "4582193259602",
+      "display_name": "4P裸色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFP9466",
+      "spec_code": "4582193259466",
+      "display_name": "蝴蝶黑色均码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFP9145",
+      "spec_code": "4582193259145",
+      "display_name": "波点黑色均码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFP9107",
+      "spec_code": "4582193259107",
+      "display_name": "小网黑色均码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFP9091",
+      "spec_code": "4582193259091",
+      "display_name": "中网黑色均码",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN7042",
+      "spec_code": "4582193257042",
+      "display_name": "黑色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN7035",
+      "spec_code": "4582193257035",
+      "display_name": "米白色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN7028",
+      "spec_code": "4582193257028",
+      "display_name": "黑色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN7011",
+      "spec_code": "4582193257011",
+      "display_name": "米白色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS4348",
+      "spec_code": "4582193254348",
+      "display_name": "伝线黑色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS4331",
+      "spec_code": "4582193254331",
+      "display_name": "伝线裸色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS4317",
+      "spec_code": "4582193254317",
+      "display_name": "伝线裸色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS1156",
+      "spec_code": "4582193251156",
+      "display_name": "漆黑L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS1132",
+      "spec_code": "4582193251132",
+      "display_name": "着压黑色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS0982",
+      "spec_code": "4582193250982",
+      "display_name": "PS07裸色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS0975",
+      "spec_code": "4582193250975",
+      "display_name": "PS07黑色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFPS0968",
+      "spec_code": "4582193250968",
+      "display_name": "PS07裸色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN0951",
+      "spec_code": "4582193250951",
+      "display_name": "黑色23-25cm",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN9403",
+      "spec_code": "4580652759403",
+      "display_name": "米色均码（总长28cm）",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFGN9397",
+      "spec_code": "4580652759397",
+      "display_name": "米白色均码（总长28cm）",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM0258",
+      "spec_code": "4580652740258",
+      "display_name": "150D裸色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM0241",
+      "spec_code": "4580652740241",
+      "display_name": "150D裸色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM0234",
+      "spec_code": "4580652740234",
+      "display_name": "80D裸色L-LL",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "FFFM0227",
+      "spec_code": "4580652740227",
+      "display_name": "80D裸色M-L",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "asms2470",
+      "spec_code": "4573241472470",
+      "display_name": "木梳小号 / aisen 木梳小号",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "asms2463",
+      "spec_code": "4573241472463",
+      "display_name": "木梳大号 / aisen 木梳大号",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "aisenGS2197TH",
+      "spec_code": "4573241472197",
+      "display_name": "锅刷替换头 / aisen KBC15 55植物纤维锅刷替换头",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "aisenGS2180BT",
+      "spec_code": "4573241472180",
+      "display_name": "可替换锅刷 / aisen KBC05 55铝杆可替换头植物纤维锅刷本体",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "Toho0076",
+      "spec_code": "4571498430076",
+      "display_name": "白",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "Toho0069",
+      "spec_code": "4571498430069",
+      "display_name": "白",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "Toho0052",
+      "spec_code": "4571498430052",
+      "display_name": "黄",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "Toho0045",
+      "spec_code": "4571498430045",
+      "display_name": "黄",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "NM3179",
+      "spec_code": "4562384603179",
+      "display_name": "Yellow",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "cupicaBB0357",
+      "spec_code": "4560207700357",
+      "display_name": "婴儿指甲锉",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKA6267",
+      "spec_code": "4971720016267",
+      "display_name": "C.P4P",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1853",
+      "spec_code": "4548404511853",
+      "display_name": "PRO CF 海绵Yellow",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1846",
+      "spec_code": "4548404511846",
+      "display_name": "PRO CF 海绵Blue",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1839",
+      "spec_code": "4548404511839",
+      "display_name": "PRO CF 海绵Pink",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1822",
+      "spec_code": "4548404511822",
+      "display_name": "PRO WY 海绵Yellow",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1815",
+      "spec_code": "4548404511815",
+      "display_name": "PRO WY 海绵Green",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1808",
+      "spec_code": "4548404511808",
+      "display_name": "PRO WY 海绵Pink",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKPRO1419",
+      "spec_code": "4548404511419",
+      "display_name": "PRO 多用途可弯曲刷子",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ0300",
+      "spec_code": "4548404400300",
+      "display_name": "全棉抗菌双面手帕 / White20*20",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ0294",
+      "spec_code": "4548404400294",
+      "display_name": "全棉抗菌纱布毛巾 / White38*38",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ0287",
+      "spec_code": "4548404400287",
+      "display_name": "全棉抗菌双面手帕 / White25*25",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ0270",
+      "spec_code": "4548404400270",
+      "display_name": "丝棉抗菌毛巾 / KIKULON吉酷隆 丝棉抗菌毛巾 30x30cm",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW1730",
+      "spec_code": "4548404201730",
+      "display_name": "White超软",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAIR1679",
+      "spec_code": "4548404201679",
+      "display_name": "绵密",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAIR1662",
+      "spec_code": "4548404201662",
+      "display_name": "蓬松",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKCCR1594",
+      "spec_code": "4548404201594",
+      "display_name": "超超软沐浴巾Gold",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKCCR1587",
+      "spec_code": "4548404201587",
+      "display_name": "超超软沐浴巾White",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW1532",
+      "spec_code": "4548404201532",
+      "display_name": "Blue超硬",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKHGF1280",
+      "spec_code": "4548404201280",
+      "display_name": "韩国风搓澡手套Red",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW1006",
+      "spec_code": "4548404201006",
+      "display_name": "Green软",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMYJBB",
+      "spec_code": "4548404200979",
+      "display_name": "橘宝宝沐浴海绵",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW0290",
+      "spec_code": "4548404200290",
+      "display_name": "Yellow超软",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW0139",
+      "spec_code": "4548404200139",
+      "display_name": "Pink软",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW0030",
+      "spec_code": "4548404200030",
+      "display_name": "蓝色【硬款】",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKAW0009",
+      "spec_code": "4548404200009",
+      "display_name": "Orange普通",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKA2449",
+      "spec_code": "4548404112449",
+      "display_name": "Yellow",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKA2432",
+      "spec_code": "4548404112432",
+      "display_name": "Green",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKA2418",
+      "spec_code": "4548404112418",
+      "display_name": "Pink",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2617",
+      "spec_code": "4548404102617",
+      "display_name": "强力去污锅底百洁布",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKZLL2563",
+      "spec_code": "4548404102563",
+      "display_name": "Blue",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKZLL2556",
+      "spec_code": "4548404102556",
+      "display_name": "Orange",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKBST2549",
+      "spec_code": "4548404102549",
+      "display_name": "杯刷替换头",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKBS2532",
+      "spec_code": "4548404102532",
+      "display_name": "杯刷本体",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2518",
+      "spec_code": "4548404102518",
+      "display_name": "3层厨房百洁布海绵 / KK2518",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKJ2501",
+      "spec_code": "4548404102501",
+      "display_name": "Green2P",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKJ2495",
+      "spec_code": "4548404102495",
+      "display_name": "Green细长",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2426",
+      "spec_code": "4548404102426",
+      "display_name": "3层厨房百洁布海绵 （桔色1+绿色1） / KK2426",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2419",
+      "spec_code": "4548404102419",
+      "display_name": "刷锅 Black KW-129 / 刷锅 KW-129",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKNMC2372",
+      "spec_code": "4548404102372",
+      "display_name": "纳米擦大号White",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKNMC2365",
+      "spec_code": "4548404102365",
+      "display_name": "纳米擦小号White",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKKJ2358",
+      "spec_code": "4548404102358",
+      "display_name": "Green标准",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2280",
+      "spec_code": "4548404102280",
+      "display_name": "KW-128水",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2273",
+      "spec_code": "4548404102273",
+      "display_name": "KW-127泡",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK2266",
+      "spec_code": "4548404102266",
+      "display_name": "KW-126光",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKart2051",
+      "spec_code": "4548404102051",
+      "display_name": "Pink",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKmini1993",
+      "spec_code": "4548404101993",
+      "display_name": "pink",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKmini1986",
+      "spec_code": "4548404101986",
+      "display_name": "Green",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKGSQ1948",
+      "spec_code": "4548404101948",
+      "display_name": "KW-120",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKRevo1894",
+      "spec_code": "4548404101894",
+      "display_name": "Green",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKRevo1887",
+      "spec_code": "4548404101887",
+      "display_name": "Orange",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKRevo1870",
+      "spec_code": "4548404101870",
+      "display_name": "Blue",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKHM1573",
+      "spec_code": "4548404101573",
+      "display_name": "PinkKW-100",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKHM1559",
+      "spec_code": "4548404101559",
+      "display_name": "GreenKW-98",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKHM1535",
+      "spec_code": "4548404101535",
+      "display_name": "YellowKW-99",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ1474",
+      "spec_code": "4548404101474",
+      "display_name": "丝棉抗菌毛巾 / White30*30",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKMJ1467",
+      "spec_code": "4548404101467",
+      "display_name": "全棉抗菌厨房抹布 / White34*40",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKCF1108",
+      "spec_code": "4548404101108",
+      "display_name": "甜甜圈厨房用海绵",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KKCF1092",
+      "spec_code": "4548404101092",
+      "display_name": "厨房橘宝宝海绵",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK1061",
+      "spec_code": "4548404101061",
+      "display_name": "椰棕刷大号",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "KK1030",
+      "spec_code": "4548404101030",
+      "display_name": "椰棕刷小号",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVFZ2139",
+      "spec_code": "4520462002139",
+      "display_name": "放置型L号车用 / FZCY",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVFZ2115",
+      "spec_code": "4520462002115",
+      "display_name": "放置型L号鞋箱用 / FZXX",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVFZ2092",
+      "spec_code": "4520462002092",
+      "display_name": "放置型L号冰箱用 / FZBX",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVXX2054",
+      "spec_code": "4520462002054",
+      "display_name": "Ume宠物用 / XXCW",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVXX2047",
+      "spec_code": "4520462002047",
+      "display_name": "Ume厕所用 / XXCS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVXX2030",
+      "spec_code": "4520462002030",
+      "display_name": "Ume室内用 / XXSN",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVBB1842",
+      "spec_code": "4520462001842",
+      "display_name": "臭味ByeBye车用 / BBCY",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVBB1835",
+      "spec_code": "4520462001835",
+      "display_name": "臭味ByeBye厕所用 / BBCS",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
+      ]
+    },
+    {
+      "product_code": "CVBB1811",
+      "spec_code": "4520462001811",
+      "display_name": "臭味ByeBye室内用 / BBSN",
+      "status": "confirmed",
+      "evidence_refs": [
+        "DEC-USER-WHITELABEL-REPLACE-002",
+        "SRC-WHITELABEL-XLSX-20261010"
       ]
     }
   ],
@@ -60,7 +1347,8 @@
       "evidence_ref",
       "effective_date"
     ],
+    "replacement_policy": "new_authoritative_snapshot_replaces_previous_entries",
     "removal_policy": "remove_from_current_version_git_keeps_history",
-    "integration_policy": "转换服务在商品精确映射后读取本库；新增或停用SKU只修改本文件并通过白标库测试。"
+    "integration_policy": "转换服务在商品精确映射后读取本库；新增、停用或替换SKU只修改本文件并通过白标库测试。"
   }
 }

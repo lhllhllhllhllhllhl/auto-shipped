@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -19,8 +21,10 @@ class CompanyRegistryError(ValueError):
 class CompanyContext:
     company_id: str
     display_name: str
+    legal_name: str
+    abbreviation: str
     aliases: tuple[str, ...]
-    source_profile_id: str
+    source_profile_id: str | None
     registry_id: str
     registry_version: str
 
@@ -38,6 +42,28 @@ class CompanyResolution:
     reason: str | None = None
 
 
+def _identity_key(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _company_context(
+    registry: dict[str, Any],
+    record: dict[str, Any],
+    *,
+    source_profile_id: str | None = None,
+) -> CompanyContext:
+    return CompanyContext(
+        company_id=str(record["company_id"]),
+        display_name=str(record["display_name"]),
+        legal_name=str(record.get("legal_name") or ""),
+        abbreviation=str(record.get("abbreviation") or ""),
+        aliases=tuple(str(value) for value in record.get("aliases", [])),
+        source_profile_id=source_profile_id,
+        registry_id=str(registry["registry_id"]),
+        registry_version=str(registry["schema_version"]),
+    )
+
+
 def load_company_registry(path: str | Path) -> dict[str, Any]:
     registry = json.loads(Path(path).read_text(encoding="utf-8"))
     if registry.get("schema_version") != "1.0":
@@ -49,6 +75,9 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
         raise CompanyRegistryError("公司库companies必须是数组。")
 
     company_ids: set[str] = set()
+    legal_names: dict[str, str] = {}
+    abbreviations: dict[str, str] = {}
+    identities: dict[str, str] = {}
     source_owners: dict[str, str] = {}
     workflow_ids: set[str] = set()
     for company in companies:
@@ -61,9 +90,67 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
         if not str(company.get("display_name") or "").strip():
             raise CompanyRegistryError(f"公司{company_id}缺少display_name。")
 
+        status = str(company.get("status") or "").strip()
+        enabled = company.get("enabled")
+        if status not in {"active", "identity_only", "paused", "retired", "pending"}:
+            raise CompanyRegistryError(f"公司{company_id}的status无效：{status!r}")
+        if status == "identity_only" and enabled is not False:
+            raise CompanyRegistryError(
+                f"仅登记身份的公司{company_id}必须设置enabled=false。"
+            )
+
+        legal_name = str(company.get("legal_name") or "").strip()
+        abbreviation = str(company.get("abbreviation") or "").strip()
+        if bool(legal_name) != bool(abbreviation):
+            raise CompanyRegistryError(
+                f"公司{company_id}的legal_name和abbreviation必须同时填写或同时留空。"
+            )
+        if abbreviation and not re.fullmatch(r"[A-Za-z0-9_-]{1,16}", abbreviation):
+            raise CompanyRegistryError(f"公司{company_id}的abbreviation格式无效。")
+        legal_key = _identity_key(legal_name)
+        abbreviation_key = _identity_key(abbreviation)
+        if legal_key:
+            owner = legal_names.get(legal_key)
+            if owner and owner != company_id:
+                raise CompanyRegistryError(
+                    f"公司法定名称重复：{legal_name}（{owner} / {company_id}）"
+                )
+            legal_names[legal_key] = company_id
+        if abbreviation_key:
+            owner = abbreviations.get(abbreviation_key)
+            if owner and owner != company_id:
+                raise CompanyRegistryError(
+                    f"公司简称重复：{abbreviation}（{owner} / {company_id}）"
+                )
+            abbreviations[abbreviation_key] = company_id
+
+        identity_values = [
+            company_id,
+            company.get("display_name"),
+            legal_name,
+            abbreviation,
+            *(company.get("aliases") or []),
+        ]
+        for value in identity_values:
+            key = _identity_key(value)
+            if not key:
+                continue
+            owner = identities.get(key)
+            if owner and owner != company_id:
+                raise CompanyRegistryError(
+                    f"公司身份标识重复：{value!r}（{owner} / {company_id}）"
+                )
+            identities[key] = company_id
+
         source_profiles = company.get("source_profiles")
-        if not isinstance(source_profiles, list) or not source_profiles:
-            raise CompanyRegistryError(f"公司{company_id}至少需要一个source_profile引用。")
+        if not isinstance(source_profiles, list):
+            raise CompanyRegistryError(f"公司{company_id}的source_profiles必须是数组。")
+        if status == "active" and not source_profiles:
+            raise CompanyRegistryError(f"启用公司{company_id}至少需要一个source_profile引用。")
+        if status == "identity_only" and source_profiles:
+            raise CompanyRegistryError(
+                f"仅登记身份的公司{company_id}不能绑定source_profile。"
+            )
         for source in source_profiles:
             profile_id = str(source.get("source_profile_id") or "").strip()
             if not profile_id:
@@ -78,6 +165,10 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
         workflows = company.get("workflows")
         if not isinstance(workflows, list):
             raise CompanyRegistryError(f"公司{company_id}的workflows必须是数组。")
+        if status == "identity_only" and workflows:
+            raise CompanyRegistryError(
+                f"仅登记身份的公司{company_id}不能启用workflow。"
+            )
         for workflow in workflows:
             workflow_id = str(workflow.get("workflow_id") or "").strip()
             if not workflow_id:
@@ -86,6 +177,118 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
                 raise CompanyRegistryError(f"公司工作流ID重复：{workflow_id}")
             workflow_ids.add(workflow_id)
     return registry
+
+
+def resolve_company_by_identity(
+    registry: dict[str, Any],
+    identity: str,
+) -> CompanyResolution:
+    key = _identity_key(identity)
+    if not key:
+        return CompanyResolution(
+            status="needs_input",
+            code="COMPANY_IDENTITY_REQUIRED",
+            reason="公司名称或简称为空。",
+        )
+    matches: list[dict[str, Any]] = []
+    for company in registry.get("companies", []):
+        values = [
+            company.get("company_id"),
+            company.get("display_name"),
+            company.get("legal_name"),
+            company.get("abbreviation"),
+            *(company.get("aliases") or []),
+        ]
+        if key in {_identity_key(value) for value in values if _identity_key(value)}:
+            matches.append(company)
+    if not matches:
+        return CompanyResolution(
+            status="needs_input",
+            code="COMPANY_NOT_REGISTERED",
+            reason=f"公司身份标识{identity!r}尚未登记。",
+        )
+    if len(matches) > 1:
+        return CompanyResolution(
+            status="needs_input",
+            code="COMPANY_REGISTRY_AMBIGUOUS",
+            reason=f"公司身份标识{identity!r}同时匹配多个公司。",
+        )
+    record = matches[0]
+    context = _company_context(registry, record)
+    if record.get("status") != "active" or record.get("enabled") is not True:
+        return CompanyResolution(
+            status="needs_input",
+            company=context,
+            code="COMPANY_WORKFLOW_NOT_REGISTERED",
+            reason=(
+                f"公司{record.get('legal_name') or record.get('display_name')}"
+                "已登记身份和简称，但尚未登记可执行订单流程。"
+            ),
+        )
+    return CompanyResolution(status="resolved", company=context)
+
+
+def resolve_company_abbreviation_references(
+    payload: dict[str, Any],
+    company: CompanyContext,
+) -> dict[str, Any]:
+    """Resolve explicit company-abbreviation references without enabling workflows."""
+
+    resolved = deepcopy(payload)
+    abbreviation = company.abbreviation.strip()
+
+    def require_abbreviation(location: str) -> str:
+        if not abbreviation:
+            raise CompanyRegistryError(
+                f"{location}引用公司简称，但公司{company.company_id}尚未登记简称。"
+            )
+        return abbreviation
+
+    number_policy = resolved.get("platform_order_number") or {}
+    prefix_source = str(number_policy.get("prefix_source") or "").strip()
+    if prefix_source:
+        if prefix_source != "company_abbreviation":
+            raise CompanyRegistryError(
+                f"platform_order_number.prefix_source无效：{prefix_source!r}"
+            )
+        if str(number_policy.get("prefix") or "").strip():
+            raise CompanyRegistryError("平台单号前缀不能同时内联和引用公司简称。")
+        number_policy["prefix"] = require_abbreviation("平台单号前缀")
+
+    buyer_policy = resolved.get("buyer_member_policy") or {}
+    platform_prefix_source = str(
+        buyer_policy.get("platform_prefix_source") or ""
+    ).strip()
+    if platform_prefix_source:
+        if platform_prefix_source not in {
+            "company_abbreviation",
+            "company_abbreviation_lower",
+        }:
+            raise CompanyRegistryError(
+                "buyer_member_policy.platform_prefix_source无效："
+                f"{platform_prefix_source!r}"
+            )
+        if str(buyer_policy.get("platform_prefix") or "").strip():
+            raise CompanyRegistryError("买家会员前缀不能同时内联和引用公司简称。")
+        value = require_abbreviation("买家会员前缀")
+        buyer_policy["platform_prefix"] = (
+            value.lower()
+            if platform_prefix_source == "company_abbreviation_lower"
+            else value
+        )
+
+    text_intake = resolved.get("text_intake") or {}
+    order_policy = text_intake.get("order_number_policy") or {}
+    text_prefix_source = str(order_policy.get("prefix_source") or "").strip()
+    if text_prefix_source:
+        if text_prefix_source != "company_abbreviation":
+            raise CompanyRegistryError(
+                f"text_intake.order_number_policy.prefix_source无效：{text_prefix_source!r}"
+            )
+        if str(order_policy.get("prefix") or "").strip():
+            raise CompanyRegistryError("文字订单前缀不能同时内联和引用公司简称。")
+        order_policy["prefix"] = require_abbreviation("文字订单前缀")
+    return resolved
 
 
 def resolve_company_by_source_profile(
@@ -124,13 +327,10 @@ def resolve_company_by_source_profile(
         )
     return CompanyResolution(
         status="resolved",
-        company=CompanyContext(
-            company_id=str(record["company_id"]),
-            display_name=str(record["display_name"]),
-            aliases=tuple(str(value) for value in record.get("aliases", [])),
+        company=_company_context(
+            registry,
+            record,
             source_profile_id=source_profile_id,
-            registry_id=str(registry["registry_id"]),
-            registry_version=str(registry["schema_version"]),
         ),
     )
 
@@ -276,11 +476,19 @@ def audit_company_registry(
                 add("PLATFORM_RULES_REFERENCE_MISSING", location, str(rules_profile_id))
             elif rules_profile_id:
                 try:
-                    resolve_guanyi_policy_modules(
+                    resolved_rules = resolve_guanyi_policy_modules(
                         platform_rules[str(rules_profile_id)],
                         platform_rules_dir,
                     )
-                except GuanyiPolicyModuleError as exc:
+                    resolve_company_abbreviation_references(
+                        resolved_rules,
+                        _company_context(
+                            registry,
+                            company,
+                            source_profile_id=str(workflow.get("source_profile_id") or ""),
+                        ),
+                    )
+                except (GuanyiPolicyModuleError, CompanyRegistryError) as exc:
                     add("PLATFORM_POLICY_MODULE_INVALID", location, str(exc))
             mapping_scope = str(workflow.get("product_mapping_scope_id") or "")
             if mapping_scope and mapping_scope not in mapping_scopes:

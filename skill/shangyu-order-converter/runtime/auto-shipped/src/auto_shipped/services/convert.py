@@ -14,6 +14,8 @@ from auto_shipped.catalog import (
 from auto_shipped.companies import (
     CompanyRegistryError,
     load_company_registry,
+    resolve_company_abbreviation_references,
+    resolve_company_by_identity,
     resolve_company_by_source_profile,
     validate_company_workflow,
 )
@@ -219,6 +221,45 @@ def convert_order_file(
     source = Path(source_path)
     source_file = source.name
     profiles = load_source_profiles(source_profiles_dir)
+    company_registry: dict[str, Any] | None = None
+    if company_hint:
+        try:
+            company_registry = load_company_registry(company_registry_path)
+        except (OSError, json.JSONDecodeError, CompanyRegistryError) as exc:
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="COMPANY_REGISTRY_UNAVAILABLE",
+                        scope="batch",
+                        question="公司库无法读取或结构不合法，请先恢复公司配置。",
+                        reason=str(exc),
+                        answer_type="file",
+                    )
+                ],
+            )
+        identity_resolution = resolve_company_by_identity(
+            company_registry,
+            company_hint,
+        )
+        if (
+            identity_resolution.status != "resolved"
+            or identity_resolution.company is None
+        ):
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code=identity_resolution.code or "COMPANY_NOT_REGISTERED",
+                        scope="batch",
+                        field="company_hint",
+                        question="该公司尚未登记可执行订单流程，请先补充公司模板与业务规则。",
+                        reason=identity_resolution.reason or company_hint,
+                        answer_type="text",
+                    )
+                ],
+            )
+        company_hint = identity_resolution.company.company_id
     adaptive_plan: dict[str, Any] | None = None
     try:
         if adaptive_plan_path is not None:
@@ -394,23 +435,24 @@ def convert_order_file(
             route=route,
         )
 
-    try:
-        company_registry = load_company_registry(company_registry_path)
-    except (OSError, json.JSONDecodeError, CompanyRegistryError) as exc:
-        return _needs_input(
-            source_file,
-            [
-                ClarificationRequest(
-                    code="COMPANY_REGISTRY_UNAVAILABLE",
-                    scope="batch",
-                    question="公司库无法读取或结构不合法，请先恢复公司配置。",
-                    reason=str(exc),
-                    answer_type="file",
-                )
-            ],
-            detection=detection,
-            route=route,
-        )
+    if company_registry is None:
+        try:
+            company_registry = load_company_registry(company_registry_path)
+        except (OSError, json.JSONDecodeError, CompanyRegistryError) as exc:
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="COMPANY_REGISTRY_UNAVAILABLE",
+                        scope="batch",
+                        question="公司库无法读取或结构不合法，请先恢复公司配置。",
+                        reason=str(exc),
+                        answer_type="file",
+                    )
+                ],
+                detection=detection,
+                route=route,
+            )
     company_resolution = resolve_company_by_source_profile(
         company_registry,
         detection.source_profile_id,
@@ -600,6 +642,7 @@ def convert_order_file(
         )
     try:
         rules = resolve_guanyi_policy_modules(rules, platform_rules_dir)
+        rules = resolve_company_abbreviation_references(rules, company)
     except GuanyiPolicyModuleError as exc:
         return _needs_input(
             source_file,
@@ -608,6 +651,22 @@ def convert_order_file(
                     code="PLATFORM_POLICY_MODULE_INVALID",
                     scope="batch",
                     question="管易共享规则模块无法解析，请先修复规则配置。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            ],
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+        )
+    except CompanyRegistryError as exc:
+        return _needs_input(
+            source_file,
+            [
+                ClarificationRequest(
+                    code="PLATFORM_COMPANY_ABBREVIATION_INVALID",
+                    scope="batch",
+                    question="当前公司简称无法用于平台规则，请先修复公司库或规则引用。",
                     reason=str(exc),
                     answer_type="text",
                 )

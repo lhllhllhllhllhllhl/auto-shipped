@@ -69,17 +69,27 @@ def load_white_label_library(path: str | Path) -> WhiteLabelLibrary:
             raise WhiteLabelLibraryError(
                 f"白标SKU库第{index}项状态必须为confirmed"
             )
-        key = (
-            str(entry.get("product_code") or "").strip(),
-            str(entry.get("spec_code") or "").strip(),
-        )
+        raw_product_code = str(entry.get("product_code") or "")
+        raw_spec_code = str(entry.get("spec_code") or "")
+        key = (raw_product_code.strip(), raw_spec_code.strip())
         if not all(key):
             raise WhiteLabelLibraryError(f"白标SKU库第{index}项缺少商品代码或规格代码")
+        if key != (raw_product_code, raw_spec_code):
+            raise WhiteLabelLibraryError(
+                f"白标SKU库第{index}项代码包含未清理的首尾空白字符"
+            )
         if key in sku_keys:
             raise WhiteLabelLibraryError(
                 f"白标SKU库存在重复商品规格: {key[0]} / {key[1]}"
             )
         sku_keys.add(key)
+
+    source_snapshot = payload.get("source_snapshot") or {}
+    expected_count = source_snapshot.get("source_row_count")
+    if expected_count is not None and expected_count != len(sku_keys):
+        raise WhiteLabelLibraryError(
+            "白标SKU库条目数量与source_snapshot.source_row_count不一致"
+        )
 
     library_id = str(payload.get("library_id") or "").strip()
     version = payload.get("version")

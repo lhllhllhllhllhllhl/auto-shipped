@@ -33,6 +33,8 @@
 | `SRC-SOP-PDF-001` | `尚舆发货流程.pdf` | `a4a6f55550fe78ad4e4fdfbd4364011d3193d2b657aa063aabe92926f6f11ab6` | 第1-14页 | 高，含登录和业务页面信息 | 原件在本机Downloads，未建立可迁移安全归档 |
 | `SRC-GY-TEMPLATE-001` | `自定义订单导入模板.xlsx` | `b6c04e427a1d3962a3e0dc7e8a1b2171e12c61168c2e572b39de4a31ebfb1eca` | `Sheet1`，48列表头及示例行 | 内部 | 原件在本机Downloads；运行时已有模板指纹 |
 | `SRC-GY-CATALOG-001` | `商品信息_20260921175141.csv` | `b643ecf96e3214bee10747b68660fbc9dd239f2d8200593b1df9b7561b83b586` | 商品与规格资料 | 内部 | 原件在本机Downloads；运行时已有商品资料快照 |
+| `SRC-WHITELABEL-XLSX-20261010` | `商品白标.xlsx` | `056a0b885d08917775599a378fe4ad2487b34d9dfadb0a17e705f4f02272f823` | `商品库存导出30日_20261007105554!A1:F135`；131条非空商品规格 | 白标SKU权威清单 | 原件在本机Downloads；运行时保存去空白后的精确商品代码与规格代码，不复制原Excel |
+| `SRC-COMPANY-ABBREVIATIONS-XLSX-20261010` | `各公司对应简称.xlsx` | `b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7` | `Sheet1!A3:B10`；7组法定名称与简称 | 公司身份识别与显式前缀引用 | 原件在本机Downloads；已写入公司库，简称本身不启用转换流程 |
 
 ### 3.2 原始订单样本
 
@@ -114,7 +116,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-XV-ORDERNO-001` | 2026-09-29 | 平台单号尾部序号主要用于避免重复和方便查找；顺序本身不重要，尾部可以增加数字或字母 | 平台单号 | 已确认核心目的，自动生成格式待冻结 |
 | `DEC-XV-STORE-001` | 2026-09-29 | PDF第3页“淘宝、店铺、日货定制”中的“店铺”是笔误或简称，实际指企业店，即KQYD订单 | 店铺选择 | 已确认 |
 | `DEC-XV-SOURCE-HINT-001` | 2026-09-29 | 现有手工单Excel本身可能看不出平台，人工流程依赖发送人附带的平台备注 | 来源识别 | 已确认现状；自动化必须要求显式来源提示 |
-| `DEC-USER-WHITELABEL-LIB-001` | 2026-09-29 | 建立可随时调整的独立白标SKU库；当前包含SWHL3627、SWHL3610、SWHL3603；任一商品命中时整单标记白标商品 | 白标规则 | 已确认并实现 |
+| `DEC-USER-WHITELABEL-REPLACE-002` | 2026-10-10 | `商品白标.xlsx`是当前白标商品权威清单，完整替换旧3条临时记录；表中未列出的旧SKU不再视为白标 | 白标规则 | 已确认并实现131条精确商品代码+规格代码；旧版本由Git追溯 |
+| `DEC-USER-COMPANY-ABBREVIATIONS-001` | 2026-10-10 | 7组公司法定名称与简称同时用于公司识别和单号规则引用；简称不能自动启用尚无模板与规则的公司 | 公司身份与平台单号 | 已确认并接入公司库；FZ、KLD、MT当前仅登记身份，NDD、RZD、TT、SAM继续使用现有流程 |
 | `DEC-USER-NOTE-TARGET-001` | 2026-09-29 | 客户备注写入管易卖家备注 | 备注字段映射 | 已确认 |
 | `DEC-USER-STAGED-TEST-001` | 2026-09-29 | 先真实测试“原始订单转管易Excel”；业务验收通过后，才接入自动化上传 | 测试与发布门禁 | 已确认，转换和上传必须分阶段上线 |
 | `DEC-USER-LOGISTICS-INTERIM-001` | 2026-09-30 | 当前按包装规则执行：原表指定物流优先；8棒家庭装合计达到2件（16根）或玉米10根/10棒礼盒走中通重货，其余韵达 | 恬田物流规则 | 已确认并实现；未来如确认重量公式则直接更新现行规则 |
@@ -197,7 +200,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-LOGISTICS-SELECTION` | 物流选择 | `SRC-SOP-PDF-001` p.3、p.10 | `DEC-XV-LOGISTICS-001`、`DEC-XV-LOGISTICS-PRIORITY-001`、`DEC-USER-LOGISTICS-INTERIM-001`、各玉米样本 | 恬田当前包装规则已确认并实现；通用重量公式作为后续可替换策略 |
 | `GY-SELLER-REMARK-POLICY` | 卖家备注 | `SRC-SOP-PDF-001` p.3 | `SRC-SAMPLE-TT-001`、`DEC-XV-NOTE-001`、`DEC-XV-NOTE-MERGE-001`、`DEC-USER-NOTE-TARGET-001` | 来源备注先写、系统提示后写、中文分号连接并精确去重；白标SKU库已通过该组合器接入 |
 | `GY-DELIVERY-INSTRUCTION-ADDRESS` | 快递员备注进入收货地址 | `SRC-SAMPLE-DELIVERY-NOTE-001` | `DEC-USER-DELIVERY-NOTE-ADDRESS-001` | 已确认并实现共享备注分流；新增表达优先通过结构化`delivery_instruction`进入，关键词库可版本化扩展 |
-| `GY-DAILY-GOODS-WHITE-LABEL` | 白标SKU库与整单备注 | `DEC-USER-WHITELABEL-LIB-001` | `SRC-GY-CATALOG-001`、`config/catalog/white_label_skus_v1.json` | 当前3个SKU已确认并接入；商品映射后按商品代码+规格代码精确匹配，任一命中则整单追加白标商品 |
+| `GY-DAILY-GOODS-WHITE-LABEL` | 白标SKU库与整单备注 | `DEC-USER-WHITELABEL-REPLACE-002` | `SRC-WHITELABEL-XLSX-20261010`、`config/catalog/white_label_skus_v1.json` | 当前131条权威SKU已接入；商品映射后按商品代码+规格代码精确匹配，任一命中则整单追加白标商品 |
 
 ### 6.2 管易上传和上传后规则
 

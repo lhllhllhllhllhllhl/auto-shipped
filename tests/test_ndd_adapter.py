@@ -9,6 +9,11 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from auto_shipped.catalog import ProductCatalog, ProductRecord
+from auto_shipped.companies import (
+    load_company_registry,
+    resolve_company_abbreviation_references,
+    resolve_company_by_source_profile,
+)
 from auto_shipped.detection import detect_source, load_source_profiles
 from auto_shipped.platforms.guanyi import (
     build_custom_import_lines,
@@ -24,11 +29,22 @@ PROFILE = json.loads(
         encoding="utf-8"
     )
 )
-RULES = resolve_guanyi_policy_modules(json.loads(
+RAW_RULES = json.loads(
     (PROJECT_ROOT / "config/platform_rules/guanyi/ndd_order_v1.json").read_text(
         encoding="utf-8"
     )
-), PROJECT_ROOT / "config/platform_rules")
+)
+COMPANY_REGISTRY = load_company_registry(
+    PROJECT_ROOT / "config/companies/company_registry_v1.json"
+)
+NDD_COMPANY = resolve_company_by_source_profile(
+    COMPANY_REGISTRY,
+    "ndd_order_v1",
+).company
+RULES = resolve_company_abbreviation_references(
+    resolve_guanyi_policy_modules(RAW_RULES, PROJECT_ROOT / "config/platform_rules"),
+    NDD_COMPANY,
+)
 GUANYI_PROFILE = json.loads(
     (PROJECT_ROOT / "config/platform_profiles/guanyi_order_import_v1.json").read_text(
         encoding="utf-8"

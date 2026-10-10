@@ -5,7 +5,7 @@
   "source_kind": "text_or_image",
   "order_type": "manual_channel_order",
   "adapter": "adaptive_excel_parsed",
-  "version": 4,
+  "version": 5,
   "enabled": true,
   "detection": {},
   "text_intake": {
@@ -13,7 +13,7 @@
     "product_identity": "corn_variety_plus_registered_package_semantics",
     "order_number_policy": {
       "strategy": "current_datetime_sequence",
-      "prefix": "RZD",
+      "prefix_source": "company_abbreviation",
       "datetime_format": "%Y%m%d%H%M",
       "sequence_start": 1,
       "minimum_sequence_width": 2,

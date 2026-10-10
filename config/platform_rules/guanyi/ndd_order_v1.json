@@ -3,7 +3,7 @@
   "profile_id": "guanyi_ndd_order_v1",
   "source_profile_id": "ndd_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 4,
+  "version": 5,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
@@ -19,7 +19,7 @@
   },
   "platform_order_number": {
     "strategy": "source_order_no_with_affixes",
-    "prefix": "NDD",
+    "prefix_source": "company_abbreviation",
     "suffix": "",
     "confirmed": true,
     "source": "NDD人工管易成品逐单对照：2026-10-05"

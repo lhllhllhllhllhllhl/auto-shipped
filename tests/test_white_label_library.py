@@ -15,22 +15,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class WhiteLabelLibraryTests(unittest.TestCase):
-    def test_active_library_loads_confirmed_exact_skus(self) -> None:
+    def test_active_library_loads_authoritative_confirmed_exact_skus(self) -> None:
         library = load_white_label_library(
             PROJECT_ROOT / "config/catalog/white_label_skus_v1.json"
         )
         self.assertEqual(library.library_id, "white_label_skus_v1")
         self.assertEqual(library.remark_token, "白标商品")
-        self.assertEqual(
-            library.sku_keys,
-            frozenset(
-                {
-                    ("SWHL3627", "4901792023627"),
-                    ("SWHL3610", "4901792023610"),
-                    ("SWHL3603", "4901792023603"),
-                }
-            ),
-        )
+        self.assertEqual(library.version, 2)
+        self.assertEqual(len(library.sku_keys), 131)
+        self.assertIn(("SWJC8140", "4901792038140"), library.sku_keys)
+        self.assertIn(("SWHL7952", "4901792037952"), library.sku_keys)
+        self.assertIn(("CVBB1811", "4520462001811"), library.sku_keys)
+        self.assertNotIn(("SWHL3627", "4901792023627"), library.sku_keys)
+        self.assertNotIn(("SWHL3610", "4901792023610"), library.sku_keys)
+        self.assertNotIn(("SWHL3603", "4901792023603"), library.sku_keys)
 
     def test_duplicate_exact_sku_fails_closed(self) -> None:
         payload = json.loads(
