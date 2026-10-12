@@ -170,6 +170,10 @@ proposal_status
 
 当来源行提供了规格，规格是映射身份的一部分，只允许精确组合键命中，禁止退回无规格映射。来源确实没有规格时仍允许正式确认的仅编码或仅名称映射；两种情况由来源事实决定，不要求所有商品强行补规格。
 
+来源没有规格、且其商品代码拟绑定到一个含多个规格的管易商品代码时，即使系统已有一个候选目标，也必须在首次使用前让用户选择具体规格并说明使用范围。用户选择“仅本次”时不得提交待确认表，只能使用与当前源文件`sha256:`指纹绑定的临时覆盖；文件变化或下个批次不会复用。用户明确“以后沿用”后才可提交，并且仍要经过所有者发布。只有正式快照会在本机运行时附加`reuse_scope=future`和`mapping_authority=feishu_official`，它们表示该映射具备已审核的长期复用证据，不是飞书表中的额外人工字段。
+
+`candidate_spec_code`和正式表的`spec_code`允许留空，但这不代表可以忽略规格。校验器只在`product_code`于当前管易商品主档中唯一对应一个商品/规格组合时补成规范值；如果存在多个规格，提案或正式同步都会阻断。公司内商品别名继续用`identifier_type=product_name`写在同一张映射表中；模糊名称匹配只返回候选，不写入两个工作簿。
+
 提交规则：
 
 - 提交人必须等于当前飞书用户ID。
@@ -190,7 +194,7 @@ PYTHONPATH=src python -m auto_shipped.cli build-mapping-proposal \
   --identifier-type product_code \
   --source-value <来源编码> \
   --product-code <管易商品代码> \
-  --spec-code <管易规格代码> \
+  --spec-code <管易规格代码；唯一单规格商品可省略> \
   --evidence <确认依据> \
   --official-revision <正式库版本> \
   --operation-id <本次提交操作ID>
@@ -214,7 +218,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
   --source-value <来源值> \
   --source-spec <来源规格> \
   --product-code <管易商品代码> \
-  --spec-code <管易规格代码> \
+  --spec-code <管易规格代码；唯一单规格商品可省略> \
   --evidence <用户确认依据> \
   --operation-id <稳定操作ID> \
   --confirmation-token CONFIRM_SUBMIT_PENDING_MAPPING
@@ -225,6 +229,8 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 `sync`只读取正式映射，不读取待确认提案。它会核验库状态、库版本、`mapping_key`、重复键、管易商品/规格唯一性，再以原子替换方式写入状态目录；校验失败时不会覆盖上一次有效快照。Skill日常转换入口只自动叠加该正式快照，不再自动叠加本机旧映射或环境变量共享映射。
 
 映射表始终使用同一结构：`source_value`存来源商品标识，`source_spec`存来源规格，至少填写一个；没有规格时`source_spec`留空。通常两者共同组成精确键。SAM这类规格编码稳定、但父商品编码配对尚未确认的来源，可在相同结构中让`source_value`留空、只填写`source_spec`；该能力必须由来源策略`allow_spec_only_mapping=true`显式开启。完整组合优先于规格单独映射，来源已经给出规格时禁止退回无规格映射。
+
+匹配优先级不是“看到同名代码就自动选规格”，而是：来源完整组合正式映射 → 来源无规格的正式长期映射 → 公司内正式名称别名 → 唯一精确管易名称 → 相似名称候选。来源无规格但目标商品多规格时，第二步只有带正式长期复用证据的记录可以通过；其他情况停在候选确认。
 
 统一转换入口会在每次运行前自动调用备用`sync`，除非Agent显式提供本次由`sync-native`生成的`--official-mapping-snapshot`。正式读取或验证失败时，普通商品返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`；只有正式库成功读取且确实无匹配时，才允许返回商品映射问题。已确认组合展开规则不依赖一对一正式映射，可继续按自身规则校验。
 

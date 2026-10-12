@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from auto_shipped.catalog import (
+    CURRENT_BATCH_MAPPING_CONFIRMATION,
     PERSIST_MAPPING_CONFIRMATION,
     ProductCatalog,
     ProductMappingStoreError,
@@ -70,6 +71,58 @@ class ProductMappingStoreTests(unittest.TestCase):
             self.assertEqual(record["identifier_type"], "product_code")
             self.assertEqual(record["source_value"], "")
             self.assertEqual(record["source_spec"], "SWSH8096")
+
+    def test_blank_target_spec_is_canonicalized_for_single_variant_product(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = save_confirmed_mapping(
+                Path(tmp) / "overlay.json",
+                self.catalog,
+                source_profile_id="company_a",
+                identifier_type="product_name",
+                source_value="测试商品别名",
+                product_code="P1",
+                spec_code="",
+                confirmation_token=PERSIST_MAPPING_CONFIRMATION,
+            )
+            record = json.loads(saved.read_text(encoding="utf-8"))["mappings"][0]
+            self.assertEqual(record["product_code"], "P1")
+            self.assertEqual(record["spec_code"], "S1")
+            self.assertEqual(record["reuse_scope"], "future")
+
+    def test_current_batch_mapping_is_bound_to_one_source_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fingerprint = "sha256:" + "a" * 64
+            saved = save_confirmed_mapping(
+                Path(tmp) / "batch-overlay.json",
+                self.catalog,
+                source_profile_id="company_a",
+                identifier_type="product_code",
+                source_value="EXT-1",
+                product_code="P1",
+                spec_code="S1",
+                reuse_scope="current_batch",
+                source_fingerprint=fingerprint,
+                confirmation_token=CURRENT_BATCH_MAPPING_CONFIRMATION,
+            )
+            record = json.loads(saved.read_text(encoding="utf-8"))["mappings"][0]
+            self.assertEqual(record["reuse_scope"], "current_batch")
+            self.assertEqual(record["mapping_authority"], "user_batch_confirmation")
+            self.assertEqual(record["source_fingerprint"], fingerprint)
+
+    def test_current_batch_mapping_rejects_missing_source_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ProductMappingStoreError):
+                save_confirmed_mapping(
+                    Path(tmp) / "batch-overlay.json",
+                    self.catalog,
+                    source_profile_id="company_a",
+                    identifier_type="product_code",
+                    source_value="EXT-1",
+                    product_code="P1",
+                    spec_code="S1",
+                    reuse_scope="current_batch",
+                    confirmation_token=CURRENT_BATCH_MAPPING_CONFIRMATION,
+                )
 
 
 if __name__ == "__main__":

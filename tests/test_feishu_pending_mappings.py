@@ -185,6 +185,25 @@ class FeishuPendingMappingTests(unittest.TestCase):
                 target_platform="guanyi",
             )
 
+    def test_proposal_allows_blank_target_spec_for_owner_validation(self) -> None:
+        pending = build_pending_mapping_proposal(
+            company_id="company_a",
+            source_profile_id="company_a_v1",
+            identifier_type="product_code",
+            source_value="EXT-1",
+            source_spec="",
+            target_platform="guanyi",
+            candidate_product_code="P1",
+            candidate_spec_code="",
+            evidence="用户确认以后沿用",
+            base_official_revision="4",
+            submitted_by="ou-user",
+            submission_operation_id="blank-target-spec",
+            submitted_at=NOW,
+        )
+
+        self.assertEqual(pending.candidate_spec_code, "")
+
     def test_existing_route_and_owner_metadata_are_reused(self) -> None:
         gateway = FakeFeishuGateway(FeishuIdentity("ou-user", display_name="员工"))
         gateway.routes.append(active_route("ou-user", "sheet-existing"))

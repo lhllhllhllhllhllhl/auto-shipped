@@ -285,7 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_proposal.add_argument("--source-spec", default="")
     build_proposal.add_argument("--target-platform", default="guanyi")
     build_proposal.add_argument("--product-code", required=True)
-    build_proposal.add_argument("--spec-code", required=True)
+    build_proposal.add_argument("--spec-code", default="")
     build_proposal.add_argument("--evidence", required=True)
     build_proposal.add_argument("--official-revision", required=True)
     build_proposal.add_argument("--operation-id")
@@ -355,7 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit_proposal.add_argument("--source-spec", default="")
     submit_proposal.add_argument("--target-platform", default="guanyi")
     submit_proposal.add_argument("--product-code", required=True)
-    submit_proposal.add_argument("--spec-code", required=True)
+    submit_proposal.add_argument("--spec-code", default="")
     submit_proposal.add_argument("--evidence", required=True)
     submit_proposal.add_argument("--operation-id")
     submit_proposal.add_argument("--confirmation-token", required=True)
@@ -476,8 +476,14 @@ def build_parser() -> argparse.ArgumentParser:
     save_mapping.add_argument("--source-value", required=True)
     save_mapping.add_argument("--source-spec", default="")
     save_mapping.add_argument("--product-code", required=True)
-    save_mapping.add_argument("--spec-code", required=True)
+    save_mapping.add_argument("--spec-code", default="")
     save_mapping.add_argument("--reason", default="用户确认")
+    save_mapping.add_argument(
+        "--reuse-scope",
+        choices=["future", "current_batch"],
+        default="future",
+    )
+    save_mapping.add_argument("--source-fingerprint", default="")
     save_mapping.add_argument("--confirmation-token", required=True)
 
     save_package_semantics = subparsers.add_parser(
@@ -1345,6 +1351,8 @@ def run_save_product_mapping(args: argparse.Namespace) -> int:
             product_code=args.product_code,
             spec_code=args.spec_code,
             reason=args.reason,
+            reuse_scope=args.reuse_scope,
+            source_fingerprint=args.source_fingerprint,
             confirmation_token=args.confirmation_token,
         )
     except (OSError, ValueError, json.JSONDecodeError, ProductMappingStoreError) as exc:
@@ -1370,7 +1378,8 @@ def run_save_product_mapping(args: argparse.Namespace) -> int:
                 "source_value": args.source_value,
                 "product_code": args.product_code,
                 "spec_code": args.spec_code,
-                "scope": "this_runtime_only_until_shared_or_repackaged",
+                "scope": args.reuse_scope,
+                "source_fingerprint": args.source_fingerprint,
             },
             ensure_ascii=False,
             indent=2,

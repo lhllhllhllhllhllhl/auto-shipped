@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import unittest
 import tempfile
 import json
@@ -100,6 +101,45 @@ class FeishuOfficialMappingTests(unittest.TestCase):
         self.assertEqual(snapshot["mappings"][0]["source_value"], "")
         self.assertEqual(snapshot["mappings"][0]["source_spec"], "SWSH8096")
 
+    def test_formal_snapshot_marks_mappings_as_future_reusable(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+
+        self.assertEqual(snapshot["mappings"][0]["reuse_scope"], "future")
+        self.assertEqual(
+            snapshot["mappings"][0]["mapping_authority"],
+            "feishu_official",
+        )
+
+    def test_blank_target_spec_is_allowed_only_for_unique_guanyi_product(self) -> None:
+        source = record()
+        source["product_code"] = "P-NO-SPEC"
+        source["spec_code"] = ""
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    product_code="P-NO-SPEC",
+                    product_name="无规格商品",
+                    spec_code="",
+                    spec_name="",
+                    weight_grams=None,
+                    default_warehouse="上海仓",
+                )
+            ]
+        )
+
+        snapshot = build_official_mapping_snapshot(
+            [source],
+            {"repository_status": "active", "mapping_revision": "1"},
+            product_catalog,
+        )
+
+        self.assertEqual(snapshot["mappings"][0]["product_code"], "P-NO-SPEC")
+        self.assertEqual(snapshot["mappings"][0]["spec_code"], "")
+
     def test_changed_mapping_key_fails_closed(self) -> None:
         invalid = record()
         invalid["mapping_key"] = "mapping-tampered"
@@ -144,6 +184,46 @@ class FeishuOfficialMappingTests(unittest.TestCase):
             catalog(),
         )
         snapshot["mappings"][0]["spec_code"] = "TAMPERED"
+        with self.assertRaises(OfficialMappingSyncError):
+            validate_official_mapping_snapshot(snapshot, catalog())
+
+    def test_snapshot_without_future_reuse_authorization_is_rejected(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+        snapshot["mappings"][0].pop("reuse_scope")
+        unsigned = dict(snapshot)
+        unsigned.pop("snapshot_sha256")
+        canonical = json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        snapshot["snapshot_sha256"] = hashlib.sha256(canonical).hexdigest()
+
+        with self.assertRaises(OfficialMappingSyncError):
+            validate_official_mapping_snapshot(snapshot, catalog())
+
+    def test_snapshot_without_official_authority_is_rejected(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+        snapshot["mappings"][0].pop("mapping_authority")
+        unsigned = dict(snapshot)
+        unsigned.pop("snapshot_sha256")
+        canonical = json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        snapshot["snapshot_sha256"] = hashlib.sha256(canonical).hexdigest()
+
         with self.assertRaises(OfficialMappingSyncError):
             validate_official_mapping_snapshot(snapshot, catalog())
 

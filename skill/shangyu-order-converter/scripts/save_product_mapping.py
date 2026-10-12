@@ -54,8 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-value", required=True)
     parser.add_argument("--source-spec", default="")
     parser.add_argument("--product-code", required=True)
-    parser.add_argument("--spec-code", required=True)
+    parser.add_argument("--spec-code", default="")
     parser.add_argument("--reason", default="用户确认")
+    parser.add_argument(
+        "--reuse-scope",
+        choices=["future", "current_batch"],
+        default="future",
+    )
+    parser.add_argument("--source-fingerprint", default="")
     parser.add_argument("--catalog")
     parser.add_argument("--mappings")
     parser.add_argument("--overlay")
@@ -66,6 +72,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.reuse_scope == "current_batch" and not args.overlay:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "message": "当前批次映射必须显式指定本次输出目录内的临时overlay。",
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     project_root = resolve_project_root(args.project_root)
     if project_root is None:
         print(json.dumps({"status": "failed", "message": "找不到订单转换运行时。"}, ensure_ascii=False))
@@ -108,6 +125,10 @@ def main() -> int:
         args.spec_code,
         "--reason",
         args.reason,
+        "--reuse-scope",
+        args.reuse_scope,
+        "--source-fingerprint",
+        args.source_fingerprint,
         "--confirmation-token",
         args.confirmation_token,
     ]

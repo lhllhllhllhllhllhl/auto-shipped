@@ -337,6 +337,205 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(result.product.product_code, "P1")
         self.assertEqual(result.match_method, "confirmed_source_mapping_code_spec")
 
+    def test_code_only_mapping_to_multi_spec_product_requires_reuse_authorization(self) -> None:
+        records = [
+            ProductRecord("P1", "测试商品", "S1", "红色", 100, "测试仓"),
+            ProductRecord("P1", "测试商品", "S2", "蓝色", 100, "测试仓"),
+        ]
+        mapping = {
+            "source_profile_id": "company_a",
+            "identifier_type": "product_code",
+            "source_value": "EXT-1",
+            "source_spec": "",
+            "product_code": "P1",
+            "spec_code": "S1",
+            "confirmed": True,
+        }
+
+        first_use = ProductCatalog(records, [mapping]).resolve(
+            "EXT-1",
+            source_profile_id="company_a",
+        )
+        reusable = ProductCatalog(
+            records,
+            [
+                {
+                    **mapping,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+        ).resolve(
+            "EXT-1",
+            source_profile_id="company_a",
+        )
+
+        self.assertEqual(first_use.status, "unconfirmed")
+        self.assertEqual(
+            first_use.match_method,
+            "code_only_multi_spec_requires_confirmation",
+        )
+        self.assertEqual(len(first_use.candidates), 2)
+        self.assertEqual(reusable.status, "confirmed")
+        self.assertEqual(reusable.product.spec_code, "S1")
+
+    def test_batch_confirmation_only_applies_to_its_bound_source_file(self) -> None:
+        records = [
+            ProductRecord("P1", "商品一红", "S1", "红", 100, "测试仓"),
+            ProductRecord("P1", "商品一蓝", "S2", "蓝", 100, "测试仓"),
+        ]
+        fingerprint = "sha256:" + "a" * 64
+        mapping = {
+            "source_profile_id": "company_a",
+            "identifier_type": "product_code",
+            "source_value": "EXT-1",
+            "source_spec": "",
+            "product_code": "P1",
+            "spec_code": "S1",
+            "confirmed": True,
+            "reuse_scope": "current_batch",
+            "mapping_authority": "user_batch_confirmation",
+            "source_fingerprint": fingerprint,
+        }
+        product_catalog = ProductCatalog(records, [mapping])
+
+        current = product_catalog.resolve(
+            "EXT-1",
+            source_profile_id="company_a",
+            source_fingerprint=fingerprint,
+        )
+        another = product_catalog.resolve(
+            "EXT-1",
+            source_profile_id="company_a",
+            source_fingerprint="sha256:" + "b" * 64,
+        )
+
+        self.assertEqual(current.status, "confirmed")
+        self.assertEqual(current.product.spec_code, "S1")
+        self.assertEqual(another.status, "unconfirmed")
+        self.assertEqual(
+            another.match_method,
+            "current_batch_mapping_fingerprint_mismatch",
+        )
+
+    def test_batch_confirmation_binding_also_applies_to_unique_target(self) -> None:
+        fingerprint = "sha256:" + "a" * 64
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "商品一", "S1", "默认", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "company_a",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                    "reuse_scope": "current_batch",
+                    "mapping_authority": "user_batch_confirmation",
+                    "source_fingerprint": fingerprint,
+                }
+            ],
+        )
+
+        mismatch = product_catalog.resolve(
+            "EXT-1",
+            source_profile_id="company_a",
+            source_fingerprint="sha256:" + "b" * 64,
+        )
+
+        self.assertEqual(mismatch.status, "unconfirmed")
+        self.assertEqual(
+            mismatch.match_method,
+            "current_batch_mapping_fingerprint_mismatch",
+        )
+
+    def test_unmapped_source_code_matching_multi_spec_guanyi_code_returns_candidates(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord("P1", "测试商品", "S1", "红色", 100, "测试仓"),
+                ProductRecord("P1", "测试商品", "S2", "蓝色", 100, "测试仓"),
+            ],
+            [],
+            {"company_a": {"source_identifier_type": "product_code"}},
+        )
+
+        result = product_catalog.resolve("P1", source_profile_id="company_a")
+
+        self.assertEqual(result.status, "ambiguous")
+        self.assertEqual(result.match_method, "direct_product_code_candidates")
+        self.assertEqual({item.spec_code for item in result.candidates}, {"S1", "S2"})
+
+    def test_similar_name_only_returns_unconfirmed_candidates(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord("P1", "蓝色搓澡巾", "S1", "蓝色", 100, "测试仓"),
+                ProductRecord("P2", "橘色搓澡巾", "S2", "橘色", 100, "测试仓"),
+            ],
+            [],
+            {
+                "company_a": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        result = product_catalog.resolve(
+            "",
+            source_profile_id="company_a",
+            source_product_name="蓝色搓背巾",
+            source_spec="蓝色",
+        )
+
+        self.assertFalse(result.confirmed)
+        self.assertEqual(result.match_method, "fuzzy_name_candidates")
+        self.assertTrue(result.candidates)
+        self.assertEqual(result.candidates[0].product_code, "P1")
+
+    def test_company_name_alias_uses_the_universal_mapping_table(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "标准搓澡巾", "S1", "蓝色", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "company_a",
+                    "identifier_type": "product_name",
+                    "source_value": "蓝色搓背巾",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+            {"company_a": {"source_identifier_type": "product_code"}},
+        )
+
+        result = product_catalog.resolve(
+            "",
+            source_profile_id="company_a",
+            source_product_name="蓝色搓背巾",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.match_method, "confirmed_name_alias_name_only")
+        self.assertEqual(result.product.product_code, "P1")
+
+    def test_missing_target_spec_resolves_only_single_variant_product(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord("P1", "单规格商品", "S1", "默认", 100, "测试仓"),
+                ProductRecord("P2", "多规格商品", "S2A", "A", 100, "测试仓"),
+                ProductRecord("P2", "多规格商品", "S2B", "B", 100, "测试仓"),
+            ]
+        )
+
+        self.assertEqual(
+            product_catalog.resolve_unique_target("P1", "").spec_code,
+            "S1",
+        )
+        self.assertIsNone(product_catalog.resolve_unique_target("P2", ""))
+
     def test_blank_spec_mapping_requires_registered_source_name_guard(self) -> None:
         records = [
             {

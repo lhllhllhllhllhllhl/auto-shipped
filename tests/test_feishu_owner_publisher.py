@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from dataclasses import replace
 
@@ -173,6 +174,27 @@ def official_for(item: PendingMappingProposal, product_code: str, spec_code: str
 
 
 class FeishuOwnerPublisherTests(unittest.TestCase):
+    def test_blank_target_spec_is_canonicalized_for_single_variant_product(self) -> None:
+        gateway = FakePublisherGateway()
+        gateway.proposals = [proposal(spec_code="")]
+
+        result = publish_pending_mappings(
+            gateway,
+            catalog(),
+            allowed_owner_user_ids=[OWNER],
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            confirmation_token="CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "published")
+        self.assertEqual(gateway.official[0]["product_code"], "P1")
+        self.assertEqual(gateway.official[0]["spec_code"], "S1")
+        logged_target = json.loads(gateway.logs[0]["new_value"])
+        self.assertEqual(logged_target["product_code"], "P1")
+        self.assertEqual(logged_target["spec_code"], "S1")
+
     def test_conflicting_official_target_blocks_entire_batch(self) -> None:
         gateway = FakePublisherGateway()
         item = proposal()

@@ -61,7 +61,6 @@ def build_official_mapping_snapshot(
             "identifier_type": identifier_type,
             "target_platform": target_platform,
             "product_code": product_code,
-            "spec_code": spec_code,
             "mapping_version": mapping_version,
         }
         missing = [name for name, value in required.items() if not value]
@@ -81,10 +80,13 @@ def build_official_mapping_snapshot(
             raise OfficialMappingSyncError(
                 f"正式映射{mapping_id}目标平台不是guanyi。"
             )
-        if not catalog.has_unique_pair(product_code, spec_code):
+        target = catalog.resolve_unique_target(product_code, spec_code)
+        if target is None:
             raise OfficialMappingSyncError(
-                f"正式映射{mapping_id}的管易商品/规格组合不存在或不唯一。"
+                f"正式映射{mapping_id}的管易商品/规格组合不存在或存在多个候选。"
             )
+        product_code = target.product_code
+        spec_code = target.spec_code
         expected_key = build_mapping_key(
             company_id=company_id,
             source_profile_id=source_profile_id,
@@ -124,6 +126,8 @@ def build_official_mapping_snapshot(
             "confirmed_at": clean_identifier(source.get("confirmed_at")),
             "reason": clean_identifier(source.get("evidence")) or "飞书正式映射库",
             "mapping_version": mapping_version,
+            "reuse_scope": "future",
+            "mapping_authority": "feishu_official",
         }
         mappings.append(mapping)
 
@@ -200,7 +204,6 @@ def validate_official_mapping_snapshot(
             "source_profile_id": source_profile_id,
             "identifier_type": identifier_type,
             "product_code": product_code,
-            "spec_code": spec_code,
             "mapping_version": mapping_version,
         }
         missing = [name for name, value in required.items() if not value]
@@ -218,9 +221,22 @@ def validate_official_mapping_snapshot(
             )
         if source.get("confirmed") is not True:
             raise OfficialMappingSyncError(f"正式映射快照记录{mapping_id}未确认。")
-        if not catalog.has_unique_pair(product_code, spec_code):
+        if clean_identifier(source.get("reuse_scope")) != "future":
             raise OfficialMappingSyncError(
-                f"正式映射快照记录{mapping_id}的管易商品/规格组合不存在或不唯一。"
+                f"正式映射快照记录{mapping_id}缺少长期复用授权标记。"
+            )
+        if clean_identifier(source.get("mapping_authority")) != "feishu_official":
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}缺少正式库权威来源标记。"
+            )
+        target = catalog.resolve_unique_target(product_code, spec_code)
+        if target is None:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}的管易商品/规格组合不存在或存在多个候选。"
+            )
+        if (target.product_code, target.spec_code) != (product_code, spec_code):
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}没有保存规范化后的管易商品/规格组合。"
             )
         expected_key = build_mapping_key(
             company_id=company_id,

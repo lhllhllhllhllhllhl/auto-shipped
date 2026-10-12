@@ -1,4 +1,5 @@
 from .mapping_store import (
+    CURRENT_BATCH_MAPPING_CONFIRMATION,
     PERSIST_MAPPING_CONFIRMATION,
     ProductMappingStoreError,
     save_confirmed_mapping,
@@ -26,6 +27,7 @@ from .white_label_library import (
 
 __all__ = [
     "PERSIST_MAPPING_CONFIRMATION",
+    "CURRENT_BATCH_MAPPING_CONFIRMATION",
     "PACKAGE_SEMANTICS_REUSE_CONFIRMATION",
     "ProductCatalog",
     "ProductRecord",

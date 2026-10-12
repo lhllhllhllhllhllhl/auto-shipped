@@ -258,9 +258,13 @@ def _platform_order_no(
     return f"{base_number}{automation_suffix}"
 
 
-def _product_resolution_key(order: ParsedOrder, item: Any) -> tuple[str, str, str, str]:
+def _product_resolution_key(
+    order: ParsedOrder,
+    item: Any,
+) -> tuple[str, str, str, str, str]:
     return (
         order.source.profile_id,
+        order.source.file_fingerprint,
         str(item.source_product_code or ""),
         str(item.source_product_name or ""),
         str(item.source_spec or ""),
@@ -269,6 +273,18 @@ def _product_resolution_key(order: ParsedOrder, item: Any) -> tuple[str, str, st
 
 def _product_source_label(item: Any) -> str:
     return str(item.source_product_code or item.source_product_name or "未提供商品标识")
+
+
+def _product_candidate_summary(candidates: tuple[Any, ...]) -> str:
+    rendered: list[str] = []
+    for index, product in enumerate(candidates[:5], start=1):
+        name = str(product.product_name or "未命名商品")
+        spec_name = str(product.spec_name or "无规格名称")
+        spec_code = str(product.spec_code or "无规格代码")
+        rendered.append(
+            f"{index}. {name} / {spec_name}（{product.product_code} / {spec_code}）"
+        )
+    return "；".join(rendered)
 
 
 def build_custom_import_lines(
@@ -285,7 +301,7 @@ def build_custom_import_lines(
     result = GuanyiBuildResult()
     result.clarifications.extend(_rule_clarifications(rules))
 
-    resolved_products: dict[tuple[str, str, str, str], Any] = {}
+    resolved_products: dict[tuple[str, str, str, str, str], Any] = {}
     resolved_lines_by_order: dict[int, list[ResolvedLineItem]] = {}
     official_mapping_clarification_added = False
     for order in orders:
@@ -338,6 +354,7 @@ def build_custom_import_lines(
                     source_profile_id=order.source.profile_id,
                     source_product_name=item.source_product_name,
                     source_spec=item.source_spec,
+                    source_fingerprint=order.source.file_fingerprint,
                 )
                 resolved_products[resolution_key] = resolution
             source_label = _product_source_label(item)
@@ -370,6 +387,23 @@ def build_custom_import_lines(
                         next_action="record_package_semantics_proposal_if_reusable",
                     )
                 )
+            elif resolution.candidates:
+                result.clarifications.append(
+                    ClarificationRequest(
+                        code="CONFIRM_GUANYI_PRODUCT_CANDIDATE",
+                        scope="batch",
+                        source_ref=source_ref,
+                        field="商品代码/规格代码",
+                        question=(
+                            f"请确认来源商品“{source_label}”对应以下哪个管易商品规格："
+                            f"{_product_candidate_summary(resolution.candidates)}。"
+                            "同时请说明仅本次使用，还是以后都沿用。"
+                        ),
+                        reason=resolution.reason or "商品存在一个或多个待确认候选。",
+                        answer_type="text",
+                        next_action="use_once_or_submit_mapping_if_reusable",
+                    )
+                )
             elif resolution.status == "unconfirmed" and resolution.product:
                 result.clarifications.append(
                     ClarificationRequest(
@@ -381,9 +415,11 @@ def build_custom_import_lines(
                             f"请确认：来源商品“{source_label}”是否对应管易商品代码"
                             f"“{resolution.product.product_code}”、规格代码"
                             f"“{resolution.product.spec_code}”？"
+                            "同时请说明仅本次使用，还是以后都沿用。"
                         ),
                         reason=resolution.reason or "当前商品映射被标记为待确认。",
                         answer_type="confirmation",
+                        next_action="use_once_or_submit_mapping_if_reusable",
                     )
                 )
             elif resolution.status != "confirmed":
@@ -393,9 +429,13 @@ def build_custom_import_lines(
                         scope="batch",
                         source_ref=source_ref,
                         field="商品代码/规格代码",
-                        question=f"请提供来源商品“{source_label}”对应的管易商品代码和规格代码。",
+                        question=(
+                            f"请提供来源商品“{source_label}”对应的管易商品代码和规格代码，"
+                            "并说明仅本次使用，还是以后都沿用。"
+                        ),
                         reason=resolution.reason or "商品主数据中没有唯一匹配。",
                         answer_type="text",
+                        next_action="use_once_or_submit_mapping_if_reusable",
                     )
                 )
             elif resolution.product:

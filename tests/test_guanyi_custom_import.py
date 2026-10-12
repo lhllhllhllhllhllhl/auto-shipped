@@ -212,6 +212,43 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(line["订单创建时间"], "2026-09-20 14:09:15")
         self.assertEqual(line["物流公司"], "中通快递（重货）")
 
+    def test_code_only_multi_spec_candidate_asks_scope_before_persistence(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord("P1", "测试商品", "S1", "红色", 100, "上海仓"),
+                ProductRecord("P1", "测试商品", "S2", "蓝色", 100, "上海仓"),
+            ],
+            [
+                {
+                    "source_profile_id": "tiantian_warehouse_v2",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+        )
+
+        result = build_custom_import_lines(
+            [parsed_order()],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "needs_input")
+        request = next(
+            item
+            for item in result.clarifications
+            if item.code == "CONFIRM_GUANYI_PRODUCT_CANDIDATE"
+        )
+        self.assertIn("红色", request.question)
+        self.assertIn("蓝色", request.question)
+        self.assertIn("仅本次使用", request.question)
+        self.assertIn("以后都沿用", request.question)
+
     def test_white_label_library_adds_one_order_level_system_remark(self) -> None:
         order = parsed_order()
         order.source_note = "周末发货"

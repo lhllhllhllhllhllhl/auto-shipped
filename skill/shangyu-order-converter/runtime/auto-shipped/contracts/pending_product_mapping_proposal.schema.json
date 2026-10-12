@@ -32,7 +32,7 @@
     "source_spec": {"type": "string"},
     "target_platform": {"type": "string", "minLength": 1},
     "candidate_product_code": {"type": "string", "minLength": 1},
-    "candidate_spec_code": {"type": "string", "minLength": 1},
+    "candidate_spec_code": {"type": "string"},
     "evidence": {"type": "string", "minLength": 1},
     "base_official_revision": {"type": "string", "minLength": 1},
     "submitted_by": {"type": "string", "minLength": 1},

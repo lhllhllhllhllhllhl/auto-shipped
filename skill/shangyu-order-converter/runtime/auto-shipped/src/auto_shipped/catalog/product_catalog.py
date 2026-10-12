@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .product_candidates import rank_similar_products
+
 
 def clean_identifier(value: Any) -> str:
     return str(value or "").replace("\t", "").strip()
@@ -223,6 +225,39 @@ class ProductCatalog:
     def has_unique_pair(self, product_code: str, spec_code: str) -> bool:
         return self._unique_pair(product_code, spec_code) is not None
 
+    def variants_for_product_code(self, product_code: Any) -> tuple[ProductRecord, ...]:
+        """Return unique Guanyi SKU candidates for one product code."""
+
+        unique = {
+            (record.product_code, record.spec_code): record
+            for record in self._by_product_code.get(clean_identifier(product_code), [])
+        }
+        return tuple(
+            unique[key]
+            for key in sorted(unique)
+        )
+
+    def resolve_unique_target(
+        self,
+        product_code: Any,
+        spec_code: Any = "",
+    ) -> ProductRecord | None:
+        """Resolve an explicit target pair or a genuinely single-variant product.
+
+        A missing target spec is never guessed when a Guanyi product code owns
+        multiple variants.
+        """
+
+        normalized_product = clean_identifier(product_code)
+        normalized_spec = clean_identifier(spec_code)
+        if normalized_spec:
+            return self._unique_pair(normalized_product, normalized_spec)
+        variants = self.variants_for_product_code(normalized_product)
+        if len(variants) != 1:
+            return None
+        candidate = variants[0]
+        return self._unique_pair(candidate.product_code, candidate.spec_code)
+
     def get_unique_pair(
         self,
         product_code: str,
@@ -266,6 +301,7 @@ class ProductCatalog:
         external_sku: str,
         identifier_type: str,
         match_method: str,
+        source_fingerprint: str = "",
     ) -> ProductResolution:
         resolved: list[tuple[dict[str, Any], ProductRecord]] = []
         for mapping in mappings:
@@ -295,6 +331,61 @@ class ProductCatalog:
                 candidates=tuple(unique_products.values()),
             )
         product = next(iter(unique_products.values()))
+        code_only_variant_binding = (
+            identifier_type == "product_code"
+            and all(
+                not normalize_product_text(mapping.get("source_spec"))
+                for mapping, _ in resolved
+            )
+            and len(self.variants_for_product_code(product.product_code)) > 1
+        )
+        future_reusable = any(
+            clean_identifier(mapping.get("reuse_scope")) == "future"
+            and clean_identifier(mapping.get("mapping_authority"))
+            == "feishu_official"
+            for mapping, _ in resolved
+        )
+        current_batch_confirmed = bool(source_fingerprint) and any(
+            clean_identifier(mapping.get("reuse_scope")) == "current_batch"
+            and clean_identifier(mapping.get("mapping_authority"))
+            == "user_batch_confirmation"
+            and clean_identifier(mapping.get("source_fingerprint"))
+            == clean_identifier(source_fingerprint)
+            for mapping, _ in resolved
+        )
+        current_batch_scoped = any(
+            clean_identifier(mapping.get("reuse_scope")) == "current_batch"
+            for mapping, _ in resolved
+        )
+        if current_batch_scoped and not (
+            future_reusable or current_batch_confirmed
+        ):
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=external_sku,
+                product=product,
+                confirmed=False,
+                reason="仅本次商品映射与当前来源文件指纹不一致，必须重新确认",
+                match_method="current_batch_mapping_fingerprint_mismatch",
+                identifier_type=identifier_type,
+                candidates=tuple(unique_products.values()),
+            )
+        if code_only_variant_binding and not (
+            future_reusable or current_batch_confirmed
+        ):
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=external_sku,
+                product=product,
+                confirmed=False,
+                reason=(
+                    "来源只有商品代码，而该管易商品代码包含多个规格；"
+                    "必须由用户确认具体规格，并说明仅本次使用还是以后沿用"
+                ),
+                match_method="code_only_multi_spec_requires_confirmation",
+                identifier_type=identifier_type,
+                candidates=self.variants_for_product_code(product.product_code),
+            )
         confirmed = all(bool(mapping.get("confirmed")) for mapping, _ in resolved)
         reasons = [str(mapping.get("reason") or "") for mapping, _ in resolved]
         return ProductResolution(
@@ -581,6 +672,7 @@ class ProductCatalog:
         source_profile_id: str = "",
         source_product_name: Any = "",
         source_spec: Any = "",
+        source_fingerprint: str = "",
     ) -> ProductResolution:
         key = clean_identifier(external_sku)
         policy = self.source_policies.get(source_profile_id) or {}
@@ -599,6 +691,7 @@ class ProductCatalog:
                     key,
                     identifier_type,
                     f"confirmed_source_mapping_{mapping_match_mode(identifier_type, source_spec)}",
+                    source_fingerprint,
                 )
                 guard_reason = self._mapping_identity_guard_reason(
                     source_profile_id=source_profile_id,
@@ -635,32 +728,67 @@ class ProductCatalog:
                     clean_identifier(source_spec),
                     identifier_type,
                     "confirmed_source_mapping_spec_only",
+                    source_fingerprint,
                 )
 
         if key:
-            if policy.get("allow_direct_catalog_identifier", False):
-                direct = self._by_spec_code.get(key, [])
-                if len(direct) == 1:
-                    return ProductResolution(
-                        "confirmed",
-                        key,
-                        direct[0],
-                        True,
-                        "来源配置允许规格代码直连，且管易规格代码唯一",
-                        "direct_spec_code",
-                        identifier_type,
-                    )
-                direct = self._by_product_code.get(key, [])
-                if len(direct) == 1:
-                    return ProductResolution(
-                        "confirmed",
-                        key,
-                        direct[0],
-                        True,
-                        "来源配置允许商品代码直连，且管易商品代码唯一",
-                        "direct_product_code",
-                        identifier_type,
-                    )
+            allow_direct = policy.get("allow_direct_catalog_identifier", False)
+            direct = self._by_spec_code.get(key, [])
+            if allow_direct and len(direct) == 1:
+                return ProductResolution(
+                    "confirmed",
+                    key,
+                    direct[0],
+                    True,
+                    "来源配置允许规格代码直连，且管易规格代码唯一",
+                    "direct_spec_code",
+                    identifier_type,
+                )
+
+            product_variants = list(self.variants_for_product_code(key))
+            normalized_source_spec = normalize_product_text(source_spec)
+            if normalized_source_spec:
+                product_variants = [
+                    product
+                    for product in product_variants
+                    if normalized_source_spec
+                    in {
+                        normalize_product_text(product.spec_code),
+                        normalize_product_text(product.spec_name),
+                    }
+                ]
+            if allow_direct and len(product_variants) == 1:
+                return ProductResolution(
+                    "confirmed",
+                    key,
+                    product_variants[0],
+                    True,
+                    "来源配置允许商品代码直连，且管易商品与规格唯一",
+                    "direct_product_code",
+                    identifier_type,
+                )
+            if len(product_variants) == 1:
+                return ProductResolution(
+                    "unconfirmed",
+                    key,
+                    product_variants[0],
+                    False,
+                    "来源代码与管易商品代码相同，但尚未登记为长期映射",
+                    "direct_product_code_candidate",
+                    identifier_type,
+                    tuple(product_variants),
+                )
+            if product_variants:
+                return ProductResolution(
+                    "ambiguous",
+                    key,
+                    None,
+                    False,
+                    "来源商品代码对应管易多个规格，必须由用户确认具体规格",
+                    "direct_product_code_candidates",
+                    identifier_type,
+                    tuple(product_variants),
+                )
 
         name = clean_identifier(source_product_name) or ("" if key else key)
         if not name and not key:
@@ -678,6 +806,7 @@ class ProductCatalog:
                     key or name,
                     "product_name",
                     f"confirmed_name_alias_{mapping_match_mode('product_name', source_spec)}",
+                    source_fingerprint,
                 )
 
             if policy.get("allow_exact_catalog_name", False):
@@ -729,6 +858,25 @@ class ProductCatalog:
         )
         if semantic_resolution is not None:
             return semantic_resolution
+
+        if name and policy.get("fuzzy_name_action") == "candidate_requires_user_confirmation":
+            candidates = rank_similar_products(
+                self.records,
+                source_name=name,
+                source_spec=source_spec,
+                normalizer=normalize_product_text,
+            )
+            if candidates:
+                return ProductResolution(
+                    status="unconfirmed" if len(candidates) == 1 else "ambiguous",
+                    external_sku=key or name,
+                    product=candidates[0] if len(candidates) == 1 else None,
+                    confirmed=False,
+                    reason="商品名称仅相似命中候选，必须由用户确认，禁止自动映射",
+                    match_method="fuzzy_name_candidates",
+                    identifier_type="product_name",
+                    candidates=candidates,
+                )
 
         display = key or name
         return ProductResolution(

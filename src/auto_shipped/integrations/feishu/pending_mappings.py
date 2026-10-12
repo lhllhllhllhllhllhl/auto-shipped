@@ -230,7 +230,7 @@ def build_pending_mapping_proposal(
         candidate_product_code=_required(
             candidate_product_code, "candidate_product_code"
         ),
-        candidate_spec_code=_required(candidate_spec_code, "candidate_spec_code"),
+        candidate_spec_code=str(candidate_spec_code or "").strip(),
         evidence=_required(evidence, "evidence"),
         base_official_revision=_required(
             base_official_revision, "base_official_revision"

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from .product_catalog import ProductCatalog, clean_identifier
 
 
 PERSIST_MAPPING_CONFIRMATION = "CONFIRM_PERSIST_PRODUCT_MAPPING"
+CURRENT_BATCH_MAPPING_CONFIRMATION = "CONFIRM_USE_PRODUCT_MAPPING_FOR_CURRENT_BATCH"
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
 
 
@@ -23,10 +25,13 @@ def _mapping_id(
     identifier_type: str,
     source_value: str,
     source_spec: str,
+    reuse_scope: str = "future",
+    source_fingerprint: str = "",
 ) -> str:
-    raw = "\x1f".join(
-        [source_profile_id, identifier_type, source_value, source_spec]
-    ).encode("utf-8")
+    parts = [source_profile_id, identifier_type, source_value, source_spec]
+    if reuse_scope != "future" or source_fingerprint:
+        parts.extend([reuse_scope, source_fingerprint])
+    raw = "\x1f".join(parts).encode("utf-8")
     return f"local-{hashlib.sha256(raw).hexdigest()[:20]}"
 
 
@@ -53,10 +58,22 @@ def save_confirmed_mapping(
     spec_code: str,
     source_spec: str = "",
     reason: str = "用户确认",
+    reuse_scope: str = "future",
+    source_fingerprint: str = "",
     confirmation_token: str,
 ) -> Path:
-    if confirmation_token != PERSIST_MAPPING_CONFIRMATION:
-        raise ProductMappingStoreError("缺少持久保存商品映射的精确确认口令")
+    reuse_scope = clean_identifier(reuse_scope) or "future"
+    source_fingerprint = clean_identifier(source_fingerprint)
+    if reuse_scope == "future":
+        if confirmation_token != PERSIST_MAPPING_CONFIRMATION:
+            raise ProductMappingStoreError("缺少持久保存商品映射的精确确认口令")
+    elif reuse_scope == "current_batch":
+        if confirmation_token != CURRENT_BATCH_MAPPING_CONFIRMATION:
+            raise ProductMappingStoreError("缺少当前批次商品映射的精确确认口令")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", source_fingerprint):
+            raise ProductMappingStoreError("当前批次映射必须绑定sha256来源文件指纹")
+    else:
+        raise ProductMappingStoreError(f"不支持的商品映射使用范围: {reuse_scope}")
 
     source_profile_id = clean_identifier(source_profile_id)
     identifier_type = clean_identifier(identifier_type)
@@ -70,8 +87,11 @@ def save_confirmed_mapping(
         raise ProductMappingStoreError("来源商品标识和来源规格至少填写一个")
     if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
         raise ProductMappingStoreError(f"不支持的来源商品标识类型: {identifier_type}")
-    if not catalog.has_unique_pair(product_code, spec_code):
-        raise ProductMappingStoreError("管易商品代码与规格代码在商品主数据中不是唯一组合")
+    target = catalog.resolve_unique_target(product_code, spec_code)
+    if target is None:
+        raise ProductMappingStoreError("管易商品代码与规格代码不存在或有多个候选")
+    product_code = target.product_code
+    spec_code = target.spec_code
 
     path = Path(overlay_path).expanduser().resolve()
     document = _load_overlay(path)
@@ -81,6 +101,8 @@ def save_confirmed_mapping(
         identifier_type,
         source_value,
         source_spec,
+        reuse_scope,
+        source_fingerprint,
     )
     record = {
         "mapping_id": mapping_id,
@@ -90,9 +112,17 @@ def save_confirmed_mapping(
         "product_code": product_code,
         "spec_code": spec_code,
         "confirmed": True,
+        "reuse_scope": reuse_scope,
+        "mapping_authority": (
+            "user_batch_confirmation"
+            if reuse_scope == "current_batch"
+            else "local_user_confirmation"
+        ),
         "confirmed_at": now,
         "reason": clean_identifier(reason) or "用户确认",
     }
+    if source_fingerprint:
+        record["source_fingerprint"] = source_fingerprint
     if source_spec:
         record["source_spec"] = source_spec
 

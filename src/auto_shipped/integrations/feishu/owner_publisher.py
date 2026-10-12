@@ -184,6 +184,17 @@ def _proposal_candidate(proposal: PendingMappingProposal) -> tuple[str, str]:
     )
 
 
+def _canonical_proposal_candidate(
+    catalog: ProductCatalog,
+    proposal: PendingMappingProposal,
+) -> tuple[str, str]:
+    submitted = _proposal_candidate(proposal)
+    resolved = catalog.resolve_unique_target(*submitted)
+    if resolved is None:
+        return submitted
+    return resolved.product_code, resolved.spec_code
+
+
 def _next_revision(revision: str) -> str:
     value = clean_identifier(revision)
     if not value.isdigit():
@@ -283,7 +294,9 @@ def plan_pending_mapping_publish(
     proposal_targets: dict[str, tuple[str, str]] = {}
     duplicate_proposal_ids: dict[str, list[str]] = {}
     for _, proposal in gathered:
-        candidate = _proposal_candidate(proposal)
+        submitted_candidate = _proposal_candidate(proposal)
+        resolved_target = catalog.resolve_unique_target(*submitted_candidate)
+        candidate = _canonical_proposal_candidate(catalog, proposal)
         duplicate_proposal_ids.setdefault(proposal.mapping_key, []).append(
             proposal.proposal_id
         )
@@ -340,13 +353,13 @@ def plan_pending_mapping_publish(
                 )
             )
             continue
-        if not catalog.has_unique_pair(*candidate):
+        if resolved_target is None:
             items.append(
                 MappingPublishItem(
                     proposal=proposal,
                     record=None,
                     disposition="conflict",
-                    reason="候选商品代码与规格代码在管易商品主档中不存在或不唯一。",
+                    reason="候选商品代码与规格代码在管易商品主档中不存在或有多个候选。",
                 )
             )
             continue
@@ -381,8 +394,8 @@ def plan_pending_mapping_publish(
             source_value=proposal.source_value,
             source_spec=proposal.source_spec,
             target_platform=proposal.target_platform,
-            product_code=proposal.candidate_product_code,
-            spec_code=proposal.candidate_spec_code,
+            product_code=candidate[0],
+            spec_code=candidate[1],
             status="active",
             mapping_version=revision_after,
             confirmed_by=identity.user_id,
@@ -402,7 +415,7 @@ def plan_pending_mapping_publish(
     }
     for key, proposal_ids_for_key in duplicated_same_target.items():
         candidates = {
-            _proposal_candidate(item.proposal)
+            _canonical_proposal_candidate(catalog, item.proposal)
             for item in items
             if item.proposal.mapping_key == key
         }
@@ -582,8 +595,8 @@ def publish_pending_mappings(
                     old_value="{}",
                     new_value=json.dumps(
                         {
-                            "product_code": item.proposal.candidate_product_code,
-                            "spec_code": item.proposal.candidate_spec_code,
+                            "product_code": item.record.product_code,
+                            "spec_code": item.record.spec_code,
                             "status": "active",
                         },
                         ensure_ascii=False,
