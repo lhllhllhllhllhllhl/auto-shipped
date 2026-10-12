@@ -9,6 +9,7 @@ from .product_catalog import (
     ProductResolution,
     clean_identifier,
     normalize_product_text,
+    mapping_match_mode,
 )
 from .package_semantics_store import (
     PACKAGE_SEMANTICS_REUSE_CONFIRMATION,
@@ -32,6 +33,7 @@ __all__ = [
     "PackageSemanticsStoreError",
     "ProductResolution",
     "clean_identifier",
+    "mapping_match_mode",
     "normalize_product_text",
     "export_package_semantics_proposals",
     "list_package_semantics_proposals",

@@ -209,6 +209,42 @@ class ProductCatalogTests(unittest.TestCase):
             self.assertEqual(red.product.product_code, "P1")
             self.assertEqual(blue.product.product_code, "P2")
 
+    def test_supplied_source_spec_never_falls_back_to_code_only_mapping(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "默认商品", "S1", "默认规格", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "84292384",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+            {"sam_order_v1": {"source_identifier_type": "product_code"}},
+        )
+
+        code_only = product_catalog.resolve(
+            "84292384",
+            source_profile_id="sam_order_v1",
+            source_spec="",
+        )
+        variant = product_catalog.resolve(
+            "84292384",
+            source_profile_id="sam_order_v1",
+            source_spec="SWSH8096",
+        )
+
+        self.assertEqual(code_only.status, "confirmed")
+        self.assertEqual(
+            code_only.match_method,
+            "confirmed_source_mapping_code_only",
+        )
+        self.assertEqual(variant.status, "unmapped")
+        self.assertIsNone(variant.product)
+
     def test_blank_spec_mapping_requires_registered_source_name_guard(self) -> None:
         records = [
             {

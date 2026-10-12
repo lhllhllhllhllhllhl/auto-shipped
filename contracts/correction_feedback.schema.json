@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/correction-feedback-v1.json",
+  "title": "Correction Feedback Record",
+  "type": "object",
+  "required": [
+    "feedback_id",
+    "issue_key",
+    "feedback_type",
+    "company_id",
+    "source_profile_id",
+    "source_field",
+    "source_value",
+    "source_spec",
+    "system_result",
+    "corrected_result",
+    "reuse_scope",
+    "related_proposal_id",
+    "evidence",
+    "skill_version",
+    "submitted_by",
+    "submitted_at",
+    "submission_operation_id",
+    "status",
+    "maintainer_note",
+    "fixed_version"
+  ],
+  "properties": {
+    "feedback_id": {"type": "string", "pattern": "^feedback-[0-9a-f]{24}$"},
+    "issue_key": {"type": "string", "pattern": "^issue-[0-9a-f]{24}$"},
+    "feedback_type": {
+      "enum": ["mapping_rejected", "mapping_corrected", "company_corrected", "field_corrected", "rule_disputed", "output_edited"]
+    },
+    "company_id": {"type": "string", "minLength": 1},
+    "source_profile_id": {"type": "string", "minLength": 1},
+    "source_field": {"type": "string", "minLength": 1},
+    "source_value": {"type": "string", "minLength": 1},
+    "source_spec": {"type": "string"},
+    "system_result": {"type": "string", "minLength": 1},
+    "corrected_result": {"type": "string", "minLength": 1},
+    "reuse_scope": {"enum": ["current_batch_only", "long_term"]},
+    "related_proposal_id": {"type": "string"},
+    "evidence": {"type": "string", "minLength": 1},
+    "skill_version": {"type": "string", "minLength": 1},
+    "submitted_by": {"type": "string", "minLength": 1},
+    "submitted_at": {"type": "string", "format": "date-time"},
+    "submission_operation_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["new", "reviewing", "accepted", "rejected", "fixed"]},
+    "maintainer_note": {"type": "string"},
+    "fixed_version": {"type": "string"}
+  },
+  "additionalProperties": false
+}

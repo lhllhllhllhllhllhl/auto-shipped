@@ -22,6 +22,7 @@ from .owner_publisher import (
     MappingPublishLogRecord,
     OfficialMappingRecord,
 )
+from .correction_feedback import CorrectionFeedbackRecord
 
 
 CommandRunner = Callable[[Sequence[str]], dict[str, Any]]
@@ -45,6 +46,9 @@ class LarkCliFeishuSheetGateway:
         official_mapping_sheet_id: str,
         official_metadata_sheet_id: str,
         official_publish_log_sheet_id: str,
+        feedback_spreadsheet_token: str = "",
+        feedback_sheet_id: str = "",
+        feedback_sheet_title: str = "",
         executable: str = "lark-cli",
         runner: CommandRunner | None = None,
     ) -> None:
@@ -73,6 +77,9 @@ class LarkCliFeishuSheetGateway:
             official_publish_log_sheet_id,
             "official_publish_log_sheet_id",
         )
+        self.feedback_spreadsheet_token = str(feedback_spreadsheet_token or "").strip()
+        self.feedback_sheet_id = str(feedback_sheet_id or "").strip()
+        self.feedback_sheet_title = str(feedback_sheet_title or "").strip()
         self.executable = executable
         self._runner = runner or self._subprocess_runner
 
@@ -87,6 +94,7 @@ class LarkCliFeishuSheetGateway:
         config = json.loads(Path(path).read_text(encoding="utf-8"))
         official = config.get("official_repository") or {}
         pending = config.get("pending_repository") or {}
+        feedback = config.get("correction_feedback_repository") or {}
         return cls(
             pending_spreadsheet_token=pending.get("spreadsheet_token"),
             route_sheet_id=pending.get("route_sheet_id"),
@@ -95,6 +103,9 @@ class LarkCliFeishuSheetGateway:
             official_mapping_sheet_id=official.get("mapping_sheet_id"),
             official_metadata_sheet_id=official.get("metadata_sheet_id"),
             official_publish_log_sheet_id=official.get("publish_log_sheet_id"),
+            feedback_spreadsheet_token=feedback.get("spreadsheet_token"),
+            feedback_sheet_id=feedback.get("sheet_id"),
+            feedback_sheet_title=feedback.get("sheet_title"),
             executable=executable,
             runner=runner,
         )
@@ -239,6 +250,113 @@ class LarkCliFeishuSheetGateway:
             user_id=str(user.get("openId") or ""),
             identity_type="user",
             display_name=str(user.get("userName") or ""),
+        )
+
+    def _require_feedback_binding(self) -> tuple[str, str, str]:
+        return (
+            self._required(
+                self.feedback_spreadsheet_token,
+                "correction_feedback_repository.spreadsheet_token",
+            ),
+            self._required(
+                self.feedback_sheet_id,
+                "correction_feedback_repository.sheet_id",
+            ),
+            self._required(
+                self.feedback_sheet_title,
+                "correction_feedback_repository.sheet_title",
+            ),
+        )
+
+    def list_correction_feedback(self) -> list[CorrectionFeedbackRecord]:
+        spreadsheet_token, sheet_id, _ = self._require_feedback_binding()
+        rows = self._read_rows(
+            spreadsheet_token=spreadsheet_token,
+            sheet_id=sheet_id,
+            cell_range="A2:T5000",
+        )
+        records: list[CorrectionFeedbackRecord] = []
+        for _, values in rows:
+            padded = values + [""] * (20 - len(values))
+            if not padded[0].strip():
+                continue
+            records.append(
+                CorrectionFeedbackRecord(
+                    feedback_id=padded[0],
+                    issue_key=padded[1],
+                    feedback_type=padded[2],
+                    company_id=padded[3],
+                    source_profile_id=padded[4],
+                    source_field=padded[5],
+                    source_value=padded[6],
+                    source_spec=padded[7],
+                    system_result=padded[8],
+                    corrected_result=padded[9],
+                    reuse_scope=padded[10],
+                    related_proposal_id=padded[11],
+                    evidence=padded[12],
+                    skill_version=padded[13],
+                    submitted_by=padded[14],
+                    submitted_at=padded[15],
+                    submission_operation_id=padded[16],
+                    status=padded[17],
+                    maintainer_note=padded[18],
+                    fixed_version=padded[19],
+                )
+            )
+        return records
+
+    def append_correction_feedback(self, record: CorrectionFeedbackRecord) -> None:
+        spreadsheet_token, _, sheet_title = self._require_feedback_binding()
+        columns = [field.name for field in fields(CorrectionFeedbackRecord)]
+        values = [
+            record.feedback_id,
+            record.issue_key,
+            record.feedback_type,
+            record.company_id,
+            record.source_profile_id,
+            record.source_field,
+            record.source_value,
+            record.source_spec,
+            record.system_result,
+            record.corrected_result,
+            record.reuse_scope,
+            record.related_proposal_id,
+            record.evidence,
+            record.skill_version,
+            record.submitted_by,
+            record.submitted_at,
+            record.submission_operation_id,
+            record.status,
+            record.maintainer_note,
+            record.fixed_version,
+        ]
+        self._run(
+            "sheets",
+            "+table-put",
+            "--as",
+            "user",
+            "--spreadsheet-token",
+            spreadsheet_token,
+            "--sheets",
+            json.dumps(
+                {
+                    "sheets": [
+                        {
+                            "name": sheet_title,
+                            "mode": "append",
+                            "header": False,
+                            "columns": columns,
+                            "data": [values],
+                            "dtypes": {column: "object" for column in columns},
+                            "formats": {column: "@" for column in columns},
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            "--json",
         )
 
     def list_user_routes(self) -> list[UserSheetRoute]:

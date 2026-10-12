@@ -3,6 +3,7 @@
   "source_policies": {
     "tiantian_warehouse_v2": {
       "source_identifier_type": "product_code",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": true,
       "name_matching": "normalized_exact_unique_only",
@@ -22,6 +23,7 @@
     },
     "sam_order_v1": {
       "source_identifier_type": "product_code",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_mapping_only",
@@ -29,6 +31,7 @@
     },
     "ndd_order_v1": {
       "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_bundle_expansion_only",
@@ -36,6 +39,7 @@
     },
     "self_operated_text_v1": {
       "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": true,
       "name_matching": "semantic_name_and_unit_exact_unique",
@@ -43,6 +47,7 @@
     },
     "taojuzi_taobao_text_v1": {
       "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_mapping_only",
@@ -50,6 +55,7 @@
     },
     "taojuzi_kqyd_text_v1": {
       "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_mapping_only",
@@ -57,6 +63,7 @@
     },
     "rongzhida_text_v1": {
       "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": true,
       "name_matching": "semantic_name_and_unit_exact_unique",

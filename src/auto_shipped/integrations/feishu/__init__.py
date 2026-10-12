@@ -12,6 +12,19 @@ from .pending_mappings import (
     resolve_or_provision_user_sheet,
     submit_pending_mapping_proposal,
 )
+from .correction_feedback import (
+    ALLOWED_FEEDBACK_TYPES,
+    ALLOWED_REUSE_SCOPES,
+    CORRECTION_FEEDBACK_CONFIRMATION_TOKEN,
+    CORRECTION_FEEDBACK_HEADERS,
+    CORRECTION_FEEDBACK_SCHEMA_VERSION,
+    CorrectionFeedbackGateway,
+    CorrectionFeedbackRecord,
+    CorrectionFeedbackSubmissionResult,
+    build_correction_feedback_record,
+    collect_correction_feedback,
+    submit_correction_feedback,
+)
 from .lark_cli_gateway import LarkCliFeishuSheetGateway, LarkCliGatewayError
 from .official_mappings import (
     OfficialMappingSyncError,
@@ -45,6 +58,17 @@ __all__ = [
     "build_pending_mapping_proposal",
     "resolve_or_provision_user_sheet",
     "submit_pending_mapping_proposal",
+    "ALLOWED_FEEDBACK_TYPES",
+    "ALLOWED_REUSE_SCOPES",
+    "CORRECTION_FEEDBACK_CONFIRMATION_TOKEN",
+    "CORRECTION_FEEDBACK_HEADERS",
+    "CORRECTION_FEEDBACK_SCHEMA_VERSION",
+    "CorrectionFeedbackGateway",
+    "CorrectionFeedbackRecord",
+    "CorrectionFeedbackSubmissionResult",
+    "build_correction_feedback_record",
+    "collect_correction_feedback",
+    "submit_correction_feedback",
     "LarkCliFeishuSheetGateway",
     "LarkCliGatewayError",
     "OfficialMappingSyncError",

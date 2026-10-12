@@ -19,6 +19,9 @@ COMMANDS = {
     "sync-native": "sync-feishu-official-mappings-from-payload",
     "provision": "provision-pending-sheet",
     "submit": "submit-mapping-proposal",
+    "build-feedback": "build-correction-feedback",
+    "submit-feedback": "submit-correction-feedback",
+    "collect-feedback": "collect-correction-feedback",
     "plan-publish": "plan-pending-mapping-publish",
     "publish": "publish-pending-mappings",
 }
@@ -31,7 +34,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|plan-publish|publish [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|publish [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,

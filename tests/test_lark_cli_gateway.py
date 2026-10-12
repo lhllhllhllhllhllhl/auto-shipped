@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from auto_shipped.integrations.feishu import (
+    CorrectionFeedbackRecord,
     LarkCliFeishuSheetGateway,
     LarkCliGatewayError,
     UserSheetRoute,
@@ -178,6 +179,59 @@ class LarkCliGatewayTests(unittest.TestCase):
             ),
             [(7, ["value"]), (8, [""])],
         )
+
+    def test_feedback_record_is_appended_to_dedicated_sheet(self) -> None:
+        stored: dict[int, list[str]] = {}
+
+        def runner(command: Sequence[str]) -> dict[str, Any]:
+            if "+csv-get" in command:
+                rows = [
+                    (index, stored.get(index, [""] * 20))
+                    for index in range(2, 5)
+                ]
+                return FakeLarkRunner._csv_payload(rows)
+            if "+table-put" in command:
+                payload = json.loads(FakeLarkRunner._arg(command, "--sheets"))
+                values = payload["sheets"][0]["data"][0]
+                row_number = max(stored, default=1) + 1
+                stored[row_number] = values
+                return {"ok": True, "data": {"revision": 1}}
+            raise AssertionError(f"unexpected command: {command}")
+
+        client = LarkCliFeishuSheetGateway(
+            pending_spreadsheet_token="pending-token",
+            route_sheet_id="route",
+            template_sheet_id="template",
+            official_spreadsheet_token="official-token",
+            official_mapping_sheet_id="mapping",
+            official_metadata_sheet_id="meta",
+            official_publish_log_sheet_id="publish-log",
+            feedback_spreadsheet_token="feedback-token",
+            feedback_sheet_id="feedback-sheet",
+            feedback_sheet_title="Sheet1",
+            runner=runner,
+        )
+        record = CorrectionFeedbackRecord(
+            feedback_id="feedback-1",
+            issue_key="issue-1",
+            feedback_type="mapping_corrected",
+            company_id="sam",
+            source_profile_id="sam_order_v1",
+            source_field="商品编码+规格编码",
+            source_value="84292384",
+            source_spec="SWSH8096",
+            system_result="旧结果",
+            corrected_result="新结果",
+            reuse_scope="long_term",
+            related_proposal_id="",
+            evidence="用户确认",
+            skill_version="1.0.0",
+            submitted_by="ou-user",
+            submitted_at="2026-10-12T00:00:00+00:00",
+            submission_operation_id="feedback-op",
+        )
+        client.append_correction_feedback(record)
+        self.assertEqual(client.list_correction_feedback(), [record])
 
 
 if __name__ == "__main__":

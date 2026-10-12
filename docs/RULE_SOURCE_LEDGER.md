@@ -243,6 +243,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DESIGN-WRITE-BOUNDARY-001` | 写前可恢复，写后只查重核验，禁止盲目重试 | 用户提供的稳定层经验、自动化安全设计 | 防止重复导入和重复审核 |
 | `DESIGN-MANIFEST-001` | Excel路径、大小和SHA-256预检与操作记录分离 | 自动化安全设计 | 防止错选文件和跨批次混淆 |
 | `DESIGN-BATCH-ORCHESTRATOR-001` | 多文件批次层只编排单文件确定性链路；全部通过后才重新渲染一个成品 | `DEC-USER-MULTI-FILE-MERGE-001` | 保持公司规则模块化，并防止半批次、重复文件和跨文件单号冲突 |
+| `DESIGN-SPEC-EXACT-001` | 来源提供规格时禁止退回无规格商品映射 | `DEC-USER-SPEC-EXACT-001`、用户实际纠错截图 | 防止同一商品编码下多个规格被错误合并 |
+| `DESIGN-CORRECTION-INBOX-001` | 用户纠错独立留存，反馈、待确认映射、正式映射三层分离 | `DEC-USER-CORRECTION-INBOX-001`、`DEC-USER-PERSISTENCE-EVIDENCE-001` | 让开发线程可回收真实问题，同时防止未经审核的反馈污染运行时 |
 
 ## 8. 原件归档风险
 

@@ -119,10 +119,12 @@ python3 <skill-dir>/scripts/audit_companies.py
 - 文件用途不明时，先问批次用途，再决定是否请求收件信息。
 - 商品映射必须精确且已确认。名称相似只能作为候选，禁止自动确认。
 - 商品匹配按公司隔离。已确认来源编码、已确认名称别名，以及标准化后对管易商品资料的唯一精确名称匹配可以确定性通过；模糊名称、多个规格或多个候选必须追问。
+- 来源提供规格时，规格是商品身份的一部分，只能命中完全相同的“来源标识+规格”正式映射，禁止降级到仅编码或仅名称映射。来源确实没有规格时，才允许命中经正式确认的无规格映射。
 - 文字玉米的`根/袋/盒/份/套`必须经过正式包装语义库。`根`的全局候选是彩袋单棒装，但某公司第一次出现且尚未登记时必须追问；RZD已登记`根→彩袋单棒装`，自营已登记`袋→8棒家庭装`。三种裸棒属于试吃商品，普通发货一律阻断，不能靠名称或编码绕过。
 - 用户确认新映射后，先问清是“仅本次使用”还是“以后沿用”。只有用户明确要求以后沿用，才运行飞书待确认提案命令；待确认提案不会参与转换，必须由所有者发布到正式映射表后再同步。
 - 公司可以用公司ID、全称、已登记简称或别名识别。只登记了身份、尚未登记转换工作流的公司只能确认“是哪家公司”，仍须停止并补齐模板、目标平台与业务规则；已登记公司的未知模板允许使用一次性自适应字段计划，但不得把一次性计划自动提升为永久模板。
 - 用户在对话中对某个候选做一次性确认，不等于授权永久修改公司规则或商品主档。需要持久化时明确说明并单独更新版本化配置。
+- 用户否决系统结果或人工修改成品时，先保证当前批次正确。用户同意留存后，运行`feishu_mapping.py submit-feedback ... --confirmation-token CONFIRM_SUBMIT_CORRECTION_FEEDBACK`写入独立反馈箱；没有成功回读`feedback_id`不得说已登记。反馈箱不参与转换；完整商品映射若要长期沿用，仍需另行提交待确认映射并取得`proposal_id`。详细流程见[用户纠错反馈治理](runtime/auto-shipped/docs/CORRECTION_FEEDBACK_GOVERNANCE.md)。
 - 发现SOP新增或遗漏规则时，先把它登记到规则目录和对应来源规则包；禁止只在模板渲染器中追加条件分支。
 - 新规则先判断是跨公司共享还是公司特有。共享规则写入`runtime/auto-shipped/config/platform_rules/guanyi/policy_modules_v1.json`并由公司规则包引用；公司特有规则才留在对应规则包。详细边界见[规则模块结构](runtime/auto-shipped/docs/RULE_MODULE_STRUCTURE.md)。同一个规则目标不得同时内联和引用。
 - 来源备注先经过跨公司共享备注分流模块：送货上门、不准放门口、驿站/快递柜、派送联系等明确给快递员的指令追加到收货地址末尾；其余备注才进入卖家备注。文字入口能明确提取时优先写入`source_extensions.delivery_instruction`；不得在公司规则包或临时脚本重复维护关键词。
@@ -148,6 +150,7 @@ python3 <skill-dir>/scripts/audit_companies.py
 - 飞书侧优先使用Agent原生电子表格能力，`lark-cli`仅作备用。原生读取结果必须通过`sync-native`确定性校验后才能成为转换覆盖层，禁止让模型直接把表格文本当作已确认映射。待确认写入必须获取稳定的用户身份；共享机器人身份不能用于个人Sheet路由。
 - 当前飞书工作簿、待确认网关、正式快照和所有者发布器均已接通。待确认提案仍不会自动生效；只有所有者明确要求发布时，才先运行`feishu_mapping.py plan-publish`，确认无冲突后以计划返回的`operation_id`运行`publish --confirmation-token CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS`。完全重复跳过，同键不同目标整批阻断，禁止覆盖；发布完成后必须回读正式版本、active映射、发布日志和待确认状态。
 - 处理飞书映射提案或接入工作簿时，先读 [飞书映射治理](runtime/auto-shipped/docs/FEISHU_MAPPING_GOVERNANCE.md)。
+- 开发维护线程回收用户纠错时，运行`python3 <skill-dir>/scripts/feishu_mapping.py collect-feedback --status new`只读汇总；反馈不得直接改写正式映射或业务规则。
 - 飞书只读健康检查运行`python3 <skill-dir>/scripts/feishu_mapping.py status`；它验证当前用户身份、正式库版本、路由和个人Sheet数量，不写表格。
 - 每次开始依赖商品映射的转换前必须完成当次正式库读取。统一入口默认自动运行`python3 <skill-dir>/scripts/feishu_mapping.py sync`；若Agent已使用原生飞书能力读取，则运行`sync-native`并把返回快照显式传给`--official-mapping-snapshot`。读取会校验库状态、版本、哈希、映射键和商品主档并原子更新本机快照；失败时停止转换，不得静默使用旧快照或待确认提案。
 - 无来源规格的编码映射必须通过来源配置中的身份保护；当前恬田`2026DFYUMI001`还必须匹配已确认来源品名。编码相同但品名缺失或变化时必须追问。

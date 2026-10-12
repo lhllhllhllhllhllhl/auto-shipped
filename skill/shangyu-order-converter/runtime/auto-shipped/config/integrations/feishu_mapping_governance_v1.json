@@ -11,7 +11,8 @@
     "agent_native_feishu_gateway": "ready_via_validated_payload_bridge",
     "official_mapping_snapshot": "ready",
     "conversion_fail_closed_gate": "ready",
-    "owner_publisher": "ready"
+    "owner_publisher": "ready",
+    "correction_feedback_inbox": "ready"
   },
   "identity_policy": {
     "required_identity_type": "user",
@@ -52,6 +53,17 @@
     "append_only": true,
     "metadata_schema_version": "1.0",
     "proposal_schema_version": "1.0"
+  },
+  "correction_feedback_repository": {
+    "role": "untrusted_feedback_inbox",
+    "wiki_url": "https://bcno5qs9unss.feishu.cn/wiki/SG46wJgF3iucsEkMJRccufqRncf",
+    "spreadsheet_token": "EYVjscxSWhukzmtuKUVcjxfAnGf",
+    "sheet_id": "917774",
+    "sheet_title": "Sheet1",
+    "append_only": true,
+    "schema_version": "1.0",
+    "never_used_directly_for_conversion": true,
+    "privacy_policy": "never_store_recipient_contact_or_address"
   },
   "safety": {
     "pending_workbook_is_not_a_security_boundary": true,

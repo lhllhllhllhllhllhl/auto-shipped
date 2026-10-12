@@ -160,13 +160,25 @@ class GuanyiCustomImportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.catalog = ProductCatalog(
             [ProductRecord("P1", "管易测试商品", "S1", "测试规格", 100, "上海仓")],
-            {
-                "EXT-1": {
+            [
+                {
+                    "source_profile_id": "*",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
                     "product_code": "P1",
                     "spec_code": "S1",
                     "confirmed": True,
-                }
-            },
+                },
+                {
+                    "source_profile_id": "*",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "SWSH8072",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                },
+            ],
         )
         self.profile = json.loads(
             (PROJECT_ROOT / "config/platform_profiles/guanyi_order_import_v1.json").read_text(

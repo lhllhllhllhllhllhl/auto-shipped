@@ -16,16 +16,22 @@ from auto_shipped.catalog import (
 )
 from auto_shipped.companies import audit_company_registry, load_company_registry
 from auto_shipped.integrations.feishu import (
+    ALLOWED_FEEDBACK_TYPES,
+    ALLOWED_REUSE_SCOPES,
+    CORRECTION_FEEDBACK_CONFIRMATION_TOKEN,
     LarkCliFeishuSheetGateway,
     LarkCliGatewayError,
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
+    build_correction_feedback_record,
     build_pending_mapping_proposal,
     load_official_mapping_snapshot,
     plan_pending_mapping_publish,
     publish_pending_mappings,
     resolve_or_provision_user_sheet,
     submit_pending_mapping_proposal,
+    submit_correction_feedback,
+    collect_correction_feedback,
     write_official_mapping_snapshot,
 )
 from auto_shipped.services.convert import convert_order_file
@@ -353,6 +359,64 @@ def build_parser() -> argparse.ArgumentParser:
     submit_proposal.add_argument("--evidence", required=True)
     submit_proposal.add_argument("--operation-id")
     submit_proposal.add_argument("--confirmation-token", required=True)
+
+    build_feedback = subparsers.add_parser(
+        "build-correction-feedback",
+        help="生成确定性的用户纠错反馈记录；不写入飞书",
+    )
+    build_feedback.add_argument("--submitted-by", required=True)
+    build_feedback.add_argument(
+        "--feedback-type", required=True, choices=sorted(ALLOWED_FEEDBACK_TYPES)
+    )
+    build_feedback.add_argument("--company-id", required=True)
+    build_feedback.add_argument("--source-profile", required=True)
+    build_feedback.add_argument("--source-field", required=True)
+    build_feedback.add_argument("--source-value", required=True)
+    build_feedback.add_argument("--source-spec", default="")
+    build_feedback.add_argument("--system-result", required=True)
+    build_feedback.add_argument("--corrected-result", required=True)
+    build_feedback.add_argument(
+        "--reuse-scope", required=True, choices=sorted(ALLOWED_REUSE_SCOPES)
+    )
+    build_feedback.add_argument("--related-proposal-id", default="")
+    build_feedback.add_argument("--evidence", required=True)
+    build_feedback.add_argument("--skill-version", required=True)
+    build_feedback.add_argument("--operation-id")
+
+    submit_feedback = subparsers.add_parser(
+        "submit-correction-feedback",
+        help="经用户确认后把纠错写入独立反馈箱；不会修改正式规则或映射",
+    )
+    submit_feedback.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    submit_feedback.add_argument(
+        "--feedback-type", required=True, choices=sorted(ALLOWED_FEEDBACK_TYPES)
+    )
+    submit_feedback.add_argument("--company-id", required=True)
+    submit_feedback.add_argument("--source-profile", required=True)
+    submit_feedback.add_argument("--source-field", required=True)
+    submit_feedback.add_argument("--source-value", required=True)
+    submit_feedback.add_argument("--source-spec", default="")
+    submit_feedback.add_argument("--system-result", required=True)
+    submit_feedback.add_argument("--corrected-result", required=True)
+    submit_feedback.add_argument(
+        "--reuse-scope", required=True, choices=sorted(ALLOWED_REUSE_SCOPES)
+    )
+    submit_feedback.add_argument("--related-proposal-id", default="")
+    submit_feedback.add_argument("--evidence", required=True)
+    submit_feedback.add_argument("--skill-version", required=True)
+    submit_feedback.add_argument("--operation-id")
+    submit_feedback.add_argument("--confirmation-token", required=True)
+
+    collect_feedback = subparsers.add_parser(
+        "collect-correction-feedback",
+        help="只读汇总纠错反馈，供开发维护线程定期审核",
+    )
+    collect_feedback.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    collect_feedback.add_argument("--status", default="new")
 
     plan_publish = subparsers.add_parser(
         "plan-pending-mapping-publish",
@@ -1056,6 +1120,115 @@ def run_submit_mapping_proposal(args: argparse.Namespace) -> int:
     return 0 if result.status in {"submitted", "already_submitted", "already_pending"} else 2
 
 
+def _build_feedback_from_args(
+    args: argparse.Namespace,
+    *,
+    submitted_by: str,
+):
+    return build_correction_feedback_record(
+        feedback_type=args.feedback_type,
+        company_id=args.company_id,
+        source_profile_id=args.source_profile,
+        source_field=args.source_field,
+        source_value=args.source_value,
+        source_spec=args.source_spec,
+        system_result=args.system_result,
+        corrected_result=args.corrected_result,
+        reuse_scope=args.reuse_scope,
+        related_proposal_id=args.related_proposal_id,
+        evidence=args.evidence,
+        skill_version=args.skill_version,
+        submitted_by=submitted_by,
+        submission_operation_id=args.operation_id,
+    )
+
+
+def run_build_correction_feedback(args: argparse.Namespace) -> int:
+    try:
+        record = _build_feedback_from_args(args, submitted_by=args.submitted_by)
+    except ValueError as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "invalid",
+                    "code": "CORRECTION_FEEDBACK_INVALID",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {"status": "ready", "feedback": record.to_dict()},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def run_submit_correction_feedback(args: argparse.Namespace) -> int:
+    if args.confirmation_token != CORRECTION_FEEDBACK_CONFIRMATION_TOKEN:
+        print(
+            json.dumps(
+                {
+                    "status": "needs_confirmation",
+                    "code": "CORRECTION_FEEDBACK_CONFIRMATION_REQUIRED",
+                    "message": "只有用户明确确认后，才可把纠错写入飞书反馈箱。",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    try:
+        gateway = _lark_gateway(args.config)
+        identity = gateway.get_current_identity()
+        record = _build_feedback_from_args(args, submitted_by=identity.user_id)
+        result = submit_correction_feedback(gateway, record)
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "CORRECTION_FEEDBACK_SUBMISSION_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"submitted", "already_submitted"} else 2
+
+
+def run_collect_correction_feedback(args: argparse.Namespace) -> int:
+    try:
+        gateway = _lark_gateway(args.config)
+        payload = collect_correction_feedback(
+            gateway.list_correction_feedback(),
+            status=args.status,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "CORRECTION_FEEDBACK_READ_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def _load_mapping_publisher_context(args: argparse.Namespace) -> tuple[
     LarkCliFeishuSheetGateway,
     ProductCatalog,
@@ -1322,6 +1495,12 @@ def main() -> int:
         return run_provision_pending_sheet(args)
     if args.command == "submit-mapping-proposal":
         return run_submit_mapping_proposal(args)
+    if args.command == "build-correction-feedback":
+        return run_build_correction_feedback(args)
+    if args.command == "submit-correction-feedback":
+        return run_submit_correction_feedback(args)
+    if args.command == "collect-correction-feedback":
+        return run_collect_correction_feedback(args)
     if args.command == "plan-pending-mapping-publish":
         return run_plan_pending_mapping_publish(args)
     if args.command == "publish-pending-mappings":

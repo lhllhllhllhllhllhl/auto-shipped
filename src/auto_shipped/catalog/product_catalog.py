@@ -23,6 +23,17 @@ def normalize_product_text(value: Any) -> str:
     )
 
 
+def mapping_match_mode(identifier_type: str, source_spec: Any = "") -> str:
+    """Describe the deterministic source key used by one mapping.
+
+    The mode is derived instead of maintained as a second writable field, so it
+    cannot drift away from ``identifier_type`` and ``source_spec``.
+    """
+
+    base = "name" if clean_identifier(identifier_type) == "product_name" else "code"
+    return f"{base}_spec" if normalize_product_text(source_spec) else f"{base}_only"
+
+
 def _number(value: Any) -> float | None:
     text = clean_identifier(value)
     if not text:
@@ -236,17 +247,13 @@ class ProductCatalog:
         if not normalized_value:
             return []
         profile = clean_identifier(source_profile_id) or "*"
-        keys = [
-            (profile, identifier_type, normalized_value, normalized_spec),
-            (profile, identifier_type, normalized_value, ""),
-        ]
+        # A source-supplied specification is part of the identity.  Never fall
+        # back to a code-only/name-only mapping when the exact composite key is
+        # missing: doing so silently merges variants.  Blank-spec mappings are
+        # still supported for source products that genuinely have no spec.
+        keys = [(profile, identifier_type, normalized_value, normalized_spec)]
         if profile != "*":
-            keys.extend(
-                [
-                    ("*", identifier_type, normalized_value, normalized_spec),
-                    ("*", identifier_type, normalized_value, ""),
-                ]
-            )
+            keys.append(("*", identifier_type, normalized_value, normalized_spec))
         for key in keys:
             mappings = self._mappings.get(key, [])
             if mappings:
@@ -591,7 +598,7 @@ class ProductCatalog:
                     mappings,
                     key,
                     identifier_type,
-                    "confirmed_source_mapping",
+                    f"confirmed_source_mapping_{mapping_match_mode(identifier_type, source_spec)}",
                 )
                 guard_reason = self._mapping_identity_guard_reason(
                     source_profile_id=source_profile_id,
@@ -653,7 +660,7 @@ class ProductCatalog:
                     alias_mappings,
                     key or name,
                     "product_name",
-                    "confirmed_name_alias",
+                    f"confirmed_name_alias_{mapping_match_mode('product_name', source_spec)}",
                 )
 
             if policy.get("allow_exact_catalog_name", False):
