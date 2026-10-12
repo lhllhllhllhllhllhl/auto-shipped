@@ -116,6 +116,7 @@
       "properties": {
         "order_ref": {"type": "string", "minLength": 1},
         "source_channel": {"type": "string"},
+        "order_no": {"type": ["string", "null"]},
         "source_order_no": {"type": ["string", "null"]},
         "recipient": {
           "type": "object",
@@ -147,6 +148,7 @@
           "required": ["source_channel", "source_order_no", "recipient_name", "contact", "address", "items"],
           "properties": {
             "source_channel": {"$ref": "#/$defs/provenance"},
+            "order_no": {"$ref": "#/$defs/provenance"},
             "source_order_no": {"$ref": "#/$defs/provenance"},
             "recipient_name": {"$ref": "#/$defs/provenance"},
             "contact": {"$ref": "#/$defs/provenance"},

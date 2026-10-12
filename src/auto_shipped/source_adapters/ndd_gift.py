@@ -115,7 +115,13 @@ class NddGiftOrderParsedAdapter:
                     ]
                 )
 
-            order_key = str(profile["fields"]["source_order_no"])
+            order_key = str(
+                profile["fields"].get("order_no")
+                or profile["fields"].get("source_order_no")
+                or ""
+            )
+            if not order_key:
+                raise ValueError("NDD来源配置缺少订单编号字段。")
             order_key_index = headers.index(order_key)
             example_order_numbers = {
                 _normalized(value)

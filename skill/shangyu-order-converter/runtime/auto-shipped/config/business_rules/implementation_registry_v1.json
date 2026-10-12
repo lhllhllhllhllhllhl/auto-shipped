@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "shangyu_rule_implementations_v1",
-  "version": 1,
+  "version": 2,
   "implementations": {
     "browser.guanyi.prepare_import_form.pending_review": {
       "runtime": "javascript",
@@ -73,7 +73,7 @@
       "target": "auto_shipped.platforms.guanyi.order_policies:route_order_notes",
       "test": "tests/test_guanyi_order_policies.py"
     },
-    "guanyi.platform_order.affixed_source_order_no": {
+    "guanyi.platform_order.affixed_preferred_order_identity": {
       "runtime": "python",
       "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
       "test": "tests/test_guanyi_custom_import.py"
@@ -83,7 +83,7 @@
       "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
       "test": "tests/test_text_order_intake.py"
     },
-    "guanyi.platform_order.source_order_no": {
+    "guanyi.platform_order.preferred_order_identity": {
       "runtime": "python",
       "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
       "test": "tests/test_guanyi_custom_import.py"

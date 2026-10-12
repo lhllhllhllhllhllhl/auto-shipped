@@ -3,7 +3,7 @@
   "profile_id": "guanyi_sam_order_v1",
   "source_profile_id": "sam_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 11,
+  "version": 12,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.sam_fixed.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -17,7 +17,7 @@
     }
   },
   "platform_order_number": {
-    "strategy": "source_order_no",
+    "strategy": "preferred_order_identity",
     "confirmed": true,
     "source": "发货SOP第8页；真实SAM样本已定位来源单号列：2026-10-01"
   },
@@ -55,7 +55,11 @@
     "group_separator": "_",
     "date_format": "%y%m%d",
     "timezone": "Asia/Shanghai",
-    "on_missing_group_number": "ask_user",
+    "on_missing_group_number": "generate_minute_sequence",
+    "fallback_stamp_format": "%y%m%d%H%M",
+    "fallback_sequence_separator": "_",
+    "fallback_sequence_start": 1,
+    "fallback_sequence_width": 2,
     "on_unknown_product_type": "ask_user",
     "on_multiple_product_types": "ask_user",
     "product_type_rules": [
@@ -90,7 +94,7 @@
       }
     ],
     "confirmed": true,
-    "source": "尚舆发货流程PDF规则经用户纠错确认：sam+商品类型缩写+当日YYMMDD+_+跟团号；2026-10-02"
+    "source": "有跟团号时沿用sam+商品类型缩写+当日YYMMDD+_+跟团号；无跟团号时使用sam+商品类型缩写+整批生成分钟YYMMDDHHmm+_+最少两位弹性序号；用户确认：2026-10-12"
   },
   "item_expansion_policy": {
     "strategy": "confirmed_source_item_expansions",
@@ -133,14 +137,14 @@
       "GY-PLATFORM-ORDER-NUMBER": {
         "status": "implemented",
         "confirmed": true,
-        "implementation_ref": "guanyi.platform_order.source_order_no",
-        "evidence": "SOP确认复制来源平台单号；真实样本已定位来源列。"
+        "implementation_ref": "guanyi.platform_order.preferred_order_identity",
+        "evidence": "公共规则优先订单编号，缺失时回退来源单号；SAM现有复合列作为可用回退身份。"
       },
       "GY-BUYER-MEMBER": {
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.buyer_member.sam_pattern",
-        "evidence": "用户确认按sam+商品类型缩写+当日日期+_+跟团号生成；YM为玉米，SH为尚和手套。"
+        "evidence": "有跟团号时按sam+商品类型缩写+当日日期+_+跟团号生成；无跟团号时复用批次分钟弹性序号模块；YM为玉米，SH为尚和手套。"
       },
       "GY-PAYMENT-VALUES": {
         "status": "implemented",

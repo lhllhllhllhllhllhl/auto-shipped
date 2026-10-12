@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 from copy import copy
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openpyxl import load_workbook
 
@@ -14,6 +15,7 @@ from auto_shipped.domain import (
     ClarificationRequest,
     ParsedOrder,
     deduplicate_clarifications,
+    resolve_parsed_source_identity,
 )
 from auto_shipped.platforms.guanyi.order_policies import (
     GuanyiOrderPolicyError,
@@ -21,6 +23,7 @@ from auto_shipped.platforms.guanyi.order_policies import (
     apply_contact_suffix_policy,
     compose_seller_remark,
     route_order_notes,
+    resolve_sam_product_type_code,
     select_buyer_member,
     select_logistics_carrier,
 )
@@ -234,13 +237,13 @@ def _platform_order_no(
 ) -> str:
     number_rule = rules["platform_order_number"]
     strategy = number_rule["strategy"]
-    if strategy == "source_order_no":
-        base_number = order.source.source_order_no or ""
-    elif strategy == "source_order_no_with_affixes":
-        source_order_no = order.source.source_order_no or ""
+    identity = resolve_parsed_source_identity(order.source).value
+    if strategy == "preferred_order_identity":
+        base_number = identity
+    elif strategy == "preferred_order_identity_with_affixes":
         prefix = str(number_rule.get("prefix") or "")
         suffix = str(number_rule.get("suffix") or "")
-        base_number = f"{prefix}{source_order_no}{suffix}"
+        base_number = f"{prefix}{identity}{suffix}"
     else:
         raise GuanyiCustomImportError(f"未知平台单号策略: {strategy}")
 
@@ -275,6 +278,151 @@ def _product_source_label(item: Any) -> str:
     return str(item.source_product_code or item.source_product_name or "未提供商品标识")
 
 
+def _fingerprint_sha256(order: ParsedOrder) -> str:
+    fingerprint = str(order.source.file_fingerprint or "")
+    if fingerprint.startswith("sha256:"):
+        fingerprint = fingerprint.removeprefix("sha256:")
+    if len(fingerprint) == 64 and all(
+        character in "0123456789abcdef" for character in fingerprint.casefold()
+    ):
+        return fingerprint.casefold()
+    raise ValueError("SAM无跟团号订单缺少有效的来源文件SHA-256。")
+
+
+def _allocate_sam_buyer_member_sequences(
+    orders: list[ParsedOrder],
+    resolved_items_by_order: dict[int, list[ResolvedOrderItem]],
+    rules: dict[str, Any],
+    *,
+    business_datetime: datetime | None,
+    state_dir: str | Path | None,
+) -> tuple[dict[int, tuple[str, str]], datetime | None, list[ClarificationRequest]]:
+    from auto_shipped.services.order_number_allocations import (
+        OrderNumberAllocationError,
+        reserve_minute_sequence,
+    )
+
+    policy = rules.get("buyer_member_policy") or {}
+    if (
+        policy.get("strategy") != "sam_product_type_date_group"
+        or policy.get("on_missing_group_number") != "generate_minute_sequence"
+    ):
+        return {}, business_datetime, []
+
+    group_field = str(policy.get("group_number_field") or "").strip()
+    missing_group_orders = [
+        order
+        for order in orders
+        if not str(order.source_extensions.get(group_field) or "").strip()
+    ]
+    if not missing_group_orders:
+        return {}, business_datetime, []
+
+    clarifications: list[ClarificationRequest] = []
+    for order in missing_group_orders:
+        try:
+            resolve_sam_product_type_code(
+                policy,
+                resolved_items_by_order.get(id(order), []),
+            )
+        except GuanyiOrderPolicyError as exc:
+            clarifications.append(
+                ClarificationRequest(
+                    code="GUANYI_BUYER_MEMBER_POLICY_INVALID",
+                    scope="order",
+                    source_ref=f"订单:{resolve_parsed_source_identity(order.source).value}",
+                    field="买家会员",
+                    question="SAM商品类型无法唯一确定，请先补充或修正商品类型规则。",
+                    reason=str(exc),
+                    answer_type="text",
+                )
+            )
+    if clarifications:
+        return {}, business_datetime, clarifications
+
+    timezone_name = str(policy.get("timezone") or "Asia/Shanghai")
+    try:
+        timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return {}, business_datetime, [
+            ClarificationRequest(
+                code="GUANYI_BUYER_MEMBER_POLICY_INVALID",
+                scope="batch",
+                field="买家会员",
+                question="SAM买家会员时区配置无效，请先修正规则。",
+                reason=f"未知时区：{timezone_name}",
+                answer_type="text",
+            )
+        ]
+    frozen_datetime = business_datetime or datetime.now(timezone)
+    if frozen_datetime.tzinfo is None:
+        frozen_datetime = frozen_datetime.replace(tzinfo=timezone)
+    else:
+        frozen_datetime = frozen_datetime.astimezone(timezone)
+    stamp_format = str(policy.get("fallback_stamp_format") or "%y%m%d%H%M")
+    batch_minute = frozen_datetime.strftime(stamp_format)
+    sequence_width = int(policy.get("fallback_sequence_width") or 2)
+    sequence_start = int(policy.get("fallback_sequence_start") or 1)
+    platform_prefix = str(policy.get("platform_prefix") or "sam").strip()
+
+    grouped: dict[tuple[str, str], list[ParsedOrder]] = {}
+    for order in missing_group_orders:
+        try:
+            source_sha256 = _fingerprint_sha256(order)
+        except ValueError as exc:
+            clarifications.append(
+                ClarificationRequest(
+                    code="SAM_BUYER_MEMBER_SEQUENCE_ALLOCATION_FAILED",
+                    scope="order",
+                    source_ref=f"订单:{resolve_parsed_source_identity(order.source).value}",
+                    field="买家会员",
+                    question="无法为SAM无跟团号订单安全分配会员序号，请重新提供原始文件。",
+                    reason=str(exc),
+                    answer_type="file",
+                )
+            )
+            continue
+        grouped.setdefault(
+            (str(order.source.profile_id), source_sha256), []
+        ).append(order)
+    if clarifications:
+        return {}, frozen_datetime, clarifications
+
+    sequences: dict[int, tuple[str, str]] = {}
+    for (profile_id, source_sha256), source_orders in grouped.items():
+        try:
+            allocation = reserve_minute_sequence(
+                purpose="sam_buyer_member",
+                profile_id=profile_id,
+                prefix=platform_prefix,
+                batch_minute=batch_minute,
+                source_sha256=source_sha256,
+                sequence_count=len(source_orders),
+                sequence_width=sequence_width,
+                sequence_start=sequence_start,
+                stamp_format=stamp_format,
+                state_dir=state_dir,
+            )
+        except OrderNumberAllocationError as exc:
+            return {}, frozen_datetime, [
+                ClarificationRequest(
+                    code="SAM_BUYER_MEMBER_SEQUENCE_ALLOCATION_FAILED",
+                    scope="batch",
+                    field="买家会员",
+                    question="无法为SAM无跟团号订单安全分配会员序号，请核对来源文件后重试。",
+                    reason=str(exc),
+                    answer_type="file",
+                )
+            ]
+        for offset, order in enumerate(source_orders):
+            sequence_no = allocation.sequence_start + offset
+            sequences[id(order)] = (
+                allocation.batch_minute,
+                f"{sequence_no:0{sequence_width}d}",
+            )
+    return sequences, frozen_datetime, []
+
+
 def _product_candidate_summary(candidates: tuple[Any, ...]) -> str:
     rendered: list[str] = []
     for index, product in enumerate(candidates[:5], start=1):
@@ -295,6 +443,8 @@ def build_custom_import_lines(
     *,
     white_label_library: WhiteLabelLibrary | None = None,
     business_date: date | None = None,
+    business_datetime: datetime | None = None,
+    buyer_member_sequence_state_dir: str | Path | None = None,
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
 ) -> GuanyiBuildResult:
@@ -500,6 +650,35 @@ def build_custom_import_lines(
     if result.clarifications:
         return result
 
+    resolved_order_items_by_order = {
+        id(order): [
+            ResolvedOrderItem(
+                quantity=line_item.quantity,
+                product_code=line_item.product.product_code,
+                spec_code=line_item.product.spec_code,
+                product_name=line_item.product.product_name,
+                spec_name=line_item.product.spec_name,
+            )
+            for line_item in resolved_lines_by_order[id(order)]
+        ]
+        for order in orders
+    }
+    (
+        buyer_member_sequences,
+        frozen_business_datetime,
+        sequence_clarifications,
+    ) = _allocate_sam_buyer_member_sequences(
+        orders,
+        resolved_order_items_by_order,
+        rules,
+        business_datetime=business_datetime,
+        state_dir=buyer_member_sequence_state_dir,
+    )
+    if sequence_clarifications:
+        result.clarifications.extend(sequence_clarifications)
+        result.clarifications = deduplicate_clarifications(result.clarifications)
+        return result
+
     columns = platform_profile["columns"]
     product_name_strategy = _field_strategy(
         rules, "product_name", "catalog_product_name"
@@ -533,16 +712,7 @@ def build_custom_import_lines(
         seen_platform_numbers[platform_no] = order.record_key
         shipment = order.shipment_facts
         resolved_line_items = resolved_lines_by_order[id(order)]
-        resolved_order_items = [
-            ResolvedOrderItem(
-                quantity=line_item.quantity,
-                product_code=line_item.product.product_code,
-                spec_code=line_item.product.spec_code,
-                product_name=line_item.product.product_name,
-                spec_name=line_item.product.spec_name,
-            )
-            for line_item in resolved_line_items
-        ]
+        resolved_order_items = resolved_order_items_by_order[id(order)]
         try:
             store_name = (
                 select_store(
@@ -582,11 +752,15 @@ def build_custom_import_lines(
             )
             continue
         try:
+            generated_member = buyer_member_sequences.get(id(order))
             buyer_member = select_buyer_member(
                 order,
                 rules,
                 resolved_order_items,
                 business_date=business_date,
+                business_datetime=frozen_business_datetime,
+                generated_stamp=(generated_member[0] if generated_member else None),
+                generated_sequence=(generated_member[1] if generated_member else None),
             )
         except GuanyiOrderPolicyError as exc:
             result.clarifications.append(

@@ -215,7 +215,10 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertNotIn("prefix", raw["platform_order_number"])
         rules = load_guanyi_rules("ndd_order_v1.json")
         number = rules["platform_order_number"]
-        self.assertEqual(number["strategy"], "source_order_no_with_affixes")
+        self.assertEqual(
+            number["strategy"],
+            "preferred_order_identity_with_affixes",
+        )
         self.assertEqual(number["prefix"], "NDD")
         self.assertEqual(number["suffix"], "")
         expansion = rules["item_expansion_policy"]["rules"][0]

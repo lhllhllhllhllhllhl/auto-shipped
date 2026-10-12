@@ -205,7 +205,7 @@ class NddAdapterTests(unittest.TestCase):
             self.assertEqual(len(parsed.orders), 1)
             self.assertEqual(parsed.orders[0].source.row_numbers, (4,))
             self.assertEqual(
-                parsed.orders[0].source.source_order_no,
+                parsed.orders[0].source.order_no,
                 "2104856428830863362",
             )
 
@@ -283,7 +283,7 @@ class NddAdapterTests(unittest.TestCase):
             self.assertEqual(parsed.status, "parsed")
             self.assertEqual(len(parsed.orders), 1)
             order = parsed.orders[0]
-            self.assertEqual(order.source.source_order_no, "2104856428830863362")
+            self.assertEqual(order.source.order_no, "2104856428830863362")
             self.assertEqual(order.recipient.province, "上海市")
             self.assertEqual(order.recipient.city, "上海市")
             self.assertEqual(order.recipient.district, "浦东新区")

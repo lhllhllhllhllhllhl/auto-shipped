@@ -23,6 +23,7 @@ class OrderNumberAllocationError(ValueError):
 @dataclass(frozen=True, slots=True)
 class OrderNumberAllocation:
     allocation_id: str
+    purpose: str
     profile_id: str
     prefix: str
     batch_minute: str
@@ -58,20 +59,28 @@ def default_allocation_state_dir() -> Path:
     )
 
 
-def _allocation_key(profile_id: str, source_sha256: str) -> str:
+def _allocation_key(
+    purpose: str,
+    profile_id: str,
+    source_sha256: str,
+) -> str:
+    if purpose == "platform_order_number":
+        key_source = f"{profile_id}\0{source_sha256}"
+    else:
+        key_source = f"{purpose}\0{profile_id}\0{source_sha256}"
     return hashlib.sha256(
-        f"{profile_id}\0{source_sha256}".encode("utf-8")
+        key_source.encode("utf-8")
     ).hexdigest()
 
 
 def _validate_ledger(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
-        raise OrderNumberAllocationError("平台单号占号记录格式无效。")
+        raise OrderNumberAllocationError("分钟序号占号记录格式无效。")
     if payload.get("schema_version") != LEDGER_SCHEMA_VERSION:
-        raise OrderNumberAllocationError("平台单号占号记录版本无法识别。")
+        raise OrderNumberAllocationError("分钟序号占号记录版本无法识别。")
     entries = payload.get("allocations")
     if not isinstance(entries, list):
-        raise OrderNumberAllocationError("平台单号占号记录缺少allocations。")
+        raise OrderNumberAllocationError("分钟序号占号记录缺少allocations。")
     return payload
 
 
@@ -82,7 +91,7 @@ def _load_ledger(path: Path) -> dict[str, object]:
         return _validate_ledger(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError) as exc:
         raise OrderNumberAllocationError(
-            f"无法安全读取平台单号占号记录：{exc}"
+            f"无法安全读取分钟序号占号记录：{exc}"
         ) from exc
 
 
@@ -129,7 +138,7 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
                 continue
             if time.monotonic() >= deadline:
                 raise OrderNumberAllocationError(
-                    "平台单号占号记录正被另一个本机任务使用，请稍后重试。"
+                    "分钟序号占号记录正被另一个本机任务使用，请稍后重试。"
                 )
             time.sleep(0.05)
     try:
@@ -141,6 +150,7 @@ def _exclusive_lock(path: Path) -> Iterator[None]:
 
 def reserve_minute_sequence(
     *,
+    purpose: str = "platform_order_number",
     profile_id: str,
     prefix: str,
     batch_minute: str,
@@ -151,14 +161,14 @@ def reserve_minute_sequence(
     sequence_start: int = 1,
     state_dir: str | Path | None = None,
 ) -> OrderNumberAllocation:
-    if not profile_id or not prefix:
-        raise OrderNumberAllocationError("平台单号占号缺少来源配置或公司前缀。")
+    if not purpose or not profile_id or not prefix:
+        raise OrderNumberAllocationError("分钟序号占号缺少用途、来源配置或前缀。")
     if not source_sha256 or len(source_sha256) != 64:
-        raise OrderNumberAllocationError("平台单号占号缺少有效的来源SHA-256。")
+        raise OrderNumberAllocationError("分钟序号占号缺少有效的来源SHA-256。")
     if sequence_count < 1 or sequence_width < 1 or sequence_start < 0:
-        raise OrderNumberAllocationError("平台单号占号数量或序号配置无效。")
+        raise OrderNumberAllocationError("分钟序号占号数量或序号配置无效。")
     if not batch_minute.isdigit() or len(batch_minute) not in {10, 12}:
-        raise OrderNumberAllocationError("平台单号批次分钟格式无效。")
+        raise OrderNumberAllocationError("批次分钟格式无效。")
 
     root = (
         Path(state_dir).expanduser()
@@ -167,7 +177,7 @@ def reserve_minute_sequence(
     )
     ledger_path = root / "minute-sequence-ledger.json"
     lock_path = root / "minute-sequence-ledger.lock"
-    key = _allocation_key(profile_id, source_sha256)
+    key = _allocation_key(purpose, profile_id, source_sha256)
 
     with _exclusive_lock(lock_path):
         ledger = _load_ledger(ledger_path)
@@ -185,11 +195,12 @@ def reserve_minute_sequence(
             existing_count = int(existing.get("sequence_count") or 0)
             if existing_count != sequence_count:
                 raise OrderNumberAllocationError(
-                    "同一来源已经占用过平台单号，但本次订单数量发生变化；"
+                    "同一来源已经占用过分钟序号，但本次订单数量发生变化；"
                     "为避免重号，请核对草稿后再决定是否建立新批次。"
                 )
             return OrderNumberAllocation(
                 allocation_id=str(existing["allocation_id"]),
+                purpose=str(existing.get("purpose") or "platform_order_number"),
                 profile_id=str(existing["profile_id"]),
                 prefix=str(existing["prefix"]),
                 batch_minute=str(existing["batch_minute"]),
@@ -208,6 +219,7 @@ def reserve_minute_sequence(
                 item.get("profile_id") != profile_id
                 or item.get("prefix") != prefix
                 or item.get("batch_minute") != batch_minute
+                or str(item.get("purpose") or "platform_order_number") != purpose
             ):
                 continue
             item_start = int(item.get("sequence_start") or 0)
@@ -222,6 +234,7 @@ def reserve_minute_sequence(
         entry = {
             "allocation_id": allocation_id,
             "allocation_key": key,
+            "purpose": purpose,
             "profile_id": profile_id,
             "prefix": prefix,
             "batch_minute": batch_minute,
@@ -236,6 +249,7 @@ def reserve_minute_sequence(
         _write_ledger(ledger_path, ledger)
         return OrderNumberAllocation(
             allocation_id=allocation_id,
+            purpose=purpose,
             profile_id=profile_id,
             prefix=prefix,
             batch_minute=batch_minute,

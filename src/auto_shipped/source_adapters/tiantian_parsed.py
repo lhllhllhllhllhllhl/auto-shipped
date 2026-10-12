@@ -12,12 +12,14 @@ from openpyxl import load_workbook
 
 from auto_shipped.domain import (
     ClarificationRequest,
+    OrderIdentityError,
     ParsedItem,
     ParsedOrder,
     ParsedRecipient,
     ParsedShipmentFacts,
     ParsedSource,
     deduplicate_clarifications,
+    resolve_order_identity,
 )
 
 from .value_validation import identifier_requires_text, normalize_contact
@@ -122,35 +124,56 @@ class TiantianWarehouseParsedAdapter:
         result = ParseResult()
         grouped: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for row_no, row in rows:
+            raw_order_no = row.get("订单编号")
             raw_source_order_no = row.get("来源单号")
-            if identifier_requires_text(raw_source_order_no):
+            invalid_identifier_field = next(
+                (
+                    field_name
+                    for field_name, value in (
+                        ("订单编号", raw_order_no),
+                        ("来源单号", raw_source_order_no),
+                    )
+                    if identifier_requires_text(value)
+                ),
+                None,
+            )
+            if invalid_identifier_field:
                 result.clarifications.append(
                     ClarificationRequest(
-                        code="SOURCE_ORDER_NO_TEXT_REQUIRED",
+                        code="SOURCE_ORDER_ID_TEXT_REQUIRED",
                         scope="order",
                         source_ref=f"仓库订单!{row_no}:{row_no}",
-                        field="来源单号",
-                        question="来源单号是超长数值或科学计数法，请在来源Excel中将该列改为文本后重新导出。",
-                        reason="Excel数值最多可靠保存15位有效数字，继续处理可能改变订单号。",
+                        field=invalid_identifier_field,
+                        question=(
+                            f"{invalid_identifier_field}是超长数值或科学计数法，"
+                            "请在来源Excel中将该列改为文本后重新导出。"
+                        ),
+                        reason="Excel数值最多可靠保存15位有效数字，继续处理可能改变订单标识。",
                         answer_type="file",
                     )
                 )
                 continue
+            order_no = _text(raw_order_no)
             source_order_no = _text(raw_source_order_no)
-            if not source_order_no:
+            try:
+                identity = resolve_order_identity(
+                    order_no=order_no,
+                    source_order_no=source_order_no,
+                )
+            except OrderIdentityError:
                 result.clarifications.append(
                     ClarificationRequest(
-                        code="MISSING_SOURCE_ORDER_NO",
+                        code="MISSING_SOURCE_ORDER_IDENTITY",
                         scope="order",
                         source_ref=f"仓库订单!{row_no}:{row_no}",
-                        field="来源单号",
-                        question="这一行缺少来源单号，请补充后重新提供文件。",
+                        field="订单编号/来源单号",
+                        question="这一行同时缺少订单编号和来源单号，请补充后重新提供文件。",
                         reason="无法判断该商品行属于哪张订单。",
                         answer_type="file",
                     )
                 )
                 continue
-            grouped.setdefault(source_order_no, []).append((row_no, row))
+            grouped.setdefault(identity.value, []).append((row_no, row))
 
         fingerprint = _sha256(source_path) if source_path.exists() else "in-memory"
         order_fields = [
@@ -167,7 +190,7 @@ class TiantianWarehouseParsedAdapter:
             "物流单号",
         ]
 
-        for source_order_no, group_rows in grouped.items():
+        for order_identity, group_rows in grouped.items():
             row_numbers = tuple(row_no for row_no, _ in group_rows)
             row_ref = f"仓库订单!{row_numbers[0]}:{row_numbers[-1]}"
             group_clarifications: list[ClarificationRequest] = []
@@ -182,7 +205,7 @@ class TiantianWarehouseParsedAdapter:
                             scope="order",
                             source_ref=row_ref,
                             field=field_name,
-                            question=f"同一来源单号的“{field_name}”不一致，请确认或修正文件。",
+                            question=f"同一订单的“{field_name}”不一致，请确认或修正文件。",
                             reason="订单级字段不能在商品行之间变化。",
                             answer_type="file",
                         )
@@ -266,10 +289,30 @@ class TiantianWarehouseParsedAdapter:
                 )
                 continue
             mobile, phone = normalized_contact
+            order_numbers = sorted(
+                {
+                    _text(row.get("订单编号"))
+                    for _, row in group_rows
+                    if _text(row.get("订单编号"))
+                }
+            )
+            source_order_numbers = sorted(
+                {
+                    _text(row.get("来源单号"))
+                    for _, row in group_rows
+                    if _text(row.get("来源单号"))
+                }
+            )
+            order_no = order_numbers[0] if len(order_numbers) == 1 else None
+            source_order_no = (
+                source_order_numbers[0]
+                if len(source_order_numbers) == 1
+                else None
+            )
             record_key = str(
                 uuid.uuid5(
                     uuid.NAMESPACE_URL,
-                    f"{profile['profile_id']}:{fingerprint}:{source_order_no}",
+                    f"{profile['profile_id']}:{fingerprint}:{order_identity}",
                 )
             )
             carrier = _text(first.get("物流公司"))
@@ -281,6 +324,7 @@ class TiantianWarehouseParsedAdapter:
                         profile_id=profile["profile_id"],
                         source_label=profile.get("source_label") or profile.get("company", ""),
                         order_type=profile.get("order_type", "warehouse_order"),
+                        order_no=order_no,
                         source_order_no=source_order_no,
                         file_name=source_path.name,
                         file_fingerprint=f"sha256:{fingerprint}",
@@ -306,12 +350,10 @@ class TiantianWarehouseParsedAdapter:
                     ),
                     source_extensions={
                         "source_channel": _text(first.get("渠道名称")),
-                        "source_order_codes": sorted(
-                            {
-                                _text(row.get("订单编号"))
-                                for _, row in group_rows
-                                if _text(row.get("订单编号"))
-                            }
+                        "source_order_codes": order_numbers,
+                        "source_order_numbers": source_order_numbers,
+                        "selected_order_identity_field": (
+                            "order_no" if order_no else "source_order_no"
                         ),
                     },
                 )

@@ -59,7 +59,7 @@ class CompanyRegistryTests(unittest.TestCase):
         self.assertEqual(result.status, "resolved")
         rules = {
             "platform_order_number": {
-                "strategy": "source_order_no_with_affixes",
+                "strategy": "preferred_order_identity_with_affixes",
                 "prefix_source": "company_abbreviation",
                 "suffix": "",
             }

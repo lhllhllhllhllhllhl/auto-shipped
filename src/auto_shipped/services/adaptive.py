@@ -188,9 +188,15 @@ def propose_adaptive_excel_plan(
         spec = field_mapping.get(field)
         if spec is None or not _column_has_values(sheet, spec):
             unresolved.append(field)
-    order_spec = field_mapping.get("source_order_no")
-    if order_spec is None or not _column_has_values(sheet, order_spec):
-        unresolved.append("source_order_no")
+    order_specs = [
+        field_mapping.get("order_no"),
+        field_mapping.get("source_order_no"),
+    ]
+    if not any(
+        spec is not None and _column_has_values(sheet, spec)
+        for spec in order_specs
+    ):
+        unresolved.append("order_identity")
     product_specs = [
         field_mapping.get("product_code"),
         field_mapping.get("product_name"),
@@ -222,15 +228,15 @@ def propose_adaptive_excel_plan(
                 answer_type="text",
             )
         )
-    if "source_order_no" in unresolved:
+    if "order_identity" in unresolved:
         questions.append(
             ClarificationRequest(
                 code="ADAPTIVE_ORDER_NUMBER_REQUIRED",
                 scope="batch",
                 source_ref=path.name,
                 field="平台单号",
-                question="原表没有可用订单号。请确认是否按日期加顺序号为这批订单生成唯一来源单号。",
-                reason="现有订单号列不存在或全部为空。",
+                question="原表没有可用订单编号或来源单号。请确认是否按日期加顺序号为这批订单生成唯一编号。",
+                reason="订单编号和来源单号列均不存在或全部为空。",
                 answer_type="confirmation",
             )
         )

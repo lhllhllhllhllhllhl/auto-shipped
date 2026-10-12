@@ -9,7 +9,15 @@ from typing import Any, Iterable
 from openpyxl import load_workbook
 
 from auto_shipped.catalog import ProductCatalog, clean_identifier
-from auto_shipped.domain import CanonicalOrder, Issue, OrderItem, Recipient, SourceRef
+from auto_shipped.domain import (
+    CanonicalOrder,
+    Issue,
+    OrderIdentityError,
+    OrderItem,
+    Recipient,
+    SourceRef,
+    resolve_order_identity,
+)
 from auto_shipped.validation.order_validator import validate_order
 
 
@@ -77,15 +85,27 @@ class TiantianWarehouseAdapter:
         orders: list[CanonicalOrder] = []
         grouped: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for row_no, row in rows:
-            source_order_id = _text(row.get("来源单号"))
-            group_key = source_order_id or f"__missing_source_order_row_{row_no}"
+            try:
+                group_key = resolve_order_identity(
+                    order_no=_text(row.get("订单编号")),
+                    source_order_no=_text(row.get("来源单号")),
+                ).value
+            except OrderIdentityError:
+                group_key = f"__missing_order_identity_row_{row_no}"
             grouped.setdefault(group_key, []).append((row_no, row))
 
         for group_rows in grouped.values():
             first_row_no, first = group_rows[0]
             last_row_no = group_rows[-1][0]
             row_ref = f"仓库订单!A{first_row_no}:P{last_row_no}"
-            source_order_id = _text(first.get("来源单号"))
+            try:
+                resolved_identity = resolve_order_identity(
+                    order_no=_text(first.get("订单编号")),
+                    source_order_no=_text(first.get("来源单号")),
+                )
+                source_order_id = resolved_identity.value
+            except OrderIdentityError:
+                source_order_id = ""
             platform_order_no = source_order_id
             issues: list[Issue] = []
 
@@ -94,7 +114,7 @@ class TiantianWarehouseAdapter:
                     Issue(
                         code="UNCONFIRMED_PLATFORM_NUMBER_STRATEGY",
                         severity="error",
-                        message="平台单号暂按来源单号生成，等待业务确认",
+                        message="平台单号暂按订单编号优先、来源单号回退生成，等待业务确认",
                         field="platform_order_no",
                         source_ref=row_ref,
                     )
@@ -117,7 +137,7 @@ class TiantianWarehouseAdapter:
                         Issue(
                             code="CONFLICTING_ORDER_HEADER",
                             severity="error",
-                            message=f"同一来源单号的 {header_field} 不一致",
+                            message=f"同一订单的 {header_field} 不一致",
                             field=header_field,
                             source_ref=row_ref,
                         )

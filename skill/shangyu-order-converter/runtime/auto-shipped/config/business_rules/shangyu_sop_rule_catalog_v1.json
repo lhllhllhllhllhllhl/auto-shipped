@@ -27,11 +27,11 @@
       "phase": "conversion",
       "source_refs": ["尚舆发货流程.pdf p.3", "p.8", "p.10", "p.12"],
       "allowed_implementation_refs": [
-        "guanyi.platform_order.source_order_no",
+        "guanyi.platform_order.preferred_order_identity",
         "guanyi.platform_order.purchase_order_no",
         "guanyi.platform_order.prefix_date_sequence",
         "guanyi.platform_order.prefix_minute_sequence",
-        "guanyi.platform_order.affixed_source_order_no"
+        "guanyi.platform_order.affixed_preferred_order_identity"
       ]
     },
     "GY-BUYER-MEMBER": {

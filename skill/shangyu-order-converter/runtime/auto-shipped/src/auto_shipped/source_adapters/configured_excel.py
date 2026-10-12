@@ -11,12 +11,14 @@ from openpyxl import load_workbook
 
 from auto_shipped.domain import (
     ClarificationRequest,
+    OrderIdentityError,
     ParsedItem,
     ParsedOrder,
     ParsedRecipient,
     ParsedShipmentFacts,
     ParsedSource,
     deduplicate_clarifications,
+    resolve_order_identity,
 )
 
 from .tiantian_parsed import ParseResult
@@ -124,44 +126,67 @@ class ConfiguredExcelParsedAdapter:
         def source_field(logical_name: str) -> str:
             return str(fields.get(logical_name) or "").strip()
 
-        order_key_field = source_field("source_order_no")
-        if not order_key_field:
-            raise ValueError("配置化Excel来源缺少fields.source_order_no。")
+        order_no_field = source_field("order_no")
+        source_order_no_field = source_field("source_order_no")
+        if not order_no_field and not source_order_no_field:
+            raise ValueError(
+                "配置化Excel来源必须至少配置fields.order_no或fields.source_order_no。"
+            )
 
         grouped: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for row_no, row in rows:
-            raw_source_order_no = row.get(order_key_field)
-            if identifier_requires_text(raw_source_order_no):
+            raw_order_no = row.get(order_no_field) if order_no_field else None
+            raw_source_order_no = (
+                row.get(source_order_no_field) if source_order_no_field else None
+            )
+            invalid_identifier_field = next(
+                (
+                    field_name
+                    for field_name, value in (
+                        (order_no_field, raw_order_no),
+                        (source_order_no_field, raw_source_order_no),
+                    )
+                    if field_name and identifier_requires_text(value)
+                ),
+                None,
+            )
+            if invalid_identifier_field:
                 result.clarifications.append(
                     ClarificationRequest(
-                        code="SOURCE_ORDER_NO_TEXT_REQUIRED",
+                        code="SOURCE_ORDER_ID_TEXT_REQUIRED",
                         scope="order",
                         source_ref=f"{sheet_name}!{row_no}:{row_no}",
-                        field=order_key_field,
+                        field=invalid_identifier_field,
                         question=(
-                            f'“{order_key_field}”是超长数值或科学计数法，'
+                            f'“{invalid_identifier_field}”是超长数值或科学计数法，'
                             "请在来源Excel中将该列改为文本后重新导出。"
                         ),
-                        reason="Excel数值最多可靠保存15位有效数字，继续处理可能改变订单号。",
+                        reason="Excel数值最多可靠保存15位有效数字，继续处理可能改变订单标识。",
                         answer_type="file",
                     )
                 )
                 continue
+            order_no = _text(raw_order_no)
             source_order_no = _text(raw_source_order_no)
-            if not source_order_no:
+            try:
+                identity = resolve_order_identity(
+                    order_no=order_no,
+                    source_order_no=source_order_no,
+                )
+            except OrderIdentityError:
                 result.clarifications.append(
                     ClarificationRequest(
-                        code="MISSING_SOURCE_ORDER_NO",
+                        code="MISSING_SOURCE_ORDER_IDENTITY",
                         scope="order",
                         source_ref=f"{sheet_name}!{row_no}:{row_no}",
-                        field=order_key_field,
-                        question=f"这一行缺少“{order_key_field}”，请补充后重新提供文件。",
+                        field="订单编号/来源单号",
+                        question="这一行同时缺少订单编号和来源单号，请补充后重新提供文件。",
                         reason="无法判断该商品行属于哪张订单。",
                         answer_type="file",
                     )
                 )
                 continue
-            grouped.setdefault(source_order_no, []).append((row_no, row))
+            grouped.setdefault(identity.value, []).append((row_no, row))
 
         fingerprint = _sha256(source_path) if source_path.exists() else "in-memory"
         extension_fields = {
@@ -183,7 +208,7 @@ class ConfiguredExcelParsedAdapter:
             "tracking_no",
         ]
 
-        for source_order_no, group_rows in grouped.items():
+        for order_identity, group_rows in grouped.items():
             row_numbers = tuple(row_no for row_no, _ in group_rows)
             row_ref = f"{sheet_name}!{row_numbers[0]}:{row_numbers[-1]}"
             group_clarifications: list[ClarificationRequest] = []
@@ -201,7 +226,7 @@ class ConfiguredExcelParsedAdapter:
                             scope="order",
                             source_ref=row_ref,
                             field=column,
-                            question=f"同一来源单号的“{column}”不一致，请确认或修正文件。",
+                            question=f"同一订单的“{column}”不一致，请确认或修正文件。",
                             reason="订单级字段不能在商品行之间变化。",
                             answer_type="file",
                         )
@@ -298,6 +323,31 @@ class ConfiguredExcelParsedAdapter:
                 key: _text(first.get(column))
                 for key, column in extension_fields.items()
             }
+            order_numbers = sorted(
+                {
+                    _text(row.get(order_no_field))
+                    for _, row in group_rows
+                    if order_no_field and _text(row.get(order_no_field))
+                }
+            )
+            source_order_numbers = sorted(
+                {
+                    _text(row.get(source_order_no_field))
+                    for _, row in group_rows
+                    if source_order_no_field
+                    and _text(row.get(source_order_no_field))
+                }
+            )
+            order_no = order_numbers[0] if len(order_numbers) == 1 else None
+            source_order_no = (
+                source_order_numbers[0]
+                if len(source_order_numbers) == 1
+                else None
+            )
+            source_extensions["source_order_numbers"] = source_order_numbers
+            source_extensions["selected_order_identity_field"] = (
+                "order_no" if order_no else "source_order_no"
+            )
             source_order_code_field = source_field("source_order_code")
             if source_order_code_field:
                 source_extensions["source_order_codes"] = sorted(
@@ -310,7 +360,7 @@ class ConfiguredExcelParsedAdapter:
             record_key = str(
                 uuid.uuid5(
                     uuid.NAMESPACE_URL,
-                    f"{profile['profile_id']}:{fingerprint}:{source_order_no}",
+                    f"{profile['profile_id']}:{fingerprint}:{order_identity}",
                 )
             )
             result.orders.append(
@@ -320,6 +370,7 @@ class ConfiguredExcelParsedAdapter:
                         profile_id=profile["profile_id"],
                         source_label=profile.get("source_label") or profile["profile_id"],
                         order_type=profile.get("order_type", "standard_order"),
+                        order_no=order_no,
                         source_order_no=source_order_no,
                         file_name=source_path.name,
                         file_fingerprint=f"sha256:{fingerprint}",

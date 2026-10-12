@@ -16,12 +16,15 @@ from openpyxl.utils import get_column_letter
 
 from auto_shipped.domain import (
     ClarificationRequest,
+    OrderIdentityError,
     ParsedItem,
     ParsedOrder,
     ParsedRecipient,
     ParsedShipmentFacts,
     ParsedSource,
     deduplicate_clarifications,
+    resolve_order_identity,
+    resolve_parsed_source_identity,
 )
 
 from .tiantian_parsed import ParseResult
@@ -38,7 +41,8 @@ class AdaptiveExcelPlanError(ValueError):
 
 
 FIELD_ALIASES: dict[str, tuple[str, ...]] = {
-    "source_order_no": ("订单编号", "订单号", "来源单号", "平台单号"),
+    "order_no": ("订单编号", "订单号"),
+    "source_order_no": ("来源单号", "平台单号"),
     "recipient_name": ("收件人姓名", "收件人", "收货人", "姓名"),
     "contact": ("收件人手机", "收件人电话", "联系方式", "联系电话", "手机", "电话"),
     "province": ("省", "省份"),
@@ -317,20 +321,20 @@ def _merge_order_rows(
     orders: list[ParsedOrder],
     requests: list[ClarificationRequest],
 ) -> list[ParsedOrder]:
-    """Merge repeated source order numbers into one multi-item canonical order."""
+    """Merge repeated preferred order identities into one multi-item order."""
 
     grouped: dict[str, list[ParsedOrder]] = {}
     order_keys: list[str] = []
     for order in orders:
-        source_order_no = str(order.source.source_order_no or "")
-        if source_order_no not in grouped:
-            grouped[source_order_no] = []
-            order_keys.append(source_order_no)
-        grouped[source_order_no].append(order)
+        order_identity = resolve_parsed_source_identity(order.source).value
+        if order_identity not in grouped:
+            grouped[order_identity] = []
+            order_keys.append(order_identity)
+        grouped[order_identity].append(order)
 
     merged: list[ParsedOrder] = []
-    for source_order_no in order_keys:
-        group = grouped[source_order_no]
+    for order_identity in order_keys:
+        group = grouped[order_identity]
         first = group[0]
         if len(group) == 1:
             merged.append(first)
@@ -360,7 +364,7 @@ def _merge_order_rows(
                         f"{first.source.sheet_name}!"
                         f"{min(row_numbers)}:{max(row_numbers)}"
                     ),
-                    question="同一来源单号的多条商品行存在订单字段冲突，请修正后重试。",
+                    question="同一订单的多条商品行存在订单字段冲突，请修正后重试。",
                     reason="冲突字段：" + ", ".join(sorted(set(conflicts))),
                     answer_type="file",
                 )
@@ -480,6 +484,14 @@ class AdaptiveExcelParsedAdapter:
             orders: list[ParsedOrder] = []
             for sequence_no, row_no in enumerate(row_numbers, start=1):
                 row_ref = f"{sheet_name}!{row_no}:{row_no}"
+                order_value = _mapping_value(
+                    sheet, row_no, mapping.get("order_no")
+                )
+                order_raw = (
+                    sheet[f"{mapping['order_no']['columns'][0]}{row_no}"].value
+                    if mapping.get("order_no")
+                    else None
+                )
                 source_order_value = _mapping_value(
                     sheet, row_no, mapping.get("source_order_no")
                 )
@@ -488,23 +500,36 @@ class AdaptiveExcelParsedAdapter:
                     if mapping.get("source_order_no")
                     else None
                 )
-                source_order_no = source_order_value or _generated_order_number(
-                    plan, sequence_no
-                )
-                if not source_order_no:
-                    missing_batch_fields.add("source_order_no")
-                elif source_order_value and identifier_requires_text(source_order_raw):
-                    requests.append(
-                        ClarificationRequest(
-                            code="SOURCE_IDENTIFIER_PRECISION_UNSAFE",
-                            scope="field",
-                            source_ref=row_ref,
-                            field="平台单号",
-                            question="来源订单号可能已经被Excel转为数值或科学计数法，请改为文本后重新导出。",
-                            reason="无法保证订单号原始数字完整。",
-                            answer_type="file",
+                for field_label, value, raw_value in (
+                    ("订单编号", order_value, order_raw),
+                    ("来源单号", source_order_value, source_order_raw),
+                ):
+                    if value and identifier_requires_text(raw_value):
+                        requests.append(
+                            ClarificationRequest(
+                                code="SOURCE_IDENTIFIER_PRECISION_UNSAFE",
+                                scope="field",
+                                source_ref=row_ref,
+                                field=field_label,
+                                question=(
+                                    f"{field_label}可能已经被Excel转为数值或科学计数法，"
+                                    "请改为文本后重新导出。"
+                                ),
+                                reason="无法保证订单标识原始数字完整。",
+                                answer_type="file",
+                            )
                         )
+                source_order_no = source_order_value
+                if not order_value and not source_order_no:
+                    source_order_no = _generated_order_number(plan, sequence_no) or ""
+                try:
+                    order_identity = resolve_order_identity(
+                        order_no=order_value,
+                        source_order_no=source_order_no,
                     )
+                except OrderIdentityError:
+                    order_identity = None
+                    missing_batch_fields.add("order_identity")
 
                 product_code = _mapping_value(
                     sheet, row_no, mapping.get("product_code")
@@ -558,7 +583,7 @@ class AdaptiveExcelParsedAdapter:
                         )
                     )
                 if (
-                    not source_order_no
+                    order_identity is None
                     or not (product_code or product_name)
                     or quantity is None
                     or not name
@@ -574,7 +599,7 @@ class AdaptiveExcelParsedAdapter:
                 record_key = str(
                     uuid.uuid5(
                         uuid.NAMESPACE_URL,
-                        f"adaptive:{profile['profile_id']}:{actual_sha}:{source_order_no}",
+                        f"adaptive:{profile['profile_id']}:{actual_sha}:{order_identity.value}",
                     )
                 )
                 orders.append(
@@ -586,6 +611,7 @@ class AdaptiveExcelParsedAdapter:
                                 profile.get("source_label") or profile["profile_id"]
                             ),
                             order_type=str(profile.get("order_type") or "standard_order"),
+                            order_no=order_value or None,
                             source_order_no=source_order_no,
                             file_name=path.name,
                             file_fingerprint=f"sha256:{actual_sha}",
@@ -643,6 +669,7 @@ class AdaptiveExcelParsedAdapter:
                             "adaptive_structure_signature": str(
                                 plan.get("structure_signature") or ""
                             ),
+                            "selected_order_identity_field": order_identity.source_field,
                             **{
                                 str(field): _mapping_value(sheet, row_no, spec)
                                 for field, spec in extension_mapping.items()
@@ -653,13 +680,13 @@ class AdaptiveExcelParsedAdapter:
         finally:
             workbook.close()
 
-        if "source_order_no" in missing_batch_fields:
+        if "order_identity" in missing_batch_fields:
             requests.append(
                 ClarificationRequest(
                     code="ADAPTIVE_ORDER_NUMBER_REQUIRED",
                     scope="batch",
                     field="平台单号",
-                    question="原表没有可用订单号。请确认是否按日期加顺序号为这批订单生成唯一来源单号。",
+                    question="原表没有可用订单编号或来源单号。请确认是否按日期加顺序号为这批订单生成唯一编号。",
                     reason="管易平台单号必须能唯一标识每张订单。",
                     answer_type="confirmation",
                 )

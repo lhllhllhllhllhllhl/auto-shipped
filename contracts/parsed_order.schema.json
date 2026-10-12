@@ -91,6 +91,10 @@
         "source_order_no": {
           "type": ["string", "null"]
         },
+        "order_no": {
+          "type": ["string", "null"],
+          "description": "来源明确提供的订单编号；与来源单号分别保留，并在订单身份解析时优先使用。"
+        },
         "file_name": {
           "type": "string",
           "minLength": 1

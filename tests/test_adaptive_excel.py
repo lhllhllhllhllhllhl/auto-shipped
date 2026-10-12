@@ -83,7 +83,7 @@ class AdaptiveExcelTests(unittest.TestCase):
             self.assertEqual(mapping["source_note"]["columns"], ["H"])
             self.assertEqual(
                 set(proposal.plan["unresolved_fields"]),
-                {"source_order_no", "product_identity", "quantity"},
+            {"order_identity", "product_identity", "quantity"},
             )
             self.assertEqual(
                 {item.code for item in proposal.clarifications},

@@ -4,7 +4,7 @@
   "source_label": "恬田代发仓",
   "order_type": "warehouse_order",
   "adapter": "tiantian_warehouse_parsed",
-  "version": 2,
+  "version": 3,
   "enabled": true,
   "detection": {
     "sheet_name": "仓库订单",
@@ -60,7 +60,7 @@
     }
   },
   "grouping": {
-    "order_key": "来源单号",
+    "order_key_priority": ["订单编号", "来源单号"],
     "one_row_per": "source_order_item"
   }
 }

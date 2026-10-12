@@ -160,8 +160,8 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["TextOrders"]
                 self.assertEqual(sheet.max_row, 3)
-                self.assertEqual(sheet.cell(2, 1).data_type, "s")
-                self.assertEqual(sheet.cell(2, 1).number_format, "@")
+                self.assertEqual(sheet.cell(2, 2).data_type, "s")
+                self.assertEqual(sheet.cell(2, 2).number_format, "@")
             finally:
                 workbook.close()
 
@@ -206,7 +206,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:
                 self.assertEqual(
-                    workbook["TextOrders"].cell(2, 1).value,
+                    workbook["TextOrders"].cell(2, 2).value,
                     "TXT261008001",
                 )
             finally:
@@ -266,7 +266,9 @@ class TextOrderIntakeTests(unittest.TestCase):
             payload["rule_source_profile_id"] = "self_operated_text_v1"
             order = payload["orders"][0]
             order["source_channel"] = "天猫"
+            order["order_no"] = "TMALL-ORDER-001"
             order["source_order_no"] = "3316469738341068554"
+            order["field_provenance"]["order_no"] = "explicit"
             order["recipient"]["contact"] = "13800138000-3940"
             order["items"] = [
                 {
@@ -298,7 +300,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店（天猫）")
-                self.assertEqual(sheet.cell(2, 2).value, "3316469738341068554A")
+                self.assertEqual(sheet.cell(2, 2).value, "TMALL-ORDER-001A")
                 self.assertEqual(sheet.cell(2, 6).value, "JTTZE1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564835")
                 self.assertEqual(sheet.cell(2, 16).value, "13800138000-3940")
@@ -583,9 +585,9 @@ class TextOrderIntakeTests(unittest.TestCase):
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:
                 sheet = workbook["TextOrders"]
-                self.assertEqual(sheet.cell(2, 1).value, "RZD20261008142301")
-                self.assertEqual(sheet.cell(100, 1).value, "RZD20261008142399")
-                self.assertEqual(sheet.cell(101, 1).value, "RZD202610081423100")
+                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008142301")
+                self.assertEqual(sheet.cell(100, 2).value, "RZD20261008142399")
+                self.assertEqual(sheet.cell(101, 2).value, "RZD202610081423100")
             finally:
                 workbook.close()
 
@@ -658,7 +660,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             ):
                 workbook = load_workbook(result.outputs[0], data_only=False)
                 try:
-                    self.assertEqual(workbook["TextOrders"].cell(2, 1).value, expected)
+                    self.assertEqual(workbook["TextOrders"].cell(2, 2).value, expected)
                 finally:
                     workbook.close()
 

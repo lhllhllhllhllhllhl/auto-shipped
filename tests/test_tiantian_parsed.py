@@ -46,13 +46,47 @@ class TiantianParsedAdapterTests(unittest.TestCase):
             PROFILE,
         )
         self.assertEqual(result.status, "parsed")
+        self.assertEqual(len(result.orders), 2)
+        self.assertEqual(
+            [order.source.order_no for order in result.orders],
+            ["W1", "W2"],
+        )
+        self.assertEqual(
+            [order.source.source_order_no for order in result.orders],
+            ["SRC-1", "SRC-1"],
+        )
+        self.assertTrue(
+            all(
+                order.recipient.full_address == "上海市宝山区测试路1号"
+                for order in result.orders
+            )
+        )
+        self.assertEqual(
+            [order.items[0].quantity for order in result.orders],
+            [1, 2],
+        )
+        self.assertNotIn("platform_order_no", result.orders[0].to_dict())
+        self.assertNotIn("store_name", result.orders[0].to_dict())
+
+    def test_source_order_number_is_fallback_when_order_number_is_blank(self) -> None:
+        first = sample_row()
+        second = sample_row()
+        first["订单编号"] = ""
+        second["订单编号"] = ""
+        second["数量"] = 2
+        result = TiantianWarehouseParsedAdapter().parse_rows(
+            [(2, first), (3, second)],
+            Path("sample.xlsx"),
+            PROFILE,
+        )
+        self.assertEqual(result.status, "parsed")
         self.assertEqual(len(result.orders), 1)
-        order = result.orders[0]
-        self.assertEqual(order.source.source_order_no, "SRC-1")
-        self.assertEqual(order.recipient.full_address, "上海市宝山区测试路1号")
-        self.assertEqual([item.quantity for item in order.items], [1, 2])
-        self.assertNotIn("platform_order_no", order.to_dict())
-        self.assertNotIn("store_name", order.to_dict())
+        self.assertIsNone(result.orders[0].source.order_no)
+        self.assertEqual(result.orders[0].source.source_order_no, "SRC-1")
+        self.assertEqual(
+            result.orders[0].source_extensions["selected_order_identity_field"],
+            "source_order_no",
+        )
 
     def test_missing_recipient_address_becomes_clarification(self) -> None:
         row = sample_row()
@@ -93,7 +127,7 @@ class TiantianParsedAdapterTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "needs_input")
         self.assertIn(
-            "SOURCE_ORDER_NO_TEXT_REQUIRED",
+            "SOURCE_ORDER_ID_TEXT_REQUIRED",
             {request.code for request in result.clarifications},
         )
 

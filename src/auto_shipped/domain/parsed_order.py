@@ -13,6 +13,7 @@ class ParsedSource:
     file_fingerprint: str
     sheet_name: str
     row_numbers: tuple[int, ...]
+    order_no: str | None = None
     source_order_no: str | None = None
 
 

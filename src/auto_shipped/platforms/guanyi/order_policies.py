@@ -47,6 +47,9 @@ def select_buyer_member(
     resolved_items: Iterable[ResolvedOrderItem] = (),
     *,
     business_date: date | None = None,
+    business_datetime: datetime | None = None,
+    generated_stamp: str | None = None,
+    generated_sequence: str | None = None,
 ) -> str:
     """Resolve buyer member using a source-level deterministic policy."""
 
@@ -81,52 +84,77 @@ def select_buyer_member(
         group_number = str(order.source_extensions.get(group_field) or "").strip()
         if not prefix or not group_field:
             raise GuanyiOrderPolicyError("SAM买家会员规则缺少平台前缀或跟团号字段")
-        if not group_number:
-            raise GuanyiOrderPolicyError("SAM订单缺少跟团号，无法生成买家会员")
+        type_code = resolve_sam_product_type_code(policy, resolved_items)
 
-        items = tuple(resolved_items)
-        if not items:
-            raise GuanyiOrderPolicyError("SAM买家会员规则缺少已解析的商品")
-        type_rules = policy.get("product_type_rules") or []
-        item_type_codes: list[str] = []
-        for item in items:
-            matched_codes = {
-                str(rule.get("type_code") or "").strip()
-                for rule in type_rules
-                if rule.get("confirmed", False)
-                and matches_resolved_item(item, rule.get("match") or {})
-                and str(rule.get("type_code") or "").strip()
-            }
-            if not matched_codes:
-                raise GuanyiOrderPolicyError(
-                    f"商品{item.product_code}/{item.spec_code}没有已确认的SAM商品类型缩写"
-                )
-            if len(matched_codes) != 1:
-                raise GuanyiOrderPolicyError(
-                    f"商品{item.product_code}/{item.spec_code}命中多个SAM商品类型缩写"
-                )
-            item_type_codes.append(next(iter(matched_codes)))
-        distinct_codes = set(item_type_codes)
-        if len(distinct_codes) != 1:
+        timezone_name = str(policy.get("timezone") or "Asia/Shanghai").strip()
+        try:
+            timezone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
             raise GuanyiOrderPolicyError(
-                "同一SAM订单包含多个商品类型，无法生成唯一买家会员"
-            )
-        type_code = next(iter(distinct_codes))
+                f"SAM买家会员规则的时区无效: {timezone_name}"
+            ) from exc
+
+        if not group_number:
+            if policy.get("on_missing_group_number") != "generate_minute_sequence":
+                raise GuanyiOrderPolicyError("SAM订单缺少跟团号，无法生成买家会员")
+            if not generated_sequence:
+                raise GuanyiOrderPolicyError("SAM无跟团号订单缺少已分配的分钟序号")
+            stamp = str(generated_stamp or "").strip()
+            if not stamp:
+                current_datetime = business_datetime or datetime.now(timezone)
+                if current_datetime.tzinfo is None:
+                    current_datetime = current_datetime.replace(tzinfo=timezone)
+                else:
+                    current_datetime = current_datetime.astimezone(timezone)
+                stamp_format = str(
+                    policy.get("fallback_stamp_format") or "%y%m%d%H%M"
+                )
+                stamp = current_datetime.strftime(stamp_format)
+            separator = str(policy.get("fallback_sequence_separator") or "_")
+            return f"{prefix}{type_code}{stamp}{separator}{generated_sequence}"
 
         current_date = business_date
         if current_date is None:
-            timezone_name = str(policy.get("timezone") or "Asia/Shanghai").strip()
-            try:
-                current_date = datetime.now(ZoneInfo(timezone_name)).date()
-            except ZoneInfoNotFoundError as exc:
-                raise GuanyiOrderPolicyError(
-                    f"SAM买家会员规则的时区无效: {timezone_name}"
-                ) from exc
+            current_date = datetime.now(timezone).date()
         date_format = str(policy.get("date_format") or "%y%m%d")
         date_value = current_date.strftime(date_format)
         separator = str(policy.get("group_separator") or "_")
         return f"{prefix}{type_code}{date_value}{separator}{group_number}"
     raise GuanyiOrderPolicyError(f"未知管易买家会员策略: {strategy or '未配置'}")
+
+
+def resolve_sam_product_type_code(
+    policy: dict[str, Any],
+    resolved_items: Iterable[ResolvedOrderItem],
+) -> str:
+    items = tuple(resolved_items)
+    if not items:
+        raise GuanyiOrderPolicyError("SAM买家会员规则缺少已解析的商品")
+    type_rules = policy.get("product_type_rules") or []
+    item_type_codes: list[str] = []
+    for item in items:
+        matched_codes = {
+            str(rule.get("type_code") or "").strip()
+            for rule in type_rules
+            if rule.get("confirmed", False)
+            and matches_resolved_item(item, rule.get("match") or {})
+            and str(rule.get("type_code") or "").strip()
+        }
+        if not matched_codes:
+            raise GuanyiOrderPolicyError(
+                f"商品{item.product_code}/{item.spec_code}没有已确认的SAM商品类型缩写"
+            )
+        if len(matched_codes) != 1:
+            raise GuanyiOrderPolicyError(
+                f"商品{item.product_code}/{item.spec_code}命中多个SAM商品类型缩写"
+            )
+        item_type_codes.append(next(iter(matched_codes)))
+    distinct_codes = set(item_type_codes)
+    if len(distinct_codes) != 1:
+        raise GuanyiOrderPolicyError(
+            "同一SAM订单包含多个商品类型，无法生成唯一买家会员"
+        )
+    return next(iter(distinct_codes))
 
 
 def matches_resolved_item(item: ResolvedOrderItem, match: dict[str, Any]) -> bool:

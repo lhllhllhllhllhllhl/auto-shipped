@@ -20,7 +20,7 @@ PROFILE = {
         "freight": 0,
         "unit_price": 0,
     },
-    "platform_order_number": {"strategy": "source_order_no", "confirmed": False},
+    "platform_order_number": {"strategy": "preferred_order_identity", "confirmed": False},
     "logistics": {"strategy": "rules_engine"},
 }
 
@@ -66,7 +66,7 @@ class TiantianAdapterTests(unittest.TestCase):
         )
         self.assertEqual(len(orders), 1)
         order = orders[0]
-        self.assertEqual(order.platform_order_no, "SRC-1")
+        self.assertEqual(order.platform_order_no, "W1")
         self.assertEqual(order.items[0].product_code, "JTW8E1")
         self.assertEqual(order.review_status, "blocked")
         self.assertEqual(
@@ -74,7 +74,7 @@ class TiantianAdapterTests(unittest.TestCase):
             {"UNCONFIRMED_PLATFORM_NUMBER_STRATEGY", "UNCONFIRMED_SKU_MAPPING"},
         )
 
-    def test_rows_with_same_source_order_are_grouped_as_one_order(self) -> None:
+    def test_rows_with_distinct_order_numbers_are_distinct_orders(self) -> None:
         first = self.sample_row()
         second = self.sample_row()
         second["订单编号"] = "W2"
@@ -82,10 +82,9 @@ class TiantianAdapterTests(unittest.TestCase):
         orders = TiantianWarehouseAdapter().adapt_rows(
             [(2, first), (3, second)], "sample.xlsx", PROFILE, self.catalog
         )
-        self.assertEqual(len(orders), 1)
-        self.assertEqual(len(orders[0].items), 2)
-        self.assertEqual([item.quantity for item in orders[0].items], [1, 2])
-        self.assertEqual(orders[0].source.row_ref, "仓库订单!A2:P3")
+        self.assertEqual(len(orders), 2)
+        self.assertEqual([order.platform_order_no for order in orders], ["W1", "W2"])
+        self.assertEqual([order.items[0].quantity for order in orders], [1, 2])
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ RESERVED_EXTENSION_KEYS = {
     "adaptive_plan_id",
     "adaptive_structure_signature",
     "source_channel",
+    "order_no",
     "source_order_no",
     "recipient_name",
     "contact",
@@ -555,7 +556,8 @@ def validate_text_order_draft(
             if value not in PROVENANCE_VALUES:
                 value = "missing"
             if field_name == "source_order_no" and (
-                _text(raw_order.get("source_order_no"))
+                _text(raw_order.get("order_no"))
+                or _text(raw_order.get("source_order_no"))
                 or (
                     order_number_policy is not None
                     and order_number_policy.get("strategy")
@@ -590,9 +592,10 @@ def validate_text_order_draft(
                 )
             )
 
+        order_no = _text(raw_order.get("order_no"))
         source_order_no = _text(raw_order.get("source_order_no"))
         source_order_no_generated = False
-        if not source_order_no and order_number_policy is not None:
+        if not order_no and not source_order_no and order_number_policy is not None:
             if order_number_policy.get("strategy") in {
                 "date_sequence",
                 "datetime_sequence",
@@ -611,32 +614,37 @@ def validate_text_order_draft(
                         answer_type="text",
                     )
                 )
-        if re.search(r"\d(?:\.\d+)?[eE][+-]?\d+", source_order_no):
-            requests.append(
-                ClarificationRequest(
-                    code="TEXT_ORDER_NUMBER_SCIENTIFIC_NOTATION",
-                    scope="order",
-                    source_ref=order_ref,
-                    field="source_order_no",
-                    question=f"订单{order_ref}的来源单号疑似科学计数法，请提供完整文本单号。",
-                    reason="科学计数法可能已经丢失订单号精度。",
-                    answer_type="text",
+        for identifier_field, identifier_label, identifier_value in (
+            ("order_no", "订单编号", order_no),
+            ("source_order_no", "来源单号", source_order_no),
+        ):
+            if re.search(r"\d(?:\.\d+)?[eE][+-]?\d+", identifier_value):
+                requests.append(
+                    ClarificationRequest(
+                        code="TEXT_ORDER_NUMBER_SCIENTIFIC_NOTATION",
+                        scope="order",
+                        source_ref=order_ref,
+                        field=identifier_field,
+                        question=f"订单{order_ref}的{identifier_label}疑似科学计数法，请提供完整文本编号。",
+                        reason="科学计数法可能已经丢失订单标识精度。",
+                        answer_type="text",
+                    )
                 )
-            )
-        if source_order_no:
-            if source_order_no in seen_order_numbers:
+        selected_order_identity = order_no or source_order_no
+        if selected_order_identity:
+            if selected_order_identity in seen_order_numbers:
                 requests.append(
                     ClarificationRequest(
                         code="TEXT_ORDER_NUMBER_DUPLICATED",
                         scope="order",
                         source_ref=order_ref,
-                        field="source_order_no",
-                        question="多张文字订单使用了同一个来源单号，请确认是否属于同一订单的多个商品。",
+                        field="order_no/source_order_no",
+                        question="多张文字订单使用了同一个优先订单标识，请确认是否属于同一订单的多个商品。",
                         reason="当前草稿按每个order_ref作为独立订单。",
                         answer_type="confirmation",
                     )
                 )
-            seen_order_numbers.add(source_order_no)
+            seen_order_numbers.add(selected_order_identity)
 
         recipient = raw_order.get("recipient") or {}
         if not isinstance(recipient, dict):
@@ -778,6 +786,7 @@ def validate_text_order_draft(
             {
                 "order_ref": order_ref,
                 "source_channel": channel,
+                "order_no": "present" if order_no else "missing",
                 "source_order_no": "present" if source_order_no else "missing",
                 "recipient": {
                     "name": _mask_name(recipient.get("name")),
@@ -801,6 +810,7 @@ def validate_text_order_draft(
             {
                 "order_ref": order_ref,
                 "source_channel": channel,
+                "order_no": order_no,
                 "source_order_no": source_order_no,
                 "_source_order_no_generated": source_order_no_generated,
                 "_order_index": index,
@@ -926,6 +936,7 @@ def prepare_text_order_draft(
         }
     )
     headers = [
+        "订单编号",
         "来源单号",
         "平台标签",
         "收件人",
@@ -953,6 +964,7 @@ def prepare_text_order_draft(
         for item in order["items"]:
             sheet.append(
                 [
+                    order["order_no"],
                     order["source_order_no"],
                     order["source_channel"],
                     recipient["name"],
@@ -977,8 +989,9 @@ def prepare_text_order_draft(
             )
     for row_no in range(2, sheet.max_row + 1):
         sheet.cell(row_no, 1).number_format = "@"
-        sheet.cell(row_no, 4).number_format = "@"
-        sheet.cell(row_no, 9).number_format = "@"
+        sheet.cell(row_no, 2).number_format = "@"
+        sheet.cell(row_no, 5).number_format = "@"
+        sheet.cell(row_no, 10).number_format = "@"
     workbook.save(workbook_path)
 
     structure = inspect_excel_structure(workbook_path)
@@ -988,6 +1001,7 @@ def prepare_text_order_draft(
         for column in sheet_structure["columns"]
     }
     field_headers = {
+        "order_no": "订单编号",
         "source_order_no": "来源单号",
         "recipient_name": "收件人",
         "contact": "联系方式",

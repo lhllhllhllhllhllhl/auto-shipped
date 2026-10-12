@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from auto_shipped.domain import (
     ParsedItem,
@@ -244,6 +245,53 @@ class GuanyiOrderPolicyTests(unittest.TestCase):
                 business_date=date(2026, 9, 20),
             ),
             "samYM260920_841",
+        )
+
+    def test_sam_buyer_member_without_group_uses_minute_and_sequence(self) -> None:
+        sam_order = order()
+        policy = {
+            "buyer_member_policy": {
+                "strategy": "sam_product_type_date_group",
+                "platform_prefix": "sam",
+                "group_number_field": "sam_group_number",
+                "timezone": "Asia/Shanghai",
+                "on_missing_group_number": "generate_minute_sequence",
+                "fallback_stamp_format": "%y%m%d%H%M",
+                "fallback_sequence_separator": "_",
+                "product_type_rules": [
+                    {
+                        "type_code": "YM",
+                        "match": {"product_name_contains_all": ["玉米"]},
+                        "confirmed": True,
+                    }
+                ],
+            }
+        }
+        items = [
+            ResolvedOrderItem(
+                1,
+                "JTW8E1",
+                "6974768564811",
+                "光明满元气 黄糯玉米8棒家庭装",
+                "8袋/箱",
+            )
+        ]
+        self.assertEqual(
+            select_buyer_member(
+                sam_order,
+                policy,
+                items,
+                business_datetime=datetime(
+                    2026,
+                    10,
+                    12,
+                    14,
+                    30,
+                    tzinfo=ZoneInfo("Asia/Shanghai"),
+                ),
+                generated_sequence="01",
+            ),
+            "samYM2610121430_01",
         )
 
     def test_sam_buyer_member_blocks_unknown_product_type(self) -> None:

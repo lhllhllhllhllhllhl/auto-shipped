@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
@@ -25,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def confirmed_rules() -> dict:
     return {
-        "platform_order_number": {"strategy": "source_order_no", "confirmed": True},
+        "platform_order_number": {"strategy": "preferred_order_identity", "confirmed": True},
         "store_assignment_policy": {
             "strategy": "all_items_same_store_by_product",
             "confirmed": True,
@@ -212,6 +213,28 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(line["订单创建时间"], "2026-09-20 14:09:15")
         self.assertEqual(line["物流公司"], "中通快递（重货）")
 
+    def test_platform_order_number_prefers_order_number_over_source_number(self) -> None:
+        order = parsed_order()
+        order.source = ParsedSource(
+            profile_id=order.source.profile_id,
+            source_label=order.source.source_label,
+            order_type=order.source.order_type,
+            order_no="ORDER-001",
+            source_order_no="SOURCE-999",
+            file_name=order.source.file_name,
+            file_fingerprint=order.source.file_fingerprint,
+            sheet_name=order.source.sheet_name,
+            row_numbers=order.source.row_numbers,
+        )
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.lines[0]["平台单号"], "ORDER-001A")
+
     def test_code_only_multi_spec_candidate_asks_scope_before_persistence(self) -> None:
         catalog = ProductCatalog(
             [
@@ -379,7 +402,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
     def test_platform_order_number_supports_company_prefix_and_agent_suffix(self) -> None:
         rules = confirmed_rules()
         rules["platform_order_number"] = {
-            "strategy": "source_order_no_with_affixes",
+            "strategy": "preferred_order_identity_with_affixes",
             "prefix": "TT",
             "suffix": "",
             "confirmed": True,
@@ -538,6 +561,73 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(
             [line["商品名称"] for line in result.lines],
             ["光明满元气 白糯玉米8棒家庭装", "光明满元气 白糯玉米单根装"],
+        )
+
+        order.source_extensions.pop("sam_group_number")
+        order.source = ParsedSource(
+            profile_id=order.source.profile_id,
+            source_label=order.source.source_label,
+            order_type=order.source.order_type,
+            source_order_no=order.source.source_order_no,
+            file_name=order.source.file_name,
+            file_fingerprint=f"sha256:{'a' * 64}",
+            sheet_name=order.source.sheet_name,
+            row_numbers=order.source.row_numbers,
+        )
+        rules["buyer_member_policy"].update(
+            {
+                "on_missing_group_number": "generate_minute_sequence",
+                "fallback_stamp_format": "%y%m%d%H%M",
+                "fallback_sequence_separator": "_",
+                "fallback_sequence_start": 1,
+                "fallback_sequence_width": 2,
+            }
+        )
+        with tempfile.TemporaryDirectory() as state_dir:
+            generated = build_custom_import_lines(
+                [order],
+                catalog,
+                rules,
+                self.profile,
+                business_datetime=datetime(
+                    2026,
+                    10,
+                    12,
+                    14,
+                    30,
+                    tzinfo=ZoneInfo("Asia/Shanghai"),
+                ),
+                buyer_member_sequence_state_dir=state_dir,
+                official_mapping_ready=False,
+            )
+            repeated = build_custom_import_lines(
+                [order],
+                catalog,
+                rules,
+                self.profile,
+                business_datetime=datetime(
+                    2026,
+                    10,
+                    12,
+                    15,
+                    45,
+                    tzinfo=ZoneInfo("Asia/Shanghai"),
+                ),
+                buyer_member_sequence_state_dir=state_dir,
+                official_mapping_ready=False,
+            )
+        self.assertEqual(generated.status, "ready")
+        self.assertTrue(
+            all(
+                line["买家会员"] == "samYM2610121430_01"
+                for line in generated.lines
+            )
+        )
+        self.assertTrue(
+            all(
+                line["买家会员"] == "samYM2610121430_01"
+                for line in repeated.lines
+            )
         )
 
     def test_missing_official_mapping_blocks_before_product_question(self) -> None:

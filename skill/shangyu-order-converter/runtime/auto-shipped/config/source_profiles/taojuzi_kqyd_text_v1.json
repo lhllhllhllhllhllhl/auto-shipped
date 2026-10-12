@@ -21,6 +21,6 @@
       "sequence_scope": "single_computer_local_minute_ledger",
       "confirmed": true
     },
-    "evidence": "用户于2026-10-09确认：KQYD企业店文字单进入淘橘子；缺来源单号时使用KQYD+上海时区整批生成分钟YYYYMMDDHHmm+最少两位弹性序号，公共管易层再追加A。"
+    "evidence": "用户于2026-10-09确认KQYD企业店文字单规则；2026-10-12确认仅在订单编号和来源单号均缺失时使用KQYD+上海时区整批生成分钟YYYYMMDDHHmm+最少两位弹性序号。"
   }
 }

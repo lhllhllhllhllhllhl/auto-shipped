@@ -136,7 +136,7 @@ class SamAdapterTests(unittest.TestCase):
             PROFILE,
         )
         self.assertIn(
-            "SOURCE_ORDER_NO_TEXT_REQUIRED",
+            "SOURCE_ORDER_ID_TEXT_REQUIRED",
             {request.code for request in id_result.clarifications},
         )
 

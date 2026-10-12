@@ -3,7 +3,7 @@
   "profile_id": "guanyi_tiantian_warehouse_v2",
   "source_profile_id": "tiantian_warehouse_v2",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 7,
+  "version": 8,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
@@ -13,12 +13,12 @@
     "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
   },
   "platform_order_number": {
-    "strategy": "source_order_no_with_affixes",
+    "strategy": "preferred_order_identity_with_affixes",
     "prefix_source": "company_abbreviation",
     "suffix": "",
     "prefix_meaning": "公司库登记简称",
     "confirmed": true,
-    "source": "用户确认：2026-09-30；机器人尾缀A于2026-10-05提升到管易公共平台策略"
+    "source": "公司前缀与机器人尾缀沿用既有确认；订单编号优先、缺失时回退来源单号由用户于2026-10-12确认"
   },
   "field_output_policy": {
     "product_name": {
@@ -60,8 +60,8 @@
       "GY-PLATFORM-ORDER-NUMBER": {
         "status": "implemented",
         "confirmed": true,
-        "implementation_ref": "guanyi.platform_order.affixed_source_order_no",
-        "evidence": "恬田来源规则生成TT+原始来源单号；公共管易自动化标识策略再统一追加A。"
+        "implementation_ref": "guanyi.platform_order.affixed_preferred_order_identity",
+        "evidence": "恬田来源规则生成TT+订单编号优先值；缺订单编号时回退来源单号，公共管易自动化标识策略再统一追加A。"
       },
       "GY-BUYER-MEMBER": {
         "status": "implemented",

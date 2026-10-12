@@ -3,7 +3,7 @@
   "profile_id": "guanyi_self_operated_text_v1",
   "source_profile_id": "self_operated_text_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 7,
+  "version": 8,
   "policy_module_refs": {
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -19,9 +19,9 @@
     }
   },
   "platform_order_number": {
-    "strategy": "source_order_no",
+    "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "用户于2026-10-08确认：自营天猫和京东文字单复制消息中的平台单号；管易公共规则再追加A。"
+    "source": "自营渠道规则沿用2026-10-08确认；订单编号优先、缺失时回退来源单号并追加A由用户于2026-10-12确认。"
   },
   "store_assignment_policy": {
     "strategy": "source_extension_exact_map",
@@ -89,7 +89,7 @@
     "scope_id": "self_operated_text_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认天猫和京东对应两家自营旗舰店。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.source_order_no", "evidence": "复制文字中的平台单号，公共层追加A。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.preferred_order_identity", "evidence": "优先使用文字订单编号，缺失时回退来源单号，公共层追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "手工订单金额默认规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},

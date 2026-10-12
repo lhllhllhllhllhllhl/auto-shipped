@@ -4,7 +4,7 @@
   "source_label": "NDD标准订单模板",
   "order_type": "standard_order",
   "adapter": "ndd_gift_order_parsed",
-  "version": 3,
+  "version": 4,
   "enabled": true,
   "template_asset": "assets/templates/ndd/NDD完整字段标准模板_v1.2.xlsx",
   "detection": {
@@ -78,7 +78,7 @@
     "evidence": "NDD公司最终模板v1.2（Roy版）把填写示例放在Sheet1第2、3行，真实订单从后续行填写。"
   },
   "fields": {
-    "source_order_no": "订单编号",
+    "order_no": "订单编号",
     "recipient_name": "收件人姓名",
     "contact": "收件人手机",
     "address": "完整地址",

@@ -8,12 +8,19 @@ from .parsed_order import (
     ParsedShipmentFacts,
     ParsedSource,
 )
+from .order_identity import (
+    OrderIdentityError,
+    ResolvedOrderIdentity,
+    resolve_order_identity,
+    resolve_parsed_source_identity,
+)
 
 __all__ = [
     "CanonicalOrder",
     "ClarificationRequest",
     "Issue",
     "OrderItem",
+    "OrderIdentityError",
     "ParsedAmounts",
     "ParsedItem",
     "ParsedOrder",
@@ -21,6 +28,9 @@ __all__ = [
     "ParsedShipmentFacts",
     "ParsedSource",
     "Recipient",
+    "ResolvedOrderIdentity",
     "SourceRef",
     "deduplicate_clarifications",
+    "resolve_order_identity",
+    "resolve_parsed_source_identity",
 ]
