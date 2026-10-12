@@ -245,6 +245,98 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(variant.status, "unmapped")
         self.assertIsNone(variant.product)
 
+    def test_spec_only_mapping_uses_the_same_universal_row_shape(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord("P-GREEN", "绿色手套", "GTIN-GREEN", "M", 100, "测试仓"),
+                ProductRecord("P-ORANGE", "橘色手套", "GTIN-ORANGE", "L", 100, "测试仓"),
+            ],
+            [
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "",
+                    "source_spec": "SWSH8096",
+                    "product_code": "P-GREEN",
+                    "spec_code": "GTIN-GREEN",
+                    "confirmed": True,
+                },
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "",
+                    "source_spec": "SWJC8140",
+                    "product_code": "P-ORANGE",
+                    "spec_code": "GTIN-ORANGE",
+                    "confirmed": True,
+                },
+            ],
+            {
+                "sam_order_v1": {
+                    "source_identifier_type": "product_code",
+                    "allow_spec_only_mapping": True,
+                }
+            },
+        )
+
+        green = product_catalog.resolve(
+            "84292384",
+            source_profile_id="sam_order_v1",
+            source_spec="SWSH8096",
+        )
+        orange = product_catalog.resolve(
+            "84292384",
+            source_profile_id="sam_order_v1",
+            source_spec="SWJC8140",
+        )
+
+        self.assertEqual(green.status, "confirmed")
+        self.assertEqual(green.product.product_code, "P-GREEN")
+        self.assertEqual(green.match_method, "confirmed_source_mapping_spec_only")
+        self.assertEqual(orange.status, "confirmed")
+        self.assertEqual(orange.product.product_code, "P-ORANGE")
+
+    def test_exact_product_code_and_spec_wins_before_spec_only_fallback(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "旧式组合映射", "S1", "红色", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "RED",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                },
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "",
+                    "source_spec": "RED",
+                    "product_code": "P2",
+                    "spec_code": "S2",
+                    "confirmed": True,
+                }
+            ],
+            {
+                "sam_order_v1": {
+                    "source_identifier_type": "product_code",
+                    "allow_spec_only_mapping": True,
+                }
+            },
+        )
+
+        result = product_catalog.resolve(
+            "EXT-1",
+            source_profile_id="sam_order_v1",
+            source_spec="RED",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.product.product_code, "P1")
+        self.assertEqual(result.match_method, "confirmed_source_mapping_code_spec")
+
     def test_blank_spec_mapping_requires_registered_source_name_guard(self) -> None:
         records = [
             {

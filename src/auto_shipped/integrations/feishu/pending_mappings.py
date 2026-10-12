@@ -174,12 +174,16 @@ def build_mapping_key(
     source_spec: str,
     target_platform: str,
 ) -> str:
+    cleaned_source_value = str(source_value or "").strip()
+    cleaned_source_spec = str(source_spec or "").strip()
+    if not cleaned_source_value and not cleaned_source_spec:
+        raise ValueError("source_value和source_spec不能同时为空")
     components = [
         _required(company_id, "company_id"),
         _required(source_profile_id, "source_profile_id"),
         _required(identifier_type, "identifier_type"),
-        _required(source_value, "source_value"),
-        str(source_spec or ""),
+        cleaned_source_value,
+        cleaned_source_spec,
         _required(target_platform, "target_platform"),
     ]
     normalized = "\x1f".join(_normalized(value) for value in components)
@@ -220,7 +224,7 @@ def build_pending_mapping_proposal(
         company_id=_required(company_id, "company_id"),
         source_profile_id=_required(source_profile_id, "source_profile_id"),
         identifier_type=_required(identifier_type, "identifier_type"),
-        source_value=_required(source_value, "source_value"),
+        source_value=str(source_value or "").strip(),
         source_spec=str(source_spec or "").strip(),
         target_platform=_required(target_platform, "target_platform"),
         candidate_product_code=_required(

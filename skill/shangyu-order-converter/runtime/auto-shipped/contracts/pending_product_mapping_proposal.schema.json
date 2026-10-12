@@ -28,7 +28,7 @@
     "company_id": {"type": "string", "minLength": 1},
     "source_profile_id": {"type": "string", "minLength": 1},
     "identifier_type": {"enum": ["product_code", "barcode", "product_name"]},
-    "source_value": {"type": "string", "minLength": 1},
+    "source_value": {"type": "string"},
     "source_spec": {"type": "string"},
     "target_platform": {"type": "string", "minLength": 1},
     "candidate_product_code": {"type": "string", "minLength": 1},
@@ -41,5 +41,9 @@
     "proposal_status": {"enum": ["pending", "conflict", "approved", "rejected", "already_exists"]},
     "schema_version": {"const": "1.0"}
   },
+  "anyOf": [
+    {"properties": {"source_value": {"minLength": 1}}},
+    {"properties": {"source_spec": {"minLength": 1}}}
+  ],
   "additionalProperties": false
 }

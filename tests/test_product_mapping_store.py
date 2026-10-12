@@ -53,6 +53,24 @@ class ProductMappingStoreTests(unittest.TestCase):
             self.assertEqual(document["mappings"][0]["source_profile_id"], "company_a")
             self.assertNotIn("recipient", document["mappings"][0])
 
+    def test_spec_only_mapping_can_be_persisted_in_universal_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = save_confirmed_mapping(
+                Path(tmp) / "overlay.json",
+                self.catalog,
+                source_profile_id="sam_order_v1",
+                identifier_type="product_code",
+                source_value="",
+                source_spec="SWSH8096",
+                product_code="P1",
+                spec_code="S1",
+                confirmation_token=PERSIST_MAPPING_CONFIRMATION,
+            )
+            record = json.loads(saved.read_text(encoding="utf-8"))["mappings"][0]
+            self.assertEqual(record["identifier_type"], "product_code")
+            self.assertEqual(record["source_value"], "")
+            self.assertEqual(record["source_spec"], "SWSH8096")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,33 @@ class FeishuOfficialMappingTests(unittest.TestCase):
         self.assertEqual(snapshot["mappings"][0]["product_code"], "JTW8E1")
         self.assertEqual(len(snapshot["snapshot_sha256"]), 64)
 
+    def test_spec_only_row_is_supported_by_the_universal_schema(self) -> None:
+        source = record()
+        source["mapping_id"] = "sam-spec-only-swsh8096"
+        source["company_id"] = "sam"
+        source["source_profile_id"] = "sam_order_v1"
+        source["identifier_type"] = "product_code"
+        source["source_value"] = ""
+        source["source_spec"] = "SWSH8096"
+        source["mapping_key"] = build_mapping_key(
+            company_id=source["company_id"],
+            source_profile_id=source["source_profile_id"],
+            identifier_type=source["identifier_type"],
+            source_value=source["source_value"],
+            source_spec=source["source_spec"],
+            target_platform=source["target_platform"],
+        )
+
+        snapshot = build_official_mapping_snapshot(
+            [source],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+
+        self.assertEqual(snapshot["mappings"][0]["identifier_type"], "product_code")
+        self.assertEqual(snapshot["mappings"][0]["source_value"], "")
+        self.assertEqual(snapshot["mappings"][0]["source_spec"], "SWSH8096")
+
     def test_changed_mapping_key_fails_closed(self) -> None:
         invalid = record()
         invalid["mapping_key"] = "mapping-tampered"

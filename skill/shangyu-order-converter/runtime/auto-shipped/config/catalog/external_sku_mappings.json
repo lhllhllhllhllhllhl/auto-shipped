@@ -24,6 +24,7 @@
     "sam_order_v1": {
       "source_identifier_type": "product_code",
       "source_spec_matching": "exact_when_present",
+      "allow_spec_only_mapping": true,
       "allow_direct_catalog_identifier": false,
       "allow_exact_catalog_name": false,
       "name_matching": "confirmed_mapping_only",

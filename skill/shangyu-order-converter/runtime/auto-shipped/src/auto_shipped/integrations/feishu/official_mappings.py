@@ -59,7 +59,6 @@ def build_official_mapping_snapshot(
             "company_id": company_id,
             "source_profile_id": source_profile_id,
             "identifier_type": identifier_type,
-            "source_value": source_value,
             "target_platform": target_platform,
             "product_code": product_code,
             "spec_code": spec_code,
@@ -69,6 +68,10 @@ def build_official_mapping_snapshot(
         if missing:
             raise OfficialMappingSyncError(
                 f"正式映射{mapping_id or '<unknown>'}缺少字段：{', '.join(missing)}"
+            )
+        if not source_value and not source_spec:
+            raise OfficialMappingSyncError(
+                f"正式映射{mapping_id}的来源商品标识和来源规格不能同时为空。"
             )
         if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
             raise OfficialMappingSyncError(
@@ -113,6 +116,7 @@ def build_official_mapping_snapshot(
             "source_profile_id": source_profile_id,
             "identifier_type": identifier_type,
             "source_value": source_value,
+            "source_spec": source_spec,
             "product_code": product_code,
             "spec_code": spec_code,
             "confirmed": True,
@@ -121,8 +125,6 @@ def build_official_mapping_snapshot(
             "reason": clean_identifier(source.get("evidence")) or "飞书正式映射库",
             "mapping_version": mapping_version,
         }
-        if source_spec:
-            mapping["source_spec"] = source_spec
         mappings.append(mapping)
 
     mappings.sort(key=lambda item: item["mapping_key"])
@@ -197,7 +199,6 @@ def validate_official_mapping_snapshot(
             "company_id": company_id,
             "source_profile_id": source_profile_id,
             "identifier_type": identifier_type,
-            "source_value": source_value,
             "product_code": product_code,
             "spec_code": spec_code,
             "mapping_version": mapping_version,
@@ -206,6 +207,10 @@ def validate_official_mapping_snapshot(
         if missing:
             raise OfficialMappingSyncError(
                 f"正式映射快照记录{mapping_id or '<unknown>'}缺少字段：{', '.join(missing)}"
+            )
+        if not source_value and not source_spec:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}的来源商品标识和来源规格不能同时为空。"
             )
         if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
             raise OfficialMappingSyncError(

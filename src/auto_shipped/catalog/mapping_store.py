@@ -64,8 +64,10 @@ def save_confirmed_mapping(
     source_spec = clean_identifier(source_spec)
     product_code = clean_identifier(product_code)
     spec_code = clean_identifier(spec_code)
-    if not source_profile_id or not source_value:
-        raise ProductMappingStoreError("来源配置和来源商品标识不能为空")
+    if not source_profile_id:
+        raise ProductMappingStoreError("来源配置不能为空")
+    if not source_value and not source_spec:
+        raise ProductMappingStoreError("来源商品标识和来源规格至少填写一个")
     if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
         raise ProductMappingStoreError(f"不支持的来源商品标识类型: {identifier_type}")
     if not catalog.has_unique_pair(product_code, spec_code):

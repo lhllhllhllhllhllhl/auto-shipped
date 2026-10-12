@@ -153,6 +153,38 @@ class FeishuPendingMappingTests(unittest.TestCase):
         )
         self.assertEqual(first, second)
 
+    def test_universal_mapping_key_allows_blank_source_value_when_spec_exists(self) -> None:
+        proposal = build_pending_mapping_proposal(
+            company_id="sam",
+            source_profile_id="sam_order_v1",
+            identifier_type="product_code",
+            source_value="",
+            source_spec="SWSH8096",
+            target_platform="guanyi",
+            candidate_product_code="SWSH8096",
+            candidate_spec_code="4901792038096",
+            evidence="用户确认来源规格映射",
+            base_official_revision="3",
+            submitted_by="ou-user",
+            submission_operation_id="submit-spec-only",
+            submitted_at=NOW,
+        )
+
+        self.assertEqual(proposal.source_value, "")
+        self.assertEqual(proposal.source_spec, "SWSH8096")
+        self.assertTrue(proposal.mapping_key.startswith("mapping-"))
+
+    def test_universal_mapping_key_rejects_two_blank_source_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            build_mapping_key(
+                company_id="sam",
+                source_profile_id="sam_order_v1",
+                identifier_type="product_code",
+                source_value="",
+                source_spec="",
+                target_platform="guanyi",
+            )
+
     def test_existing_route_and_owner_metadata_are_reused(self) -> None:
         gateway = FakeFeishuGateway(FeishuIdentity("ou-user", display_name="员工"))
         gateway.routes.append(active_route("ou-user", "sheet-existing"))

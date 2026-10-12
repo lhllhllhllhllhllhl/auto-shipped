@@ -117,7 +117,7 @@ class ProductCatalog:
                 mapping.get("source_value"),
             )
             source_spec = normalize_product_text(mapping.get("source_spec"))
-            if not source_value:
+            if not source_value and not source_spec:
                 continue
             key = (source_profile_id, identifier_type, source_value, source_spec)
             self._mappings.setdefault(key, []).append(mapping)
@@ -244,7 +244,7 @@ class ProductCatalog:
     ) -> list[dict[str, Any]]:
         normalized_value = self._normalize_source_value(identifier_type, source_value)
         normalized_spec = normalize_product_text(source_spec)
-        if not normalized_value:
+        if not normalized_value and not normalized_spec:
             return []
         profile = clean_identifier(source_profile_id) or "*"
         # A source-supplied specification is part of the identity.  Never fall
@@ -621,6 +621,23 @@ class ProductCatalog:
                     )
                 return resolved
 
+        normalized_source_spec = normalize_product_text(source_spec)
+        if normalized_source_spec and policy.get("allow_spec_only_mapping", False):
+            mappings = self._mapping_candidates(
+                source_profile_id,
+                identifier_type,
+                "",
+                source_spec,
+            )
+            if mappings:
+                return self._resolve_mappings(
+                    mappings,
+                    clean_identifier(source_spec),
+                    identifier_type,
+                    "confirmed_source_mapping_spec_only",
+                )
+
+        if key:
             if policy.get("allow_direct_catalog_identifier", False):
                 direct = self._by_spec_code.get(key, [])
                 if len(direct) == 1:

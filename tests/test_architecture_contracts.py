@@ -256,6 +256,9 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(guard["source_value"], "2026DFYUMI001")
         self.assertTrue(guard["allowed_product_names"])
 
+        sam_policy = mappings["source_policies"]["sam_order_v1"]
+        self.assertTrue(sam_policy["allow_spec_only_mapping"])
+
     def test_package_semantics_are_separate_and_bare_sticks_are_forbidden(self):
         mappings = load_json("config/catalog/external_sku_mappings.json")
         self.assertNotIn(
