@@ -14,6 +14,7 @@ from auto_shipped.services.text_intake import (
     prepare_text_order_draft,
     validate_text_order_draft,
 )
+from auto_shipped.services.batch_convert import convert_order_batch
 from auto_shipped.services.convert import convert_order_file
 from auto_shipped.source_adapters import AdaptiveExcelParsedAdapter, load_adaptive_plan
 
@@ -88,6 +89,138 @@ def _write(path: Path, payload: dict) -> None:
 
 
 class TextOrderIntakeTests(unittest.TestCase):
+    def test_registered_manual_channels_route_each_order_and_merge_conversion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft(company_id=None)
+            payload["draft_id"] = "mixed-manual-orders"
+            payload["routing_mode"] = "registered_manual_channels"
+            payload.pop("order_number_policy")
+            tmall = payload["orders"][0]
+            tmall["order_ref"] = "tmall-1"
+            tmall["source_channel"] = "天猫"
+            tmall["source_order_no"] = "3317118816003054668"
+            tmall["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_product_name": "黄糯",
+                    "source_spec": "",
+                    "quantity": 1,
+                    "unit": "袋",
+                }
+            ]
+            taobao = json.loads(json.dumps(tmall, ensure_ascii=False))
+            taobao["order_ref"] = "taobao-1"
+            taobao["source_channel"] = "淘宝"
+            taobao["source_order_no"] = None
+            taobao["field_provenance"]["source_order_no"] = "missing"
+            taobao["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_product_name": "搓澡巾",
+                    "source_spec": "橘色",
+                    "quantity": 1,
+                    "unit": "条",
+                }
+            ]
+            payload["orders"] = [tmall, taobao]
+            _write(path, payload)
+
+            overlay = root / "overlay.json"
+            overlay.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "mappings": [
+                            {
+                                "source_profile_id": "taojuzi_taobao_text_v1",
+                                "identifier_type": "product_name",
+                                "source_value": "搓澡巾",
+                                "source_spec": "橘色",
+                                "product_code": "KKAW0009",
+                                "spec_code": "4548404200009",
+                                "confirmed": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 10, 13, 11, 2, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                intake = prepare_text_order_draft(
+                    path,
+                    root / "prepared",
+                    company_registry_path=REGISTRY,
+                    order_number_state_dir=root / "state",
+                )
+
+            self.assertEqual(intake.status, "ready")
+            self.assertEqual(len(intake.conversion_inputs), 2)
+            self.assertEqual(
+                {item["rule_source_profile_id"] for item in intake.conversion_inputs},
+                {"self_operated_text_v1", "taojuzi_taobao_text_v1"},
+            )
+            sources = [item["source"] for item in intake.conversion_inputs]
+            batch = convert_order_batch(
+                sources,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "converted",
+                source_profile_hints={
+                    Path(item["source"]).name: item["rule_source_profile_id"]
+                    for item in intake.conversion_inputs
+                },
+                company_hints={
+                    Path(item["source"]).name: item["company_id"]
+                    for item in intake.conversion_inputs
+                },
+                adaptive_plan_hints={
+                    Path(item["source"]).name: item["adaptive_plan"]
+                    for item in intake.conversion_inputs
+                },
+                mapping_overlay_paths=(overlay,),
+                batch_name="混合手工订单",
+            )
+            self.assertEqual(batch.status, "ready", batch.to_public_dict())
+            workbook = load_workbook(batch.outputs[0], data_only=False)
+            try:
+                sheet = workbook["Sheet1"]
+                self.assertEqual(sheet.max_row, 3)
+                self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店（天猫）")
+                self.assertEqual(sheet.cell(2, 2).value, "3317118816003054668A")
+                self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
+                self.assertEqual(sheet.cell(3, 1).value, "淘橘子")
+                self.assertEqual(sheet.cell(3, 2).value, "TB20261013110201A")
+                self.assertEqual(sheet.cell(3, 6).value, "KKAW0009")
+            finally:
+                workbook.close()
+
+    def test_registered_manual_channels_only_asks_unknown_order_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id=None)
+            payload["routing_mode"] = "registered_manual_channels"
+            payload["orders"][0]["source_channel"] = "未知渠道"
+            _write(path, payload)
+
+            result, materialized = validate_text_order_draft(
+                path,
+                company_registry_path=REGISTRY,
+            )
+
+            self.assertIsNone(materialized)
+            self.assertEqual(
+                {item.code for item in result.clarifications},
+                {"TEXT_ORDER_MANUAL_ROUTE_REQUIRED"},
+            )
+
     def test_tmall_channel_without_company_context_still_asks_company(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "draft.json"

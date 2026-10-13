@@ -29,6 +29,9 @@
     },
     "company_id": {"type": ["string", "null"]},
     "rule_source_profile_id": {"type": ["string", "null"]},
+    "routing_mode": {
+      "enum": ["single_profile", "registered_manual_channels"]
+    },
     "order_number_policy": {
       "oneOf": [
         {

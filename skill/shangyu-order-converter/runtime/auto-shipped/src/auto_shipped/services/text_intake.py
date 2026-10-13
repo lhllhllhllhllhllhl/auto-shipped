@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -75,6 +76,9 @@ class TextOrderIntakeResult:
     clarifications: list[ClarificationRequest] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     order_number_allocation: dict[str, Any] | None = None
+    order_number_allocations: list[dict[str, Any]] = field(default_factory=list)
+    routed_groups: list[dict[str, Any]] = field(default_factory=list)
+    conversion_inputs: list[dict[str, str]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +91,9 @@ class TextOrderIntakeResult:
             "clarifications": [asdict(item) for item in self.clarifications],
             "outputs": self.outputs,
             "order_number_allocation": self.order_number_allocation,
+            "order_number_allocations": self.order_number_allocations,
+            "routed_groups": self.routed_groups,
+            "conversion_inputs": self.conversion_inputs,
             "privacy": "recipient_fields_masked_raw_text_not_returned",
         }
 
@@ -279,6 +286,135 @@ def _load_source_profile(
     return {}
 
 
+def _manual_text_routes(
+    company_registry_path: str | Path,
+    registry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return enabled manual-text routes already registered for active companies."""
+    source_profiles_dir = Path(company_registry_path).resolve().parents[1] / "source_profiles"
+    active_by_company = {
+        _text(company.get("company_id")): set(
+            _active_workflow_profiles(registry, _text(company.get("company_id")))
+        )
+        for company in registry.get("companies", [])
+        if isinstance(company, dict)
+    }
+    routes: list[dict[str, Any]] = []
+    for profile_path in sorted(source_profiles_dir.rglob("*.json")):
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        profile_id = _text(profile.get("profile_id"))
+        company_id = _text(profile.get("company_id"))
+        if (
+            profile.get("enabled", True) is False
+            or profile.get("source_kind") != "text_or_image"
+            or profile.get("order_type") != "manual_channel_order"
+            or profile_id not in active_by_company.get(company_id, set())
+        ):
+            continue
+        text_intake = profile.get("text_intake") or {}
+        markers = {
+            _text(marker)
+            for key in ("allowed_source_channels", "source_channel_markers")
+            for marker in text_intake.get(key, [])
+            if _text(marker)
+        }
+        if markers:
+            routes.append(
+                {
+                    "company_id": company_id,
+                    "rule_source_profile_id": profile_id,
+                    "markers": tuple(sorted(markers)),
+                }
+            )
+    return routes
+
+
+def _normalized_channel(value: Any) -> str:
+    return re.sub(r"[\s:：()（）\[\]【】_-]+", "", _text(value)).casefold()
+
+
+def _manual_route_matches(channel: str, marker: str) -> bool:
+    normalized_channel = _normalized_channel(channel)
+    normalized_marker = _normalized_channel(marker)
+    return bool(
+        normalized_channel
+        and normalized_marker
+        and (
+            normalized_channel == normalized_marker
+            or normalized_channel.startswith(normalized_marker)
+        )
+    )
+
+
+def _route_registered_manual_orders(
+    payload: dict[str, Any],
+    registry: dict[str, Any],
+    company_registry_path: str | Path,
+) -> tuple[
+    dict[tuple[str, str], list[dict[str, Any]]],
+    list[ClarificationRequest],
+]:
+    routes = _manual_text_routes(company_registry_path, registry)
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    requests: list[ClarificationRequest] = []
+    orders = payload.get("orders")
+    if not isinstance(orders, list):
+        return groups, requests
+    for index, raw_order in enumerate(orders):
+        if not isinstance(raw_order, dict):
+            continue
+        order_ref = _text(raw_order.get("order_ref")) or f"order-{index + 1}"
+        channel = _text(raw_order.get("source_channel"))
+        matches = [
+            route
+            for route in routes
+            if any(_manual_route_matches(channel, marker) for marker in route["markers"])
+        ]
+        unique_matches = {
+            (route["company_id"], route["rule_source_profile_id"]): route
+            for route in matches
+        }
+        if len(unique_matches) == 1:
+            key = next(iter(unique_matches))
+            groups.setdefault(key, []).append(raw_order)
+            continue
+        if not unique_matches:
+            requests.append(
+                ClarificationRequest(
+                    code="TEXT_ORDER_MANUAL_ROUTE_REQUIRED",
+                    scope="order",
+                    source_ref=order_ref,
+                    field="source_channel",
+                    question=f"订单{order_ref}属于哪一种已登记的手工订单来源？",
+                    reason=(
+                        f"渠道“{channel or '未填写'}”没有唯一命中已登记手工订单规则；"
+                        "只确认来源，不重复询问已有的店铺、会员和默认物流规则。"
+                    ),
+                    answer_type="single_choice",
+                    choices=tuple(
+                        sorted(route["rule_source_profile_id"] for route in routes)
+                    ),
+                )
+            )
+            continue
+        requests.append(
+            ClarificationRequest(
+                code="TEXT_ORDER_MANUAL_ROUTE_AMBIGUOUS",
+                scope="order",
+                source_ref=order_ref,
+                field="source_channel",
+                question=f"订单{order_ref}同时命中多个手工订单来源，请确认使用哪一种。",
+                reason="候选规则：" + ", ".join(sorted(key[1] for key in unique_matches)),
+                answer_type="single_choice",
+                choices=tuple(sorted(key[1] for key in unique_matches)),
+            )
+        )
+    return groups, requests
+
+
 def _date_sequence_policy(
     payload: dict[str, Any],
     requests: list[ClarificationRequest],
@@ -441,7 +577,7 @@ def _generated_order_number(policy: dict[str, Any], index: int) -> str:
     )
 
 
-def validate_text_order_draft(
+def _validate_single_text_order_draft(
     draft_path: str | Path,
     *,
     company_registry_path: str | Path,
@@ -869,21 +1005,107 @@ def validate_text_order_draft(
     }
 
 
-def prepare_text_order_draft(
+def validate_text_order_draft(
     draft_path: str | Path,
-    output_dir: str | Path,
     *,
     company_registry_path: str | Path,
+    require_confirmation: bool = True,
+) -> tuple[TextOrderIntakeResult, dict[str, Any] | None]:
+    path, payload = _load_draft(draft_path)
+    routing_mode = _text(payload.get("routing_mode")) or "single_profile"
+    if routing_mode != "registered_manual_channels":
+        return _validate_single_text_order_draft(
+            path,
+            company_registry_path=company_registry_path,
+            require_confirmation=require_confirmation,
+        )
+
+    try:
+        registry = load_company_registry(company_registry_path)
+    except (OSError, json.JSONDecodeError, CompanyRegistryError) as exc:
+        raise TextOrderDraftError(f"无法读取公司库：{exc}") from exc
+    groups, route_requests = _route_registered_manual_orders(
+        payload,
+        registry,
+        company_registry_path,
+    )
+    orders = payload.get("orders") if isinstance(payload.get("orders"), list) else []
+    aggregate = TextOrderIntakeResult(
+        status="needs_input",
+        draft_file=path.name,
+        order_count=len(orders),
+        company_id=None,
+        rule_source_profile_id=None,
+        clarifications=route_requests,
+    )
+    if route_requests:
+        return aggregate, None
+
+    materialized_groups: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="auto-shipped-manual-route-") as temporary:
+        temporary_root = Path(temporary)
+        for group_index, ((company_id, profile_id), group_orders) in enumerate(
+            groups.items(),
+            start=1,
+        ):
+            grouped_payload = dict(payload)
+            grouped_payload.pop("routing_mode", None)
+            grouped_payload.pop("order_number_policy", None)
+            grouped_payload["draft_id"] = (
+                f"{_text(payload.get('draft_id'))}-{profile_id}-{group_index}"
+            )
+            grouped_payload["company_id"] = company_id
+            grouped_payload["rule_source_profile_id"] = profile_id
+            grouped_payload["orders"] = group_orders
+            group_path = temporary_root / f"group-{group_index}.json"
+            group_path.write_text(
+                json.dumps(grouped_payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            group_result, materialized = _validate_single_text_order_draft(
+                group_path,
+                company_registry_path=company_registry_path,
+                require_confirmation=require_confirmation,
+            )
+            for preview in group_result.masked_preview:
+                aggregate.masked_preview.append(
+                    {
+                        **preview,
+                        "company_id": company_id,
+                        "rule_source_profile_id": profile_id,
+                    }
+                )
+            aggregate.clarifications.extend(group_result.clarifications)
+            aggregate.routed_groups.append(
+                {
+                    "company_id": company_id,
+                    "rule_source_profile_id": profile_id,
+                    "order_count": len(group_orders),
+                }
+            )
+            if materialized is not None:
+                materialized_groups.append(materialized)
+
+    aggregate.clarifications = deduplicate_clarifications(aggregate.clarifications)
+    if aggregate.clarifications or len(materialized_groups) != len(groups):
+        aggregate.status = "needs_input"
+        return aggregate, None
+    aggregate.status = "ready"
+    return aggregate, {
+        "routing_mode": "registered_manual_channels",
+        "draft_id": _text(payload.get("draft_id")),
+        "source": payload.get("source") or {},
+        "groups": materialized_groups,
+    }
+
+
+def _prepare_single_text_order_materialized(
+    result: TextOrderIntakeResult,
+    materialized: dict[str, Any],
+    output_dir: str | Path,
+    *,
     order_number_state_dir: str | Path | None = None,
 ) -> TextOrderIntakeResult:
-    result, materialized = validate_text_order_draft(
-        draft_path,
-        company_registry_path=company_registry_path,
-        require_confirmation=True,
-    )
-    if materialized is None:
-        return result
-
     order_number_policy = materialized.get("order_number_policy") or {}
     if order_number_policy.get("strategy") == "datetime_sequence" and any(
         order.get("_source_order_no_generated")
@@ -1064,4 +1286,78 @@ def prepare_text_order_draft(
         encoding="utf-8",
     )
     result.outputs = [str(workbook_path), str(plan_path)]
+    result.conversion_inputs = [
+        {
+            "company_id": materialized["company_id"],
+            "rule_source_profile_id": materialized["rule_source_profile_id"],
+            "source": str(workbook_path),
+            "adaptive_plan": str(plan_path),
+        }
+    ]
+    result.routed_groups = [
+        {
+            "company_id": materialized["company_id"],
+            "rule_source_profile_id": materialized["rule_source_profile_id"],
+            "order_count": len(materialized["orders"]),
+        }
+    ]
+    return result
+
+
+def prepare_text_order_draft(
+    draft_path: str | Path,
+    output_dir: str | Path,
+    *,
+    company_registry_path: str | Path,
+    order_number_state_dir: str | Path | None = None,
+) -> TextOrderIntakeResult:
+    result, materialized = validate_text_order_draft(
+        draft_path,
+        company_registry_path=company_registry_path,
+        require_confirmation=True,
+    )
+    if materialized is None:
+        return result
+    if materialized.get("routing_mode") != "registered_manual_channels":
+        prepared = _prepare_single_text_order_materialized(
+            result,
+            materialized,
+            output_dir,
+            order_number_state_dir=order_number_state_dir,
+        )
+        if prepared.order_number_allocation is not None:
+            prepared.order_number_allocations = [prepared.order_number_allocation]
+        return prepared
+
+    aggregate_outputs: list[str] = []
+    aggregate_inputs: list[dict[str, str]] = []
+    aggregate_allocations: list[dict[str, Any]] = []
+    aggregate_routes: list[dict[str, Any]] = []
+    for group in materialized["groups"]:
+        group_result = TextOrderIntakeResult(
+            status="ready",
+            draft_file=result.draft_file,
+            order_count=len(group["orders"]),
+            company_id=group["company_id"],
+            rule_source_profile_id=group["rule_source_profile_id"],
+        )
+        prepared = _prepare_single_text_order_materialized(
+            group_result,
+            group,
+            output_dir,
+            order_number_state_dir=order_number_state_dir,
+        )
+        aggregate_outputs.extend(prepared.outputs)
+        aggregate_inputs.extend(prepared.conversion_inputs)
+        aggregate_routes.extend(prepared.routed_groups)
+        if prepared.order_number_allocation is not None:
+            aggregate_allocations.append(prepared.order_number_allocation)
+
+    result.outputs = aggregate_outputs
+    result.conversion_inputs = aggregate_inputs
+    result.routed_groups = aggregate_routes
+    result.order_number_allocations = aggregate_allocations
+    result.order_number_allocation = (
+        aggregate_allocations[0] if len(aggregate_allocations) == 1 else None
+    )
     return result
