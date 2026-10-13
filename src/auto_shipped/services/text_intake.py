@@ -1012,7 +1012,13 @@ def validate_text_order_draft(
     require_confirmation: bool = True,
 ) -> tuple[TextOrderIntakeResult, dict[str, Any] | None]:
     path, payload = _load_draft(draft_path)
-    routing_mode = _text(payload.get("routing_mode")) or "single_profile"
+    explicit_routing_mode = _text(payload.get("routing_mode"))
+    routing_mode = explicit_routing_mode or (
+        "single_profile"
+        if _text(payload.get("company_id"))
+        or _text(payload.get("rule_source_profile_id"))
+        else "registered_manual_channels"
+    )
     if routing_mode != "registered_manual_channels":
         return _validate_single_text_order_draft(
             path,

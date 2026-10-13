@@ -206,7 +206,6 @@ class TextOrderIntakeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "draft.json"
             payload = _draft(company_id=None)
-            payload["routing_mode"] = "registered_manual_channels"
             payload["orders"][0]["source_channel"] = "未知渠道"
             _write(path, payload)
 
@@ -221,11 +220,30 @@ class TextOrderIntakeTests(unittest.TestCase):
                 {"TEXT_ORDER_MANUAL_ROUTE_REQUIRED"},
             )
 
-    def test_tmall_channel_without_company_context_still_asks_company(self) -> None:
+    def test_text_order_without_company_defaults_to_registered_manual_route(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "draft.json"
             payload = _draft(company_id=None)
             payload["orders"][0]["source_channel"] = "天猫"
+            _write(path, payload)
+
+            result, materialized = validate_text_order_draft(
+                path,
+                company_registry_path=REGISTRY,
+            )
+
+            self.assertEqual(result.status, "ready")
+            self.assertIsNotNone(materialized)
+            self.assertEqual(
+                materialized["groups"][0]["rule_source_profile_id"],
+                "self_operated_text_v1",
+            )
+
+    def test_explicit_single_profile_mode_without_company_still_asks_company(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id=None)
+            payload["routing_mode"] = "single_profile"
             _write(path, payload)
 
             result, materialized = validate_text_order_draft(
@@ -263,7 +281,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(result.status, "needs_input")
             self.assertIsNone(materialized)
             codes = {item.code for item in result.clarifications}
-            self.assertIn("TEXT_ORDER_COMPANY_REQUIRED", codes)
+            self.assertNotIn("TEXT_ORDER_COMPANY_REQUIRED", codes)
             self.assertIn("TEXT_ORDER_CRITICAL_FIELD_UNCONFIRMED", codes)
             self.assertIn("TEXT_ORDER_UNCERTAINTY_REQUIRES_CONFIRMATION", codes)
             public = json.dumps(result.to_public_dict(), ensure_ascii=False)
