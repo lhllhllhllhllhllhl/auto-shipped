@@ -733,6 +733,82 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(result.match_method, "confirmed_name_alias_name_only")
         self.assertEqual(result.product.product_code, "P1")
 
+    def test_unsplit_name_and_spec_uses_exact_published_composite_mapping(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "Orange普通", "S1", "普通", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "taojuzi_taobao_text_v1",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "橘色",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+            {
+                "taojuzi_taobao_text_v1": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        for combined_name in ("橘色搓澡巾", "搓澡巾（橘色）"):
+            with self.subTest(combined_name=combined_name):
+                result = product_catalog.resolve(
+                    "",
+                    source_profile_id="taojuzi_taobao_text_v1",
+                    source_product_name=combined_name,
+                    source_spec="",
+                )
+
+                self.assertEqual(result.status, "confirmed")
+                self.assertEqual(
+                    result.match_method,
+                    "confirmed_name_alias_composite_decomposition",
+                )
+                self.assertIsNotNone(result.product)
+                assert result.product is not None
+                self.assertEqual(result.product.product_code, "P1")
+
+    def test_composite_mapping_never_discards_separate_source_spec(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "Orange普通", "S1", "普通", 100, "测试仓")],
+            [
+                {
+                    "source_profile_id": "taojuzi_taobao_text_v1",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "橘色",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+            {
+                "taojuzi_taobao_text_v1": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                }
+            },
+        )
+
+        result = product_catalog.resolve(
+            "",
+            source_profile_id="taojuzi_taobao_text_v1",
+            source_product_name="橘色搓澡巾",
+            source_spec="条",
+        )
+
+        self.assertEqual(result.status, "unmapped")
+        self.assertNotEqual(
+            result.match_method,
+            "confirmed_name_alias_composite_decomposition",
+        )
+
     def test_missing_target_spec_resolves_only_single_variant_product(self) -> None:
         product_catalog = ProductCatalog(
             [

@@ -118,8 +118,8 @@ class TextOrderIntakeTests(unittest.TestCase):
             taobao["items"] = [
                 {
                     "source_product_code": "",
-                    "source_product_name": "搓澡巾",
-                    "source_spec": "橘色",
+                    "source_product_name": "橘色搓澡巾",
+                    "source_spec": "",
                     "quantity": 1,
                     "unit": "条",
                 }
@@ -164,6 +164,20 @@ class TextOrderIntakeTests(unittest.TestCase):
 
             self.assertEqual(intake.status, "ready")
             self.assertEqual(len(intake.conversion_inputs), 2)
+            taobao_preview = next(
+                item
+                for item in intake.masked_preview
+                if item["rule_source_profile_id"] == "taojuzi_taobao_text_v1"
+            )
+            self.assertEqual(
+                taobao_preview["order_number_plan"]["selected_source"],
+                "registered_generation_rule",
+            )
+            self.assertIn(
+                "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
+                taobao_preview["order_number_plan"]["message"],
+            )
+            self.assertIn("追加机器人尾缀A", taobao_preview["order_number_plan"]["message"])
             self.assertEqual(
                 {item["rule_source_profile_id"] for item in intake.conversion_inputs},
                 {"self_operated_text_v1", "taojuzi_taobao_text_v1"},
@@ -238,6 +252,47 @@ class TextOrderIntakeTests(unittest.TestCase):
                 materialized["groups"][0]["rule_source_profile_id"],
                 "self_operated_text_v1",
             )
+
+    def test_confirmation_preview_explains_registered_missing_number_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id="self_operated")
+            payload["rule_source_profile_id"] = "taojuzi_taobao_text_v1"
+            payload.pop("order_number_policy")
+            payload["confirmation"]["token"] = None
+            order = payload["orders"][0]
+            order["source_channel"] = "淘宝"
+            order["source_order_no"] = None
+            order["field_provenance"]["source_order_no"] = "missing"
+            _write(path, payload)
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 10, 15, 10, 30, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                result, materialized = validate_text_order_draft(
+                    path,
+                    company_registry_path=REGISTRY,
+                )
+
+            self.assertIsNone(materialized)
+            self.assertEqual(
+                {item.code for item in result.clarifications},
+                {"TEXT_ORDER_DRAFT_CONFIRMATION_REQUIRED"},
+            )
+            self.assertIn(
+                "无需为已有自动规则的订单另行补号",
+                result.clarifications[0].question,
+            )
+            plan = result.masked_preview[0]["order_number_plan"]
+            self.assertEqual(plan["selected_source"], "registered_generation_rule")
+            self.assertIn(
+                "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
+                plan["message"],
+            )
+            self.assertIn("追加机器人尾缀A", plan["message"])
 
     def test_explicit_single_profile_mode_without_company_still_asks_company(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

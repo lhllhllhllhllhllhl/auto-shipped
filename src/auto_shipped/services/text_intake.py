@@ -286,6 +286,50 @@ def _load_source_profile(
     return {}
 
 
+def _target_automation_suffix(
+    company_registry_path: str | Path,
+    registry: dict[str, Any],
+    company_id: str | None,
+    profile_id: str | None,
+) -> str:
+    """Read the target platform suffix from its single authoritative profile."""
+
+    if not company_id or not profile_id:
+        return ""
+    target_profile_id = ""
+    for company in registry.get("companies", []):
+        if not isinstance(company, dict) or company.get("company_id") != company_id:
+            continue
+        for workflow in company.get("workflows", []):
+            if (
+                isinstance(workflow, dict)
+                and workflow.get("runtime_enabled") is True
+                and workflow.get("source_profile_id") == profile_id
+            ):
+                target_profile_id = _text(workflow.get("target_profile_id"))
+                break
+        break
+    if not target_profile_id:
+        return ""
+    target_path = (
+        Path(company_registry_path).resolve().parents[1]
+        / "platform_profiles"
+        / f"{target_profile_id}.json"
+    )
+    try:
+        target_profile = json.loads(target_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    identity_policy = target_profile.get("automation_identity_policy") or {}
+    if (
+        not isinstance(identity_policy, dict)
+        or identity_policy.get("confirmed") is not True
+        or identity_policy.get("strategy") != "append_suffix"
+    ):
+        return ""
+    return _text(identity_policy.get("suffix"))
+
+
 def _manual_text_routes(
     company_registry_path: str | Path,
     registry: dict[str, Any],
@@ -577,6 +621,70 @@ def _generated_order_number(policy: dict[str, Any], index: int) -> str:
     )
 
 
+def _order_number_plan(
+    *,
+    order_no: str,
+    source_order_no: str,
+    source_order_no_generated: bool,
+    policy: dict[str, Any] | None,
+    automation_suffix: str,
+) -> dict[str, str]:
+    priority = "订单编号 > 来源单号 > 已登记自动生成规则"
+    final_rule = (
+        f"最终平台单号由目标平台公共规则追加机器人尾缀{automation_suffix}"
+        if automation_suffix
+        else "最终平台单号继续按目标平台公共规则处理"
+    )
+    if order_no:
+        return {
+            "identity_priority": priority,
+            "selected_source": "order_no",
+            "message": f"检测到订单编号，将优先使用订单编号；{final_rule}。",
+        }
+    if source_order_no and not source_order_no_generated:
+        return {
+            "identity_priority": priority,
+            "selected_source": "source_order_no",
+            "message": f"未提供订单编号，将使用来源单号；{final_rule}。",
+        }
+    if source_order_no_generated and policy:
+        strategy = _text(policy.get("strategy"))
+        prefix = _text(policy.get("prefix"))
+        width = int(policy.get("sequence_width") or 1)
+        timezone_name = _text(policy.get("timezone")) or "Asia/Shanghai"
+        timezone_label = "上海时区" if timezone_name == "Asia/Shanghai" else timezone_name
+        if strategy == "datetime_sequence":
+            stamp_label = (
+                "YYYYMMDDHHmm"
+                if policy.get("stamp_format") == "%Y%m%d%H%M"
+                else "YYMMDDHHmm"
+            )
+            base_rule = (
+                f"{prefix}+{timezone_label}整批生成分钟{stamp_label}"
+                f"+最少{width}位弹性序号"
+            )
+        else:
+            stamp_label = (
+                "YYYYMMDD"
+                if policy.get("date_format") == "%Y%m%d"
+                else "YYMMDD"
+            )
+            base_rule = f"{prefix}+业务日期{stamp_label}+最少{width}位顺序号"
+        return {
+            "identity_priority": priority,
+            "selected_source": "registered_generation_rule",
+            "message": (
+                "未提供订单编号或来源单号，将按已登记规则生成基础单号："
+                f"{base_rule}；{final_rule}。"
+            ),
+        }
+    return {
+        "identity_priority": priority,
+        "selected_source": "missing",
+        "message": "未提供订单编号或来源单号，且当前没有可执行的已登记生成规则。",
+    }
+
+
 def _validate_single_text_order_draft(
     draft_path: str | Path,
     *,
@@ -639,6 +747,12 @@ def _validate_single_text_order_draft(
                     )
                 )
     order_number_policy = _date_sequence_policy(payload, requests, source_profile)
+    automation_suffix = _target_automation_suffix(
+        company_registry_path,
+        registry,
+        company_id,
+        rule_profile,
+    )
 
     orders = payload.get("orders")
     if not isinstance(orders, list) or not orders:
@@ -924,6 +1038,13 @@ def _validate_single_text_order_draft(
                 "source_channel": channel,
                 "order_no": "present" if order_no else "missing",
                 "source_order_no": "present" if source_order_no else "missing",
+                "order_number_plan": _order_number_plan(
+                    order_no=order_no,
+                    source_order_no=source_order_no,
+                    source_order_no_generated=source_order_no_generated,
+                    policy=order_number_policy,
+                    automation_suffix=automation_suffix,
+                ),
                 "recipient": {
                     "name": _mask_name(recipient.get("name")),
                     "contact": _mask_contact(contact),
@@ -973,7 +1094,11 @@ def _validate_single_text_order_draft(
             ClarificationRequest(
                 code="TEXT_ORDER_DRAFT_CONFIRMATION_REQUIRED",
                 scope="batch",
-                question="请核对脱敏预览中的订单数、平台、商品与数量；确认无误后再生成转换输入。",
+                question=(
+                    "请核对脱敏预览中的订单数、平台、商品、规格与数量；"
+                    "单号处理栏已说明订单编号优先级及缺号时采用的已登记规则，"
+                    "无需为已有自动规则的订单另行补号。确认无误后再生成转换输入。"
+                ),
                 reason="AI文字识别结果必须经过一次人确认，不能直接进入管易Excel。",
                 answer_type="confirmation",
                 next_action=(

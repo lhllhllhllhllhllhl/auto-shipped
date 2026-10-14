@@ -322,6 +322,54 @@ class ProductCatalog:
                 return mappings
         return []
 
+    def _composite_name_mapping_candidates(
+        self,
+        source_profile_id: str,
+        source_product_name: Any,
+    ) -> list[dict[str, Any]]:
+        """Match an unsplit name against a published name+spec mapping.
+
+        Text/OCR agents sometimes preserve a phrase such as ``橘色搓澡巾`` in
+        ``source_product_name`` instead of splitting it into ``搓澡巾`` and
+        ``橘色``.  This fallback is deliberately narrow: it only accepts an
+        exact normalized concatenation of the two fields from an already
+        published mapping.  It never uses fuzzy similarity and never runs when
+        the source supplied a separate spec, because that spec is part of the
+        source identity and must not be discarded.
+        """
+
+        normalized_name = normalize_product_text(source_product_name)
+        if not normalized_name:
+            return []
+        profile = clean_identifier(source_profile_id) or "*"
+        matches_by_profile: dict[str, list[dict[str, Any]]] = {
+            profile: [],
+            "*": [],
+        }
+        for mapping in self.mapping_records:
+            if clean_identifier(mapping.get("identifier_type")) != "product_name":
+                continue
+            mapping_profile = clean_identifier(
+                mapping.get("source_profile_id")
+                or mapping.get("source_profile")
+                or "*"
+            )
+            if mapping_profile not in matches_by_profile:
+                continue
+            source_value = normalize_product_text(mapping.get("source_value"))
+            source_spec = normalize_product_text(mapping.get("source_spec"))
+            if not source_value or not source_spec:
+                continue
+            if normalized_name not in {
+                source_value + source_spec,
+                source_spec + source_value,
+            }:
+                continue
+            matches_by_profile[mapping_profile].append(mapping)
+        if matches_by_profile[profile]:
+            return matches_by_profile[profile]
+        return matches_by_profile["*"] if profile != "*" else []
+
     def _resolve_mappings(
         self,
         mappings: list[dict[str, Any]],
@@ -835,6 +883,20 @@ class ProductCatalog:
                     f"confirmed_name_alias_{mapping_match_mode('product_name', source_spec)}",
                     source_fingerprint,
                 )
+
+            if not normalize_product_text(source_spec):
+                composite_mappings = self._composite_name_mapping_candidates(
+                    source_profile_id,
+                    name,
+                )
+                if composite_mappings:
+                    return self._resolve_mappings(
+                        composite_mappings,
+                        key or name,
+                        "product_name",
+                        "confirmed_name_alias_composite_decomposition",
+                        source_fingerprint,
+                    )
 
             if policy.get("allow_exact_catalog_name", False):
                 name_candidates = self._highest_priority_candidates(
