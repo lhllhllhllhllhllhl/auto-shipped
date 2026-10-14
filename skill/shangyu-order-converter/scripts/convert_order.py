@@ -68,6 +68,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--source", required=True, help="公司原始订单Excel")
     parser.add_argument("--catalog", help="可选：本次运行使用的管易商品信息CSV")
+    parser.add_argument(
+        "--preferred-catalog",
+        action="append",
+        default=[],
+        help="可选：业务优先商品目录CSV；可重复提供，按参数顺序匹配",
+    )
     parser.add_argument("--output-dir", required=True, help="本次转换输出目录")
     parser.add_argument(
         "--project-root",
@@ -106,6 +112,38 @@ def _resolve_catalog(project_root: Path, explicit: str | None) -> Path | None:
     return path.resolve()
 
 
+def _resolve_preferred_catalogs(
+    project_root: Path,
+    explicit: list[str] | tuple[str, ...] = (),
+) -> tuple[Path, ...]:
+    values = list(explicit)
+    if not values:
+        registry_path = project_root / "config/catalog/preferred_product_catalog.json"
+        try:
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ()
+        value = str(registry.get("path") or "").strip()
+        if value:
+            values.append(value)
+
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for value in values:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = project_root / path
+        path = path.resolve()
+        key = str(path)
+        if key in seen:
+            continue
+        if not path.is_file():
+            raise FileNotFoundError(f"找不到业务优先商品目录：{path}")
+        seen.add(key)
+        resolved.append(path)
+    return tuple(resolved)
+
+
 def main() -> int:
     args = build_parser().parse_args()
     project_root = resolve_project_root(args.project_root)
@@ -114,6 +152,14 @@ def main() -> int:
         return 1
     source = Path(args.source).expanduser().resolve()
     catalog = _resolve_catalog(project_root, args.catalog)
+    try:
+        preferred_catalogs = _resolve_preferred_catalogs(
+            project_root,
+            tuple(args.preferred_catalog),
+        )
+    except FileNotFoundError as exc:
+        _json_error(str(exc))
+        return 1
     output_dir = Path(args.output_dir).expanduser().resolve()
 
     expected = [project_root / "pyproject.toml", project_root / "src/auto_shipped"]
@@ -145,6 +191,8 @@ def main() -> int:
         "--output-dir",
         str(output_dir),
     ]
+    for preferred_catalog in preferred_catalogs:
+        command.extend(["--preferred-catalog", str(preferred_catalog)])
     if args.mappings:
         command.extend(["--mappings", str(Path(args.mappings).expanduser().resolve())])
     overlay_candidates = [

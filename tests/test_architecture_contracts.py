@@ -83,6 +83,26 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(profile["status"], "configured")
         self.assertTrue(profile["path"].endswith(".csv"))
 
+    def test_product_catalog_layers_are_independent_system_resources(self):
+        layers = load_json("config/catalog/product_catalog_layers_v1.json")
+        preferred = load_json("config/catalog/preferred_product_catalog.json")
+        guanyi = load_json("config/catalog/current_product_catalog.json")
+
+        self.assertEqual(layers["resolution_strategy"], "preferred_then_guanyi")
+        self.assertFalse(layers["rules"]["physical_merge"])
+        self.assertTrue(layers["rules"]["independent_source_files"])
+        self.assertEqual(
+            [item["source_id"] for item in layers["layers"]],
+            ["business_preferred", "guanyi_master"],
+        )
+        self.assertGreater(
+            layers["layers"][0]["priority"],
+            layers["layers"][1]["priority"],
+        )
+        self.assertNotEqual(preferred["path"], guanyi["path"])
+        self.assertTrue((PROJECT_ROOT / preferred["path"]).is_file())
+        self.assertTrue((PROJECT_ROOT / guanyi["path"]).is_file())
+
     def test_bailihui_is_a_source_system_that_routes_to_guanyi(self):
         integration = load_json("config/platform_profiles/bailihui_v1.json")
         connector = load_json("config/source_connectors/bailihui_backend_v1.json")

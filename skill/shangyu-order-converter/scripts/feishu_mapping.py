@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from convert_order import _find_runtime
+from convert_order import _find_runtime, _resolve_preferred_catalogs
 from runtime_common import STATE_ROOT, resolve_project_root
 
 
@@ -64,6 +64,25 @@ def main() -> int:
                 print('{"status":"invalid","code":"CATALOG_FILE_MISSING"}')
                 return 2
             forwarded.extend(["--catalog", str(catalog.resolve())])
+        if "--preferred-catalog" not in forwarded:
+            try:
+                preferred_catalogs = _resolve_preferred_catalogs(project_root)
+            except FileNotFoundError as exc:
+                print(
+                    json.dumps(
+                        {
+                            "status": "invalid",
+                            "code": "PREFERRED_CATALOG_FILE_MISSING",
+                            "message": str(exc),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 2
+            for preferred_catalog in preferred_catalogs:
+                forwarded.extend(
+                    ["--preferred-catalog", str(preferred_catalog)]
+                )
         if sys.argv[1] in {"sync", "sync-native"} and "--output" not in forwarded:
             snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
             forwarded.extend(["--output", str(snapshot)])

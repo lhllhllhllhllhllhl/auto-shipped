@@ -196,6 +196,7 @@ def convert_order_file(
     catalog_csv: str | Path,
     output_dir: str | Path,
     *,
+    preferred_catalog_paths: tuple[str | Path, ...] = (),
     source_profiles_dir: str | Path = PROJECT_ROOT / "config/source_profiles",
     company_registry_path: str | Path = PROJECT_ROOT
     / "config/companies/company_registry_v1.json",
@@ -729,6 +730,7 @@ def convert_order_file(
         catalog = ProductCatalog.from_files(
             catalog_csv,
             mappings_path,
+            preferred_catalog_paths=preferred_catalog_paths,
             policy_paths=(package_semantics_path,),
             mapping_overlay_paths=mapping_overlay_paths,
         )

@@ -12,6 +12,188 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductCatalogTests(unittest.TestCase):
+    def test_preferred_catalog_overrides_and_enriches_guanyi_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            guanyi = root / "guanyi.csv"
+            guanyi.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库\n"
+                "P1,管易名称,S1,管易规格,120,上海尚舆商贸有限公司\n",
+                encoding="gb18030",
+            )
+            preferred = root / "preferred.csv"
+            preferred.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库,目录状态\n"
+                "P1,业务名称,S1,业务规格,,,active\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.json"
+            mappings.write_text('{"mappings": []}', encoding="utf-8")
+
+            catalog = ProductCatalog.from_files(
+                guanyi,
+                mappings,
+                preferred_catalog_paths=(preferred,),
+            )
+            result = catalog.resolve_unique_target("P1", "S1")
+
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(result.product_name, "业务名称")
+            self.assertEqual(result.spec_name, "业务规格")
+            self.assertEqual(result.weight_grams, 120)
+            self.assertEqual(result.default_warehouse, "上海尚舆商贸有限公司")
+            self.assertEqual(result.catalog_source_id, "business_preferred_0")
+            self.assertEqual(
+                result.catalog_source_ids,
+                ("business_preferred_0", "guanyi_master"),
+            )
+
+    def test_catalog_falls_back_to_guanyi_when_preferred_has_no_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            guanyi = root / "guanyi.csv"
+            guanyi.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库\n"
+                "P1,管易商品,S1,管易规格,120,测试仓\n",
+                encoding="gb18030",
+            )
+            preferred = root / "preferred.csv"
+            preferred.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库,目录状态\n"
+                "P2,优先商品,S2,优先规格,,,active\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.json"
+            mappings.write_text('{"mappings": []}', encoding="utf-8")
+
+            catalog = ProductCatalog.from_files(
+                guanyi,
+                mappings,
+                preferred_catalog_paths=(preferred,),
+            )
+            result = catalog.resolve_unique_target("P1", "S1")
+
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(result.catalog_source_id, "guanyi_master")
+
+    def test_pending_preferred_rows_do_not_enter_effective_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            guanyi = root / "guanyi.csv"
+            guanyi.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库\n"
+                "P1,管易商品,S1,管易规格,120,测试仓\n",
+                encoding="gb18030",
+            )
+            preferred = root / "preferred.csv"
+            preferred.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库,目录状态\n"
+                ",待补全商品,S2,待补全规格,,,pending_missing_product_code\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.json"
+            mappings.write_text('{"mappings": []}', encoding="utf-8")
+
+            catalog = ProductCatalog.from_files(
+                guanyi,
+                mappings,
+                preferred_catalog_paths=(preferred,),
+            )
+
+            self.assertEqual(len(catalog.records), 1)
+            self.assertEqual(catalog.records[0].product_code, "P1")
+
+    def test_active_preferred_row_without_product_code_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            guanyi = root / "guanyi.csv"
+            guanyi.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库\n"
+                "P1,管易商品,S1,管易规格,120,测试仓\n",
+                encoding="gb18030",
+            )
+            preferred = root / "preferred.csv"
+            preferred.write_text(
+                "商品代码,商品名称,规格代码,规格名称,重量,默认仓库,目录状态\n"
+                ",错误商品,S2,错误规格,,,active\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.json"
+            mappings.write_text('{"mappings": []}', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "生效商品缺少商品代码"):
+                ProductCatalog.from_files(
+                    guanyi,
+                    mappings,
+                    preferred_catalog_paths=(preferred,),
+                )
+
+    def test_real_preferred_catalog_supplies_ten_stick_gift_box(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            preferred_catalog_paths=(
+                PROJECT_ROOT / "assets/catalog/preferred_product_catalog.csv",
+            ),
+        )
+
+        product = catalog.resolve_unique_target("6974768564859", "")
+
+        self.assertIsNotNone(product)
+        assert product is not None
+        self.assertEqual(product.product_name, "黄糯玉米10根礼盒装")
+        self.assertEqual(product.spec_code, "")
+        self.assertEqual(product.catalog_source_id, "business_preferred_0")
+
+    def test_formal_mapping_can_target_preferred_only_product(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mappings = Path(tmp) / "mappings.json"
+            mappings.write_text(
+                json.dumps(
+                    {
+                        "mappings": [
+                            {
+                                "source_profile_id": "manual_text",
+                                "identifier_type": "product_name",
+                                "source_value": "黄糯10根礼盒",
+                                "source_spec": "",
+                                "product_code": "6974768564859",
+                                "spec_code": "",
+                                "confirmed": True,
+                                "mapping_authority": "feishu_official",
+                                "reuse_scope": "future",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            catalog = ProductCatalog.from_files(
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                mappings,
+                preferred_catalog_paths=(
+                    PROJECT_ROOT / "assets/catalog/preferred_product_catalog.csv",
+                ),
+            )
+
+            result = catalog.resolve(
+                "",
+                source_profile_id="manual_text",
+                source_product_name="黄糯10根礼盒",
+            )
+
+            self.assertEqual(result.status, "confirmed")
+            self.assertIsNotNone(result.product)
+            assert result.product is not None
+            self.assertEqual(result.product.product_code, "6974768564859")
+            self.assertEqual(
+                result.product.catalog_source_id,
+                "business_preferred_0",
+            )
+
     def test_unconfirmed_external_mapping_resolves_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,0 +1,13 @@
+{
+  "profile_id": "business_preferred_product_catalog_v1",
+  "platform": "guanyi",
+  "version": 1,
+  "status": "configured",
+  "path": "assets/catalog/preferred_product_catalog.csv",
+  "source_file": "管易erp260129入库商品信息(1).xlsx",
+  "source_sha256": "acf2be3766e3717644274fa084163d68309e279199bf40cf8cad434486fbb94b",
+  "priority": 1000,
+  "refresh_policy": "manual_replace_after_review",
+  "description": "业务优先商品目录。与管易主档独立维护；有效行优先于管易主档，缺码行保留为待补全且不参与自动匹配。",
+  "packaging": "portable_skill_snapshot"
+}

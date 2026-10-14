@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from convert_order import _resolve_preferred_catalogs
 from runtime_common import STATE_ROOT, resolve_project_root, state_python_candidates
 
 
@@ -63,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--source-fingerprint", default="")
     parser.add_argument("--catalog")
+    parser.add_argument(
+        "--preferred-catalog",
+        action="append",
+        default=[],
+    )
     parser.add_argument("--mappings")
     parser.add_argument("--overlay")
     parser.add_argument("--project-root")
@@ -89,6 +95,19 @@ def main() -> int:
         return 1
     runtime = _find_runtime(project_root)
     catalog = _resolve_catalog(project_root, args.catalog)
+    try:
+        preferred_catalogs = _resolve_preferred_catalogs(
+            project_root,
+            tuple(args.preferred_catalog),
+        )
+    except FileNotFoundError as exc:
+        print(
+            json.dumps(
+                {"status": "failed", "message": str(exc)},
+                ensure_ascii=False,
+            )
+        )
+        return 1
     if runtime is None or catalog is None or not catalog.is_file():
         print(json.dumps({"status": "failed", "message": "运行环境或商品资料不可用。"}, ensure_ascii=False))
         return 1
@@ -132,6 +151,8 @@ def main() -> int:
         "--confirmation-token",
         args.confirmation_token,
     ]
+    for preferred_catalog in preferred_catalogs:
+        command.extend(["--preferred-catalog", str(preferred_catalog)])
     environment = os.environ.copy()
     source_root = str(project_root / "src")
     environment["PYTHONPATH"] = os.pathsep.join(

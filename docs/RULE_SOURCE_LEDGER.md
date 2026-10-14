@@ -33,6 +33,7 @@
 | `SRC-SOP-PDF-001` | `尚舆发货流程.pdf` | `a4a6f55550fe78ad4e4fdfbd4364011d3193d2b657aa063aabe92926f6f11ab6` | 第1-14页 | 高，含登录和业务页面信息 | 原件在本机Downloads，未建立可迁移安全归档 |
 | `SRC-GY-TEMPLATE-001` | `自定义订单导入模板.xlsx` | `b6c04e427a1d3962a3e0dc7e8a1b2171e12c61168c2e572b39de4a31ebfb1eca` | `Sheet1`，48列表头及示例行 | 内部 | 原件在本机Downloads；运行时已有模板指纹 |
 | `SRC-GY-CATALOG-001` | `商品信息_20260921175141.csv` | `b643ecf96e3214bee10747b68660fbc9dd239f2d8200593b1df9b7561b83b586` | 商品与规格资料 | 内部 | 原件在本机Downloads；运行时已有商品资料快照 |
+| `SRC-GY-PREFERRED-CATALOG-001` | `管易erp260129入库商品信息(1).xlsx` | `acf2be3766e3717644274fa084163d68309e279199bf40cf8cad434486fbb94b` | `Sheet1!A1:G24`；21条非空商品资料，其中13条与管易主档精确组合重合、3条10根礼盒装编码完整、5条缺少商品代码 | 内部 | 原件在本机Downloads；运行时保存规范化CSV快照，5条缺码行标记待补全且不参与匹配 |
 | `SRC-WHITELABEL-XLSX-20261010` | `商品白标.xlsx` | `056a0b885d08917775599a378fe4ad2487b34d9dfadb0a17e705f4f02272f823` | `商品库存导出30日_20261007105554!A1:F135`；131条非空商品规格 | 白标SKU权威清单 | 原件在本机Downloads；运行时保存去空白后的精确商品代码与规格代码，不复制原Excel |
 | `SRC-COMPANY-ABBREVIATIONS-XLSX-20261010` | `各公司对应简称.xlsx` | `b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7` | `Sheet1!A3:B10`；7组法定名称与简称 | 公司身份识别与显式前缀引用 | 原件在本机Downloads；已写入公司库，简称本身不启用转换流程 |
 
@@ -183,6 +184,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-USER-CODE-ONLY-MULTI-SPEC-001` | 2026-10-12 | 来源只有商品代码、而目标管易商品代码存在多个规格时，首次必须展示候选并询问具体规格及“仅本次/以后沿用”；仅本次绑定当前源文件指纹，只有明确以后沿用且正式发布的映射可在后续自动复用 | 商品映射安全与确认范围 | 已实现：当前批次确认只匹配完全相同的`sha256:`文件指纹；正式快照是长期复用证据，待确认提案和模糊候选不参与转换 |
 | `DEC-USER-TARGET-SPEC-OPTIONAL-001` | 2026-10-12 | 通用映射表允许目标规格代码留空；目标商品代码唯一时规范化为真实唯一组合，存在多个规格时拒绝保存或发布 | 商品映射通用结构 | 已实现于本机映射保存、飞书正式同步与所有者发布器，避免为无规格商品强造规格值 |
 | `DEC-USER-FUZZY-NAME-CANDIDATE-001` | 2026-10-12 | 公司内多种商品叫法用同一正式映射表的`product_name`行登记；相似/模糊名称只能提供排序候选，不能自动确认、写表或出单 | 商品名称匹配 | 已实现独立只读候选模块；正式别名仍按公司和来源配置隔离 |
+| `DEC-USER-TARGET-CATALOG-LAYERS-001` | 2026-10-14 | 飞书正式映射保留；目标商品代码先在业务优先目录校验，未命中再查管易主档。两份来源文件独立维护，运行时只做逻辑合并 | 目标商品目录与映射校验 | 已实现分层目录解析器、独立登记文件和Skill自动加载 |
+| `DEC-USER-PREFERRED-CATALOG-PENDING-001` | 2026-10-14 | 业务优先资料中编码完整的3款10根礼盒装生效；缺少商品代码的5行只保留为待补全，不参与自动匹配 | 业务优先商品目录 | 已实现目录状态门禁；错误标记为active且缺商品代码时失败关闭 |
 
 本台账只保留当前可用决策和仍待处理事项。规则变更时直接更新或删除旧条目，过去版本由Git提交历史追溯，不建立额外生命周期状态机。
 
@@ -200,7 +203,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-PAYMENT-METHOD` | 支付方式 | `SRC-SOP-PDF-001` p.5 | `DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写网银在线；其他来源仍按各自规则包确认 |
 | `GY-ORDER-TYPE` | 订单类型 | `SRC-SOP-PDF-001` p.12 | `DEC-BLH-ROUTE-001`、`DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写销售订单；其他来源仍按各自规则包确认 |
 | `GY-ORDER-FLAGS` | 赠品、手机、货到付款和分销标记 | `SRC-GY-TEMPLATE-001` | 当前模板说明 | 寄样订单是否属于赠品未确认 |
-| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002` | 飞书正式库处理来源编码映射；文字来源先用公司级包装语义解析，未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
+| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；文字来源先用公司级包装语义解析，未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
 | `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-USER-SAM-BUNDLE-001` | 当前已确认SAM白糯8+1；其他组合商品必须逐项登记组成和数量倍数 |
 | `GY-RECIPIENT-COMPLETENESS` | 收件信息完整性 | `SRC-SOP-PDF-001` p.5、p.8、p.10 | `SRC-SAMPLE-TT-001`、`SRC-SAMPLE-XHS-001`、`SRC-SAMPLE-ADDR-001` | 组合地址解析仍需边界测试 |
 | `GY-JD-ZTO-CONTACT-SUFFIX` | 自营京东中通联系电话尾码 | `SRC-SAMPLE-TEXT-ORDER-001` | `DEC-USER-JD-ZTO-CONTACT-SUFFIX-001` | 已确认并实现；仅对已确认尚舆自营、京东渠道且物流为京东中通的订单生效，冲突时fail-close |
@@ -254,6 +257,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DESIGN-UNIVERSAL-SKU-ROW-001` | 同一映射行同时容纳可选的来源商品标识与来源规格，至少填写一个；不为规格另建类型或公司专表 | `DEC-USER-UNIVERSAL-SKU-MAPPING-001` | 保持表结构通用，并支持无规格、组合规格及受控规格单独匹配 |
 | `DESIGN-MAPPING-CONFIRMATION-SCOPE-001` | 候选推理、仅本次确认和正式长期复用分层；只有正式快照产生`reuse_scope=future` | `DEC-USER-CODE-ONLY-MULTI-SPEC-001`、`DEC-USER-FUZZY-NAME-CANDIDATE-001` | 防止旧本机映射或模型候选把来源单码静默绑定到多规格商品 |
 | `DESIGN-CORRECTION-INBOX-001` | 用户纠错独立留存，反馈、待确认映射、正式映射三层分离 | `DEC-USER-CORRECTION-INBOX-001`、`DEC-USER-PERSISTENCE-EVIDENCE-001` | 让开发线程可回收真实问题，同时防止未经审核的反馈污染运行时 |
+| `DESIGN-TARGET-CATALOG-LAYERS-001` | 业务优先目录与管易主档独立保存，通过优先级解析器形成只读有效目录 | `SRC-GY-PREFERRED-CATALOG-001`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 补充专项商品而不修改飞书映射结构，也允许两个目录分别升级和回滚 |
 
 ## 8. 原件归档风险
 

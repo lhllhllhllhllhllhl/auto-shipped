@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import csv
 import json
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .catalog_layers import CatalogLayer, build_effective_catalog
 from .product_candidates import rank_similar_products
 
 
@@ -36,16 +36,6 @@ def mapping_match_mode(identifier_type: str, source_spec: Any = "") -> str:
     return f"{base}_spec" if normalize_product_text(source_spec) else f"{base}_only"
 
 
-def _number(value: Any) -> float | None:
-    text = clean_identifier(value)
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
 @dataclass(frozen=True, slots=True)
 class ProductRecord:
     product_code: str
@@ -54,6 +44,9 @@ class ProductRecord:
     spec_name: str
     weight_grams: float | None
     default_warehouse: str
+    catalog_source_id: str = "guanyi_master"
+    catalog_priority: int = 0
+    catalog_source_ids: tuple[str, ...] = ("guanyi_master",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +98,17 @@ class ProductCatalog:
             if normalized_name:
                 self._by_product_name.setdefault(normalized_name, []).append(record)
 
+        self._records_by_priority = [
+            tuple(
+                record
+                for record in records
+                if record.catalog_priority == priority
+            )
+            for priority in sorted(
+                {record.catalog_priority for record in records}, reverse=True
+            )
+        ]
+
         self.mapping_records = self._normalize_mapping_records(external_mappings or {})
         self._mappings: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
         for mapping in self.mapping_records:
@@ -154,31 +158,41 @@ class ProductCatalog:
         catalog_csv: str | Path,
         mappings_json: str | Path,
         *,
+        preferred_catalog_paths: Iterable[str | Path] = (),
         policy_paths: Iterable[str | Path] = (),
         mapping_overlay_paths: Iterable[str | Path] = (),
     ) -> "ProductCatalog":
-        path = Path(catalog_csv)
-        text = None
-        for encoding in ("utf-8-sig", "gb18030", "utf-8"):
-            try:
-                text = path.read_text(encoding=encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        if text is None:
-            raise ValueError(f"无法识别商品文件编码: {path.name}")
-
-        rows = csv.DictReader(text.splitlines())
+        preferred = [Path(value) for value in preferred_catalog_paths]
+        layers = [
+            CatalogLayer(
+                source_id=f"business_preferred_{index}",
+                path=path,
+                priority=1000 - index,
+            )
+            for index, path in enumerate(preferred)
+        ]
+        layers.append(
+            CatalogLayer(
+                source_id="guanyi_master",
+                path=Path(catalog_csv),
+                priority=0,
+                require_product_code=False,
+            )
+        )
+        effective = build_effective_catalog(layers)
         records = [
             ProductRecord(
-                product_code=clean_identifier(row.get("商品代码")),
-                product_name=clean_identifier(row.get("商品名称")),
-                spec_code=clean_identifier(row.get("规格代码")),
-                spec_name=clean_identifier(row.get("规格名称")),
-                weight_grams=_number(row.get("重量")),
-                default_warehouse=clean_identifier(row.get("默认仓库")),
+                product_code=row.product_code,
+                product_name=row.product_name,
+                spec_code=row.spec_code,
+                spec_name=row.spec_name,
+                weight_grams=row.weight_grams,
+                default_warehouse=row.default_warehouse,
+                catalog_source_id=row.catalog_source_id,
+                catalog_priority=row.catalog_priority,
+                catalog_source_ids=row.catalog_source_ids,
             )
-            for row in rows
+            for row in effective.rows
         ]
         documents = [json.loads(Path(mappings_json).read_text(encoding="utf-8"))]
         package_semantics_registry: dict[str, Any] = {}
@@ -208,6 +222,16 @@ class ProductCatalog:
             package_semantics_registry,
         )
 
+    @staticmethod
+    def _highest_priority_candidates(
+        candidates: Iterable[ProductRecord],
+    ) -> list[ProductRecord]:
+        values = list(candidates)
+        if not values:
+            return []
+        priority = max(record.catalog_priority for record in values)
+        return [record for record in values if record.catalog_priority == priority]
+
     def shipping_forbidden_reason(self, product: ProductRecord) -> str:
         return self._forbidden_shipping_products.get(
             (product.product_code, product.spec_code),
@@ -215,11 +239,11 @@ class ProductCatalog:
         )
 
     def _unique_pair(self, product_code: str, spec_code: str) -> ProductRecord | None:
-        candidates = [
+        candidates = self._highest_priority_candidates(
             record
             for record in self._by_product_code.get(product_code, [])
             if record.spec_code == spec_code
-        ]
+        )
         return candidates[0] if len(candidates) == 1 else None
 
     def has_unique_pair(self, product_code: str, spec_code: str) -> bool:
@@ -228,9 +252,12 @@ class ProductCatalog:
     def variants_for_product_code(self, product_code: Any) -> tuple[ProductRecord, ...]:
         """Return unique Guanyi SKU candidates for one product code."""
 
+        candidates = self._highest_priority_candidates(
+            self._by_product_code.get(clean_identifier(product_code), [])
+        )
         unique = {
             (record.product_code, record.spec_code): record
-            for record in self._by_product_code.get(clean_identifier(product_code), [])
+            for record in candidates
         }
         return tuple(
             unique[key]
@@ -610,7 +637,7 @@ class ProductCatalog:
             )
             if normalize_product_text(value)
         ]
-        candidates = [
+        candidates = self._highest_priority_candidates(
             record
             for record in self.records
             if target_tokens
@@ -618,7 +645,7 @@ class ProductCatalog:
                 token in normalize_product_text(record.product_name)
                 for token in target_tokens
             )
-        ]
+        )
         unique_candidates = {
             (record.product_code, record.spec_code): record for record in candidates
         }
@@ -733,7 +760,7 @@ class ProductCatalog:
 
         if key:
             allow_direct = policy.get("allow_direct_catalog_identifier", False)
-            direct = self._by_spec_code.get(key, [])
+            direct = self._highest_priority_candidates(self._by_spec_code.get(key, []))
             if allow_direct and len(direct) == 1:
                 return ProductResolution(
                     "confirmed",
@@ -810,7 +837,7 @@ class ProductCatalog:
                 )
 
             if policy.get("allow_exact_catalog_name", False):
-                name_candidates = list(
+                name_candidates = self._highest_priority_candidates(
                     self._by_product_name.get(normalize_product_text(name), [])
                 )
                 normalized_spec = normalize_product_text(source_spec)
@@ -860,12 +887,16 @@ class ProductCatalog:
             return semantic_resolution
 
         if name and policy.get("fuzzy_name_action") == "candidate_requires_user_confirmation":
-            candidates = rank_similar_products(
-                self.records,
-                source_name=name,
-                source_spec=source_spec,
-                normalizer=normalize_product_text,
-            )
+            candidates: tuple[ProductRecord, ...] = ()
+            for layer_records in self._records_by_priority:
+                candidates = rank_similar_products(
+                    layer_records,
+                    source_name=name,
+                    source_spec=source_spec,
+                    normalizer=normalize_product_text,
+                )
+                if candidates:
+                    break
             if candidates:
                 return ProductResolution(
                     status="unconfirmed" if len(candidates) == 1 else "ambiguous",

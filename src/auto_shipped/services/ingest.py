@@ -52,9 +52,15 @@ def ingest_file(
     catalog_csv: str | Path,
     profile_path: str | Path,
     mappings_path: str | Path,
+    *,
+    preferred_catalog_paths: tuple[str | Path, ...] = (),
 ) -> IngestResult:
     profile = load_profile(profile_path)
-    catalog = ProductCatalog.from_files(catalog_csv, mappings_path)
+    catalog = ProductCatalog.from_files(
+        catalog_csv,
+        mappings_path,
+        preferred_catalog_paths=preferred_catalog_paths,
+    )
     adapter = ADAPTERS[profile["adapter"]]()
     orders = adapter.ingest(source_path, profile, catalog)
     return IngestResult(

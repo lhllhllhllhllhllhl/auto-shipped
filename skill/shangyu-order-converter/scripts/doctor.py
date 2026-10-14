@@ -43,8 +43,8 @@ def python_status(project_root: Path) -> dict:
     return {"ready": False, "code": "PYTHON_RUNTIME_MISSING"}
 
 
-def catalog_status(project_root: Path) -> dict:
-    registry_path = project_root / "config" / "catalog" / "current_product_catalog.json"
+def catalog_status(project_root: Path, registry_name: str) -> dict:
+    registry_path = project_root / "config" / "catalog" / registry_name
     try:
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -116,7 +116,11 @@ def main() -> int:
         "playwright_core": {"ready": (browser_root / "node_modules" / "playwright-core").is_dir()},
         "chrome": {"ready": chrome is not None, "path": str(chrome) if chrome else None},
         "template": {"ready": (project_root / "assets" / "templates" / "guanyi" / "自定义订单导入模板.xlsx").is_file()},
-        "catalog": catalog_status(project_root),
+        "catalog": catalog_status(project_root, "current_product_catalog.json"),
+        "preferred_catalog": catalog_status(
+            project_root,
+            "preferred_product_catalog.json",
+        ),
         "credential_provider": {
             "ready": platform.system() in {"Darwin", "Windows"},
             "provider": (

@@ -80,6 +80,45 @@ def package_catalog(source_root: Path, destination_root: Path) -> None:
         encoding="utf-8",
     )
 
+    preferred_registry_path = (
+        source_root / "config" / "catalog" / "preferred_product_catalog.json"
+    )
+    preferred_registry = json.loads(
+        preferred_registry_path.read_text(encoding="utf-8")
+    )
+    preferred_configured = Path(
+        str(preferred_registry.get("path") or "")
+    ).expanduser()
+    if not preferred_configured.is_absolute():
+        preferred_configured = source_root / preferred_configured
+    if not preferred_configured.is_file():
+        raise FileNotFoundError("业务优先商品目录不存在，无法构建可迁移包。")
+    preferred_target = (
+        destination_root / "assets" / "catalog" / "preferred_product_catalog.csv"
+    )
+    preferred_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(preferred_configured, preferred_target)
+    packaged_preferred_registry = {
+        **preferred_registry,
+        "path": "assets/catalog/preferred_product_catalog.csv",
+        "packaging": "portable_skill_snapshot",
+    }
+    destination_preferred_registry = (
+        destination_root
+        / "config"
+        / "catalog"
+        / "preferred_product_catalog.json"
+    )
+    destination_preferred_registry.write_text(
+        json.dumps(
+            packaged_preferred_registry,
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
 
 def write_manifest(destination_root: Path) -> None:
     files = {}

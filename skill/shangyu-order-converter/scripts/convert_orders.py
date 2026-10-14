@@ -11,7 +11,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from convert_order import _find_runtime, _json_error, _resolve_catalog
+from convert_order import (
+    _find_runtime,
+    _json_error,
+    _resolve_catalog,
+    _resolve_preferred_catalogs,
+)
 from runtime_common import STATE_ROOT, resolve_project_root
 
 
@@ -54,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="公司原始订单Excel；可重复提供",
     )
     parser.add_argument("--catalog", help="可选：本次运行使用的管易商品信息CSV")
+    parser.add_argument(
+        "--preferred-catalog",
+        action="append",
+        default=[],
+        help="可选：业务优先商品目录CSV；可重复提供，按参数顺序匹配",
+    )
     parser.add_argument("--output-dir", required=True, help="本次输出目录")
     parser.add_argument("--batch-name", default="批量订单", help="合并输出文件名前缀")
     parser.add_argument(
@@ -102,8 +113,11 @@ def _common_cli_args(
     args: argparse.Namespace,
     official_mapping_snapshot: Path | None,
     official_mapping_error: str,
+    preferred_catalogs: tuple[Path, ...],
 ) -> list[str]:
     values: list[str] = []
+    for preferred_catalog in preferred_catalogs:
+        values.extend(["--preferred-catalog", str(preferred_catalog)])
     if args.mappings:
         values.extend(["--mappings", str(Path(args.mappings).expanduser().resolve())])
     overlay_candidates = list(args.mapping_overlay)
@@ -139,6 +153,7 @@ def _prepare_official_mapping(
     runtime: str,
     project_root: Path,
     catalog: Path,
+    preferred_catalogs: tuple[Path, ...],
 ) -> tuple[Path | None, str]:
     if args.official_mapping_snapshot:
         snapshot = Path(args.official_mapping_snapshot).expanduser().resolve()
@@ -157,6 +172,8 @@ def _prepare_official_mapping(
         "--output",
         str(snapshot),
     ]
+    for preferred_catalog in preferred_catalogs:
+        command.extend(["--preferred-catalog", str(preferred_catalog)])
     if args.mappings:
         command.extend(
             ["--mappings", str(Path(args.mappings).expanduser().resolve())]
@@ -242,6 +259,14 @@ def main() -> int:
         _json_error("找不到 Skill 内置或外部订单转换运行时。")
         return 1
     catalog = _resolve_catalog(project_root, args.catalog)
+    try:
+        preferred_catalogs = _resolve_preferred_catalogs(
+            project_root,
+            tuple(args.preferred_catalog),
+        )
+    except FileNotFoundError as exc:
+        _json_error(str(exc))
+        return 1
     sources = [Path(value).expanduser().resolve() for value in args.source]
     output_dir = Path(args.output_dir).expanduser().resolve()
 
@@ -273,11 +298,13 @@ def main() -> int:
         runtime,
         project_root,
         catalog,
+        preferred_catalogs,
     )
     common_args = _common_cli_args(
         args,
         official_mapping_snapshot,
         official_mapping_error,
+        preferred_catalogs,
     )
     if len(sources) == 1:
         completed = _run_single(

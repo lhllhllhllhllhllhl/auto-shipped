@@ -529,11 +529,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_package_semantics.add_argument("--state-dir", required=True)
     export_package_semantics.add_argument("--output", required=True)
+    for catalog_parser in (
+        preview,
+        convert,
+        convert_batch,
+        sync_official,
+        sync_official_native,
+        plan_publish,
+        publish_pending,
+        save_mapping,
+    ):
+        catalog_parser.add_argument(
+            "--preferred-catalog",
+            action="append",
+            default=[],
+            help="可重复提供的业务优先商品目录CSV；按参数顺序从高到低匹配",
+        )
     return parser
 
 
 def run_preview(args: argparse.Namespace) -> int:
-    result = ingest_file(args.source, args.catalog, args.profile, args.mappings)
+    result = ingest_file(
+        args.source,
+        args.catalog,
+        args.profile,
+        args.mappings,
+        preferred_catalog_paths=tuple(args.preferred_catalog),
+    )
     payload = {
         "summary": result.summary(),
         "batch_issues": [asdict(issue) for issue in result.batch_issues],
@@ -559,7 +581,11 @@ def _official_mapping_runtime_state(
             or "正式映射提供器未能完成读取与校验。"
         )
     try:
-        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return False, f"正式映射校验无法加载商品主档：{exc}"
 
@@ -597,6 +623,7 @@ def run_convert(args: argparse.Namespace) -> int:
         source_path=args.source,
         catalog_csv=args.catalog,
         output_dir=args.output_dir,
+        preferred_catalog_paths=tuple(args.preferred_catalog),
         mappings_path=args.mappings,
         guanyi_template_path=args.template,
         source_profile_hint=args.source_profile,
@@ -665,6 +692,7 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         source_paths=args.source,
         catalog_csv=args.catalog,
         output_dir=args.output_dir,
+        preferred_catalog_paths=tuple(args.preferred_catalog),
         mappings_path=args.mappings,
         guanyi_template_path=args.template,
         source_profile_hints=hints,
@@ -947,7 +975,11 @@ def run_feishu_mapping_status(args: argparse.Namespace) -> int:
 def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
     try:
         gateway = _lark_gateway(args.config)
-        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
         records = gateway.list_official_mapping_records()
         metadata = gateway.get_official_repository_metadata()
         snapshot = build_official_mapping_snapshot(records, metadata, catalog)
@@ -1000,7 +1032,11 @@ def run_sync_feishu_official_mappings_from_payload(
             raise OfficialMappingSyncError(
                 "Agent原生飞书载荷必须包含records列表和metadata对象。"
             )
-        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
         snapshot = build_official_mapping_snapshot(records, metadata, catalog)
         output = write_official_mapping_snapshot(args.output, snapshot)
     except (
@@ -1263,7 +1299,11 @@ def _load_mapping_publisher_context(args: argparse.Namespace) -> tuple[
             for item in company.get("source_profiles", [])
             if item.get("status") == "active" and item.get("enabled", True) is not False
         )
-    catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+    catalog = ProductCatalog.from_files(
+        args.catalog,
+        args.mappings,
+        preferred_catalog_paths=tuple(args.preferred_catalog),
+    )
     return _lark_gateway(args.config), catalog, owners, companies, source_profiles
 
 
@@ -1340,7 +1380,11 @@ def run_publish_pending_mappings(args: argparse.Namespace) -> int:
 
 def run_save_product_mapping(args: argparse.Namespace) -> int:
     try:
-        catalog = ProductCatalog.from_files(args.catalog, args.mappings)
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
         saved = save_confirmed_mapping(
             args.overlay,
             catalog,

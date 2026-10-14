@@ -194,6 +194,7 @@ def convert_order_batch(
     catalog_csv: str | Path,
     output_dir: str | Path,
     *,
+    preferred_catalog_paths: tuple[str | Path, ...] = (),
     source_profiles_dir: str | Path = PROJECT_ROOT / "config/source_profiles",
     company_registry_path: str | Path = PROJECT_ROOT
     / "config/companies/company_registry_v1.json",
@@ -269,6 +270,7 @@ def convert_order_batch(
                 source_path=source,
                 catalog_csv=catalog_csv,
                 output_dir=stage_output,
+                preferred_catalog_paths=preferred_catalog_paths,
                 source_profiles_dir=source_profiles_dir,
                 company_registry_path=company_registry_path,
                 routing_path=routing_path,

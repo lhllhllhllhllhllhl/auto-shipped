@@ -9,7 +9,12 @@ import os
 import subprocess
 from pathlib import Path
 
-from convert_order import _find_runtime, _json_error, _resolve_catalog
+from convert_order import (
+    _find_runtime,
+    _json_error,
+    _resolve_catalog,
+    _resolve_preferred_catalogs,
+)
 from runtime_common import STATE_ROOT, resolve_project_root
 
 
@@ -24,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="公司原始订单Excel；重复提供，至少两个",
     )
     parser.add_argument("--catalog", help="可选：本次运行使用的管易商品信息CSV")
+    parser.add_argument(
+        "--preferred-catalog",
+        action="append",
+        default=[],
+        help="可选：业务优先商品目录CSV；可重复提供",
+    )
     parser.add_argument("--output-dir", required=True, help="本次批次输出目录")
     parser.add_argument("--batch-name", default="批量订单", help="输出文件名前缀")
     parser.add_argument(
@@ -52,6 +63,14 @@ def main() -> int:
         _json_error("找不到 Skill 内置或外部订单转换运行时。")
         return 1
     catalog = _resolve_catalog(project_root, args.catalog)
+    try:
+        preferred_catalogs = _resolve_preferred_catalogs(
+            project_root,
+            tuple(args.preferred_catalog),
+        )
+    except FileNotFoundError as exc:
+        _json_error(str(exc))
+        return 1
     sources = [Path(value).expanduser().resolve() for value in args.source]
     output_dir = Path(args.output_dir).expanduser().resolve()
 
@@ -85,6 +104,8 @@ def main() -> int:
         "--batch-name",
         args.batch_name,
     ]
+    for preferred_catalog in preferred_catalogs:
+        command.extend(["--preferred-catalog", str(preferred_catalog)])
     for source in sources:
         command.extend(["--source", str(source)])
     for value in args.source_profile_hint:

@@ -1,0 +1,26 @@
+{
+  "schema_version": "product_catalog_layers/1.0",
+  "registry_id": "product_catalog_layers_v1",
+  "status": "active",
+  "resolution_strategy": "preferred_then_guanyi",
+  "layers": [
+    {
+      "source_id": "business_preferred",
+      "registry": "config/catalog/preferred_product_catalog.json",
+      "priority": 1000
+    },
+    {
+      "source_id": "guanyi_master",
+      "registry": "config/catalog/current_product_catalog.json",
+      "priority": 0
+    }
+  ],
+  "rules": {
+    "independent_source_files": true,
+    "physical_merge": false,
+    "higher_priority_exact_pair_wins": true,
+    "fallback_only_when_no_higher_priority_candidate": true,
+    "pending_rows_excluded": true,
+    "formal_mapping_kept_separate": true
+  }
+}
