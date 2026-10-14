@@ -16,7 +16,7 @@
     "browser/guanyi/file-selection.test.mjs": "25b41d941caa3210c703e49d4790063758720639478182b96851b3bf756a8f29",
     "browser/guanyi/geometry.mjs": "94b85d64b9ca00dc641054ebeef49afc8c75797c56ff73bbd546445a766b31dd",
     "browser/guanyi/geometry.test.mjs": "276fcaa2f8bce6ad5eaaaabb1b2883b3959badede0becdaab55e1302583fe08b",
-    "browser/guanyi/login-operation.mjs": "dd3c43056a20559cb8b01813c6142667da913d2c76f6be5109e6fb006fcd9cea",
+    "browser/guanyi/login-operation.mjs": "7e8903b599dbdef62437f6ee9335d6a2142b02a5960d2879e2c9beffde6682ea",
     "browser/guanyi/login-operation.test.mjs": "6bc914aa567a2aaf2af00afe9ca6afb09cfb3e40a236350aaaccb3a90a411b9e",
     "browser/guanyi/manifest.mjs": "84b2805dd43f3f0313c8e44ce44be42f8cf255788afdedad8207aa3817f8fee9",
     "browser/guanyi/manifest.test.mjs": "23220eb67c012c5b2bef73bc5e034cbf439677e0dc87c8934daa5de4a671a577",
