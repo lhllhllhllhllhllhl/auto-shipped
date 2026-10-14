@@ -3,7 +3,7 @@
   "profile_id": "guanyi_self_operated_text_v1",
   "source_profile_id": "self_operated_text_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 8,
+  "version": 9,
   "policy_module_refs": {
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -32,17 +32,17 @@
       {
         "rule_id": "self_operated_tmall_store",
         "source_values": ["天猫", "TMALL", "Tmall"],
-        "store": "MANYANGCHI旗舰店（天猫）",
-        "evidence": "用户于2026-10-08确认自营天猫玉米订单使用该店铺。"
+        "store": "MANYANGCHI旗舰店",
+        "evidence": "用户于2026-10-14确认管易上传店铺精确名称为MANYANGCHI旗舰店，天猫仅是渠道说明，不进入店铺字段。"
       },
       {
         "rule_id": "self_operated_jd_store",
         "source_values": ["京东", "JD", "Jingdong"],
-        "store": "MAN YUAN QI旗舰店（京东）",
-        "evidence": "用户于2026-10-08确认自营京东玉米订单使用该店铺。"
+        "store": "MAN YUAN QI旗舰店",
+        "evidence": "用户于2026-10-14确认管易上传店铺只填写实际店铺名称；京东是渠道说明，不进入店铺字段。"
       }
     ],
-    "source": "用户确认的自营平台与管易店铺对应关系：2026-10-08"
+    "source": "用户确认的自营平台与管易上传精确店铺名称：2026-10-08；2026-10-14纠正说明性平台后缀"
   },
   "field_output_policy": {
     "product_name": {

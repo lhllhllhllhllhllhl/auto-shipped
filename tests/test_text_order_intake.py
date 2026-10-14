@@ -193,7 +193,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.max_row, 3)
-                self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店（天猫）")
+                self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店")
                 self.assertEqual(sheet.cell(2, 2).value, "3317118816003054668A")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(3, 1).value, "淘橘子")
@@ -450,7 +450,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             workbook = load_workbook(conversion.outputs[0], data_only=False)
             try:
                 sheet = workbook["Sheet1"]
-                self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店（天猫）")
+                self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店")
                 self.assertEqual(sheet.cell(2, 2).value, "TMALL-ORDER-001A")
                 self.assertEqual(sheet.cell(2, 6).value, "JTTZE1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564835")
@@ -501,7 +501,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             workbook = load_workbook(conversion.outputs[0], data_only=False)
             try:
                 sheet = workbook["Sheet1"]
-                self.assertEqual(sheet.cell(2, 1).value, "MAN YUAN QI旗舰店（京东）")
+                self.assertEqual(sheet.cell(2, 1).value, "MAN YUAN QI旗舰店")
                 self.assertEqual(sheet.cell(2, 2).value, "3644496001658889A")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564811")

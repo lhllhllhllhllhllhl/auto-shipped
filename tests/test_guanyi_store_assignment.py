@@ -82,11 +82,11 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
                 "rules": [
                     {
                         "source_values": ["天猫"],
-                        "store": "MANYANGCHI旗舰店（天猫）",
+                        "store": "MANYANGCHI旗舰店",
                     },
                     {
                         "source_values": ["京东"],
-                        "store": "MAN YUAN QI旗舰店（京东）",
+                        "store": "MAN YUAN QI旗舰店",
                     },
                 ],
             }
@@ -97,7 +97,7 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
                 rules,
                 source_extensions={"source_channel": "天猫"},
             ),
-            "MANYANGCHI旗舰店（天猫）",
+            "MANYANGCHI旗舰店",
         )
         self.assertEqual(
             select_store(
@@ -105,7 +105,7 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
                 rules,
                 source_extensions={"source_channel": "京东"},
             ),
-            "MAN YUAN QI旗舰店（京东）",
+            "MAN YUAN QI旗舰店",
         )
 
     def test_unknown_source_channel_fails_closed(self) -> None:

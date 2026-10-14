@@ -248,8 +248,8 @@ evidence            命中的工作表、表头、字段和用户提示
 | 玉米订单 | 光明满元气 |
 | SAM | sam |
 | 百礼汇 | 百礼汇 |
-| 天猫 | MANYANGCHI旗舰店（天猫） |
-| 京东 | MAN YUAN QI旗舰店（京东） |
+| 天猫 | MANYANGCHI旗舰店 |
+| 京东 | MAN YUAN QI旗舰店 |
 
 来源无法确定时，店铺规则不执行。
 
