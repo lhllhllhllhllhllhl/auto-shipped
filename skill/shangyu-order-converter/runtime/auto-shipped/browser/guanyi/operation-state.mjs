@@ -14,37 +14,81 @@ export const OperationState = Object.freeze({
   PREPARED: "prepared",
   FILE_SELECTION_STARTED: "file_selection_started",
   WRITE_REQUEST_MAYBE_SENT: "write_request_maybe_sent",
+  SUBMIT_AUTHORIZED: "submit_authorized",
   WRITE_REQUEST_SENT: "write_request_sent",
+  RECONCILING: "reconciling",
   TASK_ID_OBSERVED: "task_id_observed",
   POST_WRITE_VERIFIED: "post_write_verified",
+  NEEDS_MANUAL_REVIEW: "needs_manual_review",
+  RETRYABLE_FAILED: "retryable_failed",
   FAILED_CLOSED: "failed_closed",
 });
+
+
+export const NO_TASK_RESOLUTION_AUTHORIZATION =
+  "CONFIRM_CLOSE_NO_TASK_OPERATION";
 
 
 const TRANSITIONS = Object.freeze({
   [OperationState.PREPARED]: new Set([
     OperationState.FILE_SELECTION_STARTED,
+    OperationState.NEEDS_MANUAL_REVIEW,
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.FILE_SELECTION_STARTED]: new Set([
     OperationState.WRITE_REQUEST_MAYBE_SENT,
+    OperationState.NEEDS_MANUAL_REVIEW,
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.WRITE_REQUEST_MAYBE_SENT]: new Set([
+    OperationState.SUBMIT_AUTHORIZED,
+    OperationState.RECONCILING,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    OperationState.FAILED_CLOSED,
+  ]),
+  [OperationState.SUBMIT_AUTHORIZED]: new Set([
     OperationState.WRITE_REQUEST_SENT,
-    OperationState.TASK_ID_OBSERVED,
+    OperationState.NEEDS_MANUAL_REVIEW,
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.WRITE_REQUEST_SENT]: new Set([
+    OperationState.RECONCILING,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    OperationState.FAILED_CLOSED,
+  ]),
+  [OperationState.RECONCILING]: new Set([
     OperationState.TASK_ID_OBSERVED,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    OperationState.RETRYABLE_FAILED,
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.TASK_ID_OBSERVED]: new Set([
     OperationState.POST_WRITE_VERIFIED,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    OperationState.RETRYABLE_FAILED,
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.POST_WRITE_VERIFIED]: new Set(),
+  [OperationState.NEEDS_MANUAL_REVIEW]: new Set([
+    OperationState.RETRYABLE_FAILED,
+    OperationState.FAILED_CLOSED,
+  ]),
+  [OperationState.RETRYABLE_FAILED]: new Set(),
   [OperationState.FAILED_CLOSED]: new Set(),
+});
+
+
+const IMPORT_TASK_NAME = "自定义订单导入";
+const VERIFIED_SUCCESS_STATUSES = new Set(["执行完成", "完成", "成功"]);
+const RUNNING_STATUSES = new Set(["执行中", "等待执行", "排队中", "处理中"]);
+const FAILED_STATUSES = new Set(["执行失败", "失败", "已失败"]);
+const SAFE_IMPORT_FAILURE_MESSAGES = Object.freeze({
+  STORE_NOT_FOUND: "无法匹配到管易店铺信息",
+  PRODUCT_NOT_FOUND: "商品信息无法匹配",
+  SKU_NOT_FOUND: "规格信息无法匹配",
+  PLATFORM_ORDER_DUPLICATE: "平台单号重复或已存在",
+  IMPORT_FAILURE_REDACTED:
+    "管易返回了未登记的失败原因；详细内容已脱敏，请在结果窗口人工查看。",
 });
 
 
@@ -54,6 +98,66 @@ export class OperationStateError extends Error {
     this.name = "OperationStateError";
     this.code = code;
   }
+}
+
+
+function normalizedImportResult(result) {
+  const summary = result?.summary;
+  const values = {
+    total: summary?.total,
+    successful: summary?.successful,
+    formatErrors: summary?.formatErrors,
+    illegalData: summary?.illegalData,
+    failed: summary?.failed,
+  };
+  if (
+    result?.status !== "import_task_result_ready" ||
+    !/^\d+$/.test(result?.taskId || "") ||
+    result?.taskName !== IMPORT_TASK_NAME ||
+    Object.values(values).some(
+      (value) => !Number.isInteger(value) || value < 0,
+    ) ||
+    values.failed !== values.formatErrors + values.illegalData ||
+    values.total !== values.successful + values.failed
+  ) {
+    throw new OperationStateError(
+      "IMPORT_RESULT_INVALID",
+      "导入结果缺少可信的任务身份或数量统计。",
+    );
+  }
+  const failures = Array.isArray(result.failures)
+    ? result.failures.slice(0, 10).map((failure) => {
+        const requestedCode = String(
+          failure?.code || "IMPORT_FAILURE_REDACTED",
+        );
+        const code = Object.hasOwn(
+          SAFE_IMPORT_FAILURE_MESSAGES,
+          requestedCode,
+        )
+          ? requestedCode
+          : "IMPORT_FAILURE_REDACTED";
+        return {
+          sourceRow:
+            Number.isInteger(failure?.sourceRow) && failure.sourceRow > 0
+              ? failure.sourceRow
+              : null,
+          code,
+          message: SAFE_IMPORT_FAILURE_MESSAGES[code],
+        };
+      })
+    : [];
+  return {
+    status: "import_task_result_ready",
+    taskId: result.taskId,
+    taskName: result.taskName,
+    taskStatus: String(result.taskStatus || ""),
+    summary: values,
+    failures,
+    visibleFailureCount: Number.isInteger(result.visibleFailureCount)
+      ? result.visibleFailureCount
+      : failures.length,
+    detailsTruncated: Boolean(result.detailsTruncated),
+  };
 }
 
 
@@ -80,14 +184,21 @@ async function writeAtomic(filePath, payload) {
 }
 
 
-async function findActiveArtifactOperation(artifactSha256, directory) {
+const RETRYABLE_TERMINAL_STATES = new Set([
+  OperationState.RETRYABLE_FAILED,
+  OperationState.FAILED_CLOSED,
+]);
+
+
+async function findArtifactOperations(artifactSha256, directory) {
   let entries = [];
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if (error?.code === "ENOENT") return null;
+    if (error?.code === "ENOENT") return [];
     throw error;
   }
+  const records = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     try {
@@ -97,15 +208,19 @@ async function findActiveArtifactOperation(artifactSha256, directory) {
       if (
         record?.schemaVersion === "guanyi-operation/1.0" &&
         record?.artifact?.sha256 === artifactSha256 &&
-        record?.state !== OperationState.FAILED_CLOSED
+        TRANSITIONS[record?.state]
       ) {
-        return record;
+        records.push(record);
       }
     } catch {
       // Ignore unrelated or incomplete files; their validity is checked when loaded directly.
     }
   }
-  return null;
+  return records.sort(
+    (left, right) =>
+      Date.parse(right.updatedAt || right.createdAt || 0) -
+      Date.parse(left.updatedAt || left.createdAt || 0),
+  );
 }
 
 
@@ -119,21 +234,47 @@ export async function createPreparedOperation(
       "只有通过 manifest 校验的批次才能建立操作记录。",
     );
   }
-  const existing = await findActiveArtifactOperation(
+  const existing = await findArtifactOperations(
     verifiedManifest.artifactSha256,
     directory,
   );
-  if (existing) {
+  const verified = existing.find(
+    (record) => record.state === OperationState.POST_WRITE_VERIFIED,
+  );
+  if (verified) {
     throw new OperationStateError(
-      "ARTIFACT_OPERATION_ALREADY_EXISTS",
-      `相同Excel已经存在管易操作记录 ${existing.operationId}，请继续原操作，不要重复准备或上传。`,
+      "ARTIFACT_ALREADY_VERIFIED",
+      `相同Excel已经由操作 ${verified.operationId} 完成核验，禁止重复上传。`,
     );
   }
+  const active = existing.find(
+    (record) => !RETRYABLE_TERMINAL_STATES.has(record.state),
+  );
+  if (active) {
+    throw new OperationStateError(
+      "ARTIFACT_OPERATION_ALREADY_EXISTS",
+      `相同Excel已经存在未闭环操作 ${active.operationId}，请先核验该操作，不要盲目重试。`,
+    );
+  }
+  const retryParent = existing.find((record) =>
+    RETRYABLE_TERMINAL_STATES.has(record.state),
+  );
+  const highestRecordedAttempt = existing.reduce(
+    (highest, record) =>
+      Number.isInteger(record.attemptNumber)
+        ? Math.max(highest, record.attemptNumber)
+        : highest,
+    0,
+  );
   const operationId = randomUUID();
   const now = new Date().toISOString();
   const record = {
     schemaVersion: "guanyi-operation/1.0",
     operationId,
+    retryOf: retryParent?.operationId || null,
+    attemptNumber: existing.length
+      ? Math.max(existing.length, highestRecordedAttempt) + 1
+      : 1,
     platform: "guanyi",
     operation: "custom_order_import",
     state: OperationState.PREPARED,
@@ -156,8 +297,12 @@ export async function createPreparedOperation(
     write: {
       fileSelectionStarted: false,
       requestMaybeSent: false,
+      submitAuthorized: false,
       requestSent: false,
       taskId: null,
+      taskName: null,
+      taskStatus: null,
+      importResult: null,
       postWriteVerified: false,
     },
     taskBaseline: null,
@@ -167,7 +312,9 @@ export async function createPreparedOperation(
         at: now,
         from: null,
         to: OperationState.PREPARED,
-        reason: "manifest_verified",
+        reason: retryParent
+          ? "manifest_verified_retry"
+          : "manifest_verified",
       },
     ],
   };
@@ -256,12 +403,322 @@ export async function reconcileUniqueNewTask(
         : "任务中心出现多个新增任务，已停止自动关联。",
     );
   }
+  await transitionOperation(
+    operationId,
+    OperationState.RECONCILING,
+    { reason: "task_center_reconciliation_started" },
+    directory,
+  );
   return await transitionOperation(
     operationId,
     OperationState.TASK_ID_OBSERVED,
     {
       reason: "unique_new_task_from_verified_baseline",
       taskId: diff.task.taskId,
+      taskName: diff.task.taskName,
+      taskStatus: diff.task.status,
+    },
+    directory,
+  );
+}
+
+
+export async function reconcileOperationTask(
+  operationId,
+  currentTaskResult,
+  directory = OPERATION_DIR,
+) {
+  let loaded = await loadOperation(operationId, directory);
+  if (
+    ![
+      OperationState.WRITE_REQUEST_MAYBE_SENT,
+      OperationState.WRITE_REQUEST_SENT,
+      OperationState.RECONCILING,
+      OperationState.TASK_ID_OBSERVED,
+    ].includes(loaded.record.state)
+  ) {
+    throw new OperationStateError(
+      "TASK_RECONCILIATION_STATE_INVALID",
+      "当前操作状态不允许执行任务中心核验。",
+    );
+  }
+  if (
+    loaded.record.state !== OperationState.RECONCILING &&
+    loaded.record.state !== OperationState.TASK_ID_OBSERVED
+  ) {
+    loaded = await transitionOperation(
+      operationId,
+      OperationState.RECONCILING,
+      { reason: "task_center_reconciliation_started" },
+      directory,
+    );
+  }
+  let diff;
+  try {
+    diff = diffVerifiedTaskSnapshot(
+      loaded.record.taskBaseline,
+      currentTaskResult,
+    );
+  } catch (error) {
+    if (error instanceof TaskReconciliationError) {
+      const reviewed = await transitionOperation(
+        operationId,
+        OperationState.NEEDS_MANUAL_REVIEW,
+        { reason: `task_evidence_insufficient:${error.code}` },
+        directory,
+      );
+      return {
+        status: "needs_manual_review",
+        reason: "task_evidence_insufficient",
+        code: error.code,
+        record: reviewed.record,
+      };
+    }
+    throw error;
+  }
+  if (diff.status === "no_new_task") {
+    if (
+      !loaded.record.write.submitAuthorized &&
+      !loaded.record.write.requestSent
+    ) {
+      const retryable = await transitionOperation(
+        operationId,
+        OperationState.RETRYABLE_FAILED,
+        {
+          reason: "file_staged_without_submit_task",
+          failureCode: "NO_TASK_CREATED",
+        },
+        directory,
+      );
+      return {
+        status: "retryable_failed",
+        reason: "file_staged_without_submit_task",
+        record: retryable.record,
+      };
+    }
+    return { status: "reconciling", reason: "no_new_task", record: loaded.record };
+  }
+  if (diff.status === "ambiguous_new_tasks") {
+    const reviewed = await transitionOperation(
+      operationId,
+      OperationState.NEEDS_MANUAL_REVIEW,
+      { reason: "multiple_verified_new_tasks" },
+      directory,
+    );
+    return {
+      status: "needs_manual_review",
+      reason: "multiple_new_tasks",
+      candidates: diff.newTasks,
+      record: reviewed.record,
+    };
+  }
+
+  const task = diff.task;
+  if (loaded.record.state !== OperationState.TASK_ID_OBSERVED) {
+    loaded = await transitionOperation(
+      operationId,
+      OperationState.TASK_ID_OBSERVED,
+      {
+        reason: "unique_new_task_from_verified_baseline",
+        taskId: task.taskId,
+        taskName: task.taskName,
+        taskStatus: task.status,
+      },
+      directory,
+    );
+  }
+  if (RUNNING_STATUSES.has(task.status)) {
+    return { status: "reconciling", reason: "task_still_running", task, record: loaded.record };
+  }
+  if (VERIFIED_SUCCESS_STATUSES.has(task.status)) {
+    return {
+      status: "result_required",
+      reason: "task_execution_completed_result_not_read",
+      task,
+      record: loaded.record,
+    };
+  }
+  if (FAILED_STATUSES.has(task.status)) {
+    const failed = await transitionOperation(
+      operationId,
+      OperationState.RETRYABLE_FAILED,
+      {
+        reason: "task_center_reported_failure",
+        failureCode: "IMPORT_TASK_FAILED",
+        taskId: task.taskId,
+        taskName: task.taskName,
+        taskStatus: task.status,
+      },
+      directory,
+    );
+    return { status: "retryable_failed", task, record: failed.record };
+  }
+  const reviewed = await transitionOperation(
+    operationId,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    {
+      reason: "task_status_not_recognized",
+      taskId: task.taskId,
+      taskName: task.taskName,
+      taskStatus: task.status,
+    },
+    directory,
+  );
+  return {
+    status: "needs_manual_review",
+    reason: "task_status_not_recognized",
+    task,
+    record: reviewed.record,
+  };
+}
+
+
+export async function recordImportTaskResult(
+  operationId,
+  importResult,
+  directory = OPERATION_DIR,
+) {
+  const loaded = await loadOperation(operationId, directory);
+  if (loaded.record.state !== OperationState.TASK_ID_OBSERVED) {
+    throw new OperationStateError(
+      "IMPORT_RESULT_STATE_INVALID",
+      "只有已经关联唯一任务 ID 的操作才能记录导入结果。",
+    );
+  }
+  const result = normalizedImportResult(importResult);
+  if (
+    result.taskId !== loaded.record.write.taskId ||
+    result.taskName !== loaded.record.write.taskName
+  ) {
+    throw new OperationStateError(
+      "IMPORT_RESULT_TASK_MISMATCH",
+      "导入结果与当前操作关联的任务不一致。",
+    );
+  }
+  if (
+    result.summary.total > 0 &&
+    result.summary.successful === result.summary.total &&
+    result.summary.failed === 0
+  ) {
+    const verified = await transitionOperation(
+      operationId,
+      OperationState.POST_WRITE_VERIFIED,
+      {
+        reason: "task_result_all_rows_succeeded",
+        taskId: result.taskId,
+        taskName: result.taskName,
+        taskStatus: result.taskStatus,
+        importResult: result,
+      },
+      directory,
+    );
+    return { status: "verified", result, record: verified.record };
+  }
+  if (result.summary.successful > 0 && result.summary.failed > 0) {
+    const reviewed = await transitionOperation(
+      operationId,
+      OperationState.NEEDS_MANUAL_REVIEW,
+      {
+        reason: "task_result_partial_success",
+        taskId: result.taskId,
+        taskName: result.taskName,
+        taskStatus: result.taskStatus,
+        importResult: result,
+      },
+      directory,
+    );
+    return {
+      status: "needs_manual_review",
+      reason: "partial_success",
+      result,
+      record: reviewed.record,
+    };
+  }
+  if (result.summary.successful === 0 && result.summary.failed > 0) {
+    const failed = await transitionOperation(
+      operationId,
+      OperationState.RETRYABLE_FAILED,
+      {
+        reason: "task_result_all_rows_failed",
+        failureCode: "IMPORT_RESULT_FAILED",
+        taskId: result.taskId,
+        taskName: result.taskName,
+        taskStatus: result.taskStatus,
+        importResult: result,
+      },
+      directory,
+    );
+    return { status: "retryable_failed", result, record: failed.record };
+  }
+  const reviewed = await transitionOperation(
+    operationId,
+    OperationState.NEEDS_MANUAL_REVIEW,
+    {
+      reason: "task_result_counts_not_actionable",
+      taskId: result.taskId,
+      taskName: result.taskName,
+      taskStatus: result.taskStatus,
+      importResult: result,
+    },
+    directory,
+  );
+  return {
+    status: "needs_manual_review",
+    reason: "result_counts_not_actionable",
+    result,
+    record: reviewed.record,
+  };
+}
+
+
+export async function resolveNoTaskManualReview(
+  operationId,
+  currentTaskResult,
+  authorization,
+  directory = OPERATION_DIR,
+) {
+  if (authorization !== NO_TASK_RESOLUTION_AUTHORIZATION) {
+    throw new OperationStateError(
+      "NO_TASK_RESOLUTION_AUTHORIZATION_REQUIRED",
+      "关闭人工复核操作需要本次明确授权。",
+    );
+  }
+  const loaded = await loadOperation(operationId, directory);
+  if (
+    ![
+      OperationState.RECONCILING,
+      OperationState.NEEDS_MANUAL_REVIEW,
+    ].includes(loaded.record.state)
+  ) {
+    throw new OperationStateError(
+      "NO_TASK_RESOLUTION_STATE_INVALID",
+      "只有 reconciling 或 needs_manual_review 状态才能按无新增任务关闭。",
+    );
+  }
+  let diff;
+  try {
+    diff = diffVerifiedTaskSnapshot(
+      loaded.record.taskBaseline,
+      currentTaskResult,
+    );
+  } catch (error) {
+    if (error instanceof TaskReconciliationError) {
+      throw new OperationStateError(error.code, error.message);
+    }
+    throw error;
+  }
+  if (diff.status !== "no_new_task") {
+    throw new OperationStateError(
+      "NO_TASK_RESOLUTION_EVIDENCE_CONFLICT",
+      "任务中心存在新增任务，不能按无任务关闭旧操作。",
+    );
+  }
+  return await transitionOperation(
+    operationId,
+    OperationState.RETRYABLE_FAILED,
+    {
+      reason: "manual_review_resolved_no_new_task",
+      failureCode: "NO_TASK_CREATED",
     },
     directory,
   );
@@ -303,14 +760,20 @@ function writeFlagsFor(state, previous, patch) {
       previous.requestMaybeSent ||
       state === OperationState.WRITE_REQUEST_MAYBE_SENT ||
       state === OperationState.WRITE_REQUEST_SENT ||
+      state === OperationState.RECONCILING ||
       state === OperationState.TASK_ID_OBSERVED ||
       state === OperationState.POST_WRITE_VERIFIED,
+    submitAuthorized:
+      previous.submitAuthorized || state === OperationState.SUBMIT_AUTHORIZED,
     requestSent:
       previous.requestSent ||
       state === OperationState.WRITE_REQUEST_SENT ||
       state === OperationState.TASK_ID_OBSERVED ||
       state === OperationState.POST_WRITE_VERIFIED,
     taskId: patch.taskId ?? previous.taskId,
+    taskName: patch.taskName ?? previous.taskName,
+    taskStatus: patch.taskStatus ?? previous.taskStatus,
+    importResult: patch.importResult ?? previous.importResult ?? null,
     postWriteVerified:
       previous.postWriteVerified ||
       state === OperationState.POST_WRITE_VERIFIED,
@@ -321,7 +784,14 @@ function writeFlagsFor(state, previous, patch) {
 export async function transitionOperation(
   operationId,
   nextState,
-  { reason, taskId = null, failureCode = null } = {},
+  {
+    reason,
+    taskId = null,
+    taskName = null,
+    taskStatus = null,
+    importResult = null,
+    failureCode = null,
+  } = {},
   directory = OPERATION_DIR,
 ) {
   const loaded = await loadOperation(operationId, directory);
@@ -332,14 +802,44 @@ export async function transitionOperation(
       `不允许从 ${current} 转换到 ${nextState}。`,
     );
   }
+  const effectiveTaskId = taskId || loaded.record.write.taskId;
+  const effectiveTaskName = taskName || loaded.record.write.taskName;
+  const effectiveTaskStatus = taskStatus || loaded.record.write.taskStatus;
   if (
     [OperationState.TASK_ID_OBSERVED, OperationState.POST_WRITE_VERIFIED]
       .includes(nextState) &&
-    !(taskId || loaded.record.write.taskId)
+    (!/^\d+$/.test(effectiveTaskId || "") ||
+      effectiveTaskName !== IMPORT_TASK_NAME)
   ) {
     throw new OperationStateError(
-      "TASK_ID_REQUIRED",
-      "进入任务回读状态前必须获得真实任务 ID。",
+      "TASK_EVIDENCE_REQUIRED",
+      "进入任务回读状态前必须获得经过核验的任务 ID 和任务类型。",
+    );
+  }
+  if (
+    nextState === OperationState.POST_WRITE_VERIFIED &&
+    !VERIFIED_SUCCESS_STATUSES.has(effectiveTaskStatus)
+  ) {
+    throw new OperationStateError(
+      "TASK_SUCCESS_STATUS_REQUIRED",
+      "只有任务中心明确返回成功状态时才能标记导入成功。",
+    );
+  }
+  const effectiveImportResult = importResult
+    ? normalizedImportResult(importResult)
+    : loaded.record.write.importResult;
+  if (
+    nextState === OperationState.POST_WRITE_VERIFIED &&
+    (!effectiveImportResult ||
+      effectiveImportResult.taskId !== effectiveTaskId ||
+      effectiveImportResult.summary.total <= 0 ||
+      effectiveImportResult.summary.successful !==
+        effectiveImportResult.summary.total ||
+      effectiveImportResult.summary.failed !== 0)
+  ) {
+    throw new OperationStateError(
+      "IMPORT_RESULT_SUCCESS_REQUIRED",
+      "只有结果窗口确认全部订单成功后才能标记导入成功。",
     );
   }
   const now = new Date().toISOString();
@@ -347,9 +847,15 @@ export async function transitionOperation(
     ...loaded.record,
     state: nextState,
     updatedAt: now,
-    write: writeFlagsFor(nextState, loaded.record.write, { taskId }),
+    write: writeFlagsFor(nextState, loaded.record.write, {
+      taskId,
+      taskName,
+      taskStatus,
+      importResult: effectiveImportResult,
+    }),
     failure:
-      nextState === OperationState.FAILED_CLOSED
+      [OperationState.RETRYABLE_FAILED, OperationState.FAILED_CLOSED]
+        .includes(nextState)
         ? { code: failureCode || "FAILED_CLOSED", reason: reason || null }
         : loaded.record.failure,
     history: [

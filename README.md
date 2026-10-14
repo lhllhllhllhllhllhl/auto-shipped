@@ -30,7 +30,7 @@ python3 <skill-dir>/scripts/doctor.py
 python3 <skill-dir>/scripts/bootstrap_runtime.py
 ```
 
-新电脑不会继承管易账号密码、短信验证码、浏览器Cookie或飞书登录令牌。macOS/Windows都必须以实际员工身份重新建立凭证和登录会话；Linux当前只支持Excel转换。详细步骤见 `skill/shangyu-order-converter/references/portability.md`。
+新电脑不会继承管易账号密码、短信验证码、浏览器Cookie或飞书登录令牌。macOS/Windows都必须以实际员工身份重新建立凭证和登录会话；Linux/云端可复用持久浏览器会话，并优先接入平台 Secret/Vault。平台没有安全凭证入口时，用户明确接受对话留存风险后，可由同一 Agent 通过私有 GUI 临时填写本次凭据，项目仍不保存密码。详细步骤见 `skill/shangyu-order-converter/references/portability.md`。
 
 这个仓库包含公司内部业务规则和飞书工作簿绑定，应保持私有。真实订单、收件信息、转换结果、浏览器profile和运行日志不进入Git。
 
@@ -83,11 +83,11 @@ SKILL.md
 
 详细指令和运行包装位于 `skill/shangyu-order-converter`，根入口会明确路由到该目录；其他 Agent 不需要自行判断子路径。
 
-员工日常只需向 Skill 提供公司原始订单。Skill 默认读取登记的管易商品资料并调用统一转换服务；商品资料缺失或需要更新时才请求补充 CSV。一次提供多个Excel时默认合并成一个管易导入文件，只有用户明确要求分开时才分别生成。它根据结构化状态返回生成文件或向用户追问，不在 Skill 内复制公司字段规则，也不自动上传管易。
+员工日常只需向 Skill 提供公司原始订单。Skill 默认读取登记的管易商品资料并调用统一转换服务；商品资料缺失或需要更新时才请求补充 CSV。一次提供多个Excel时默认合并成一个管易导入文件，只有用户明确要求分开时才分别生成。它根据结构化状态返回生成文件或向用户追问，不在 Skill 内复制公司字段规则。转换完成后先交付 Excel、manifest 和脱敏摘要并停止；用户查看后另行明确指定上传批次，才进入管易执行器。
 
 ## 管易浏览器执行器
 
-Playwright 执行器位于 `browser/guanyi`。它自动识别 Windows/macOS 的 Chrome、运行目录和安全凭证提供器，使用独立 Chrome 配置保存用户建立的登录会话，通过 Geometry Guard 固定 headed 原生窗口，并能跨框架检查页面状态、导航到“自定义导入”、设置“待审核”、读取任务中心和定位文件输入框。文件选择必须经过当次授权、manifest和任务基线校验；当前仍禁止点击“确定”、审核或发货，详见 [docs/GUANYI_BROWSER_EXECUTOR.md](docs/GUANYI_BROWSER_EXECUTOR.md)。
+Playwright 执行器位于 `browser/guanyi`。它自动识别 Windows/macOS 的 Chrome、运行目录和安全凭证提供器，使用独立 Chrome 配置保存用户建立的登录会话，通过 Geometry Guard 固定 headed 原生窗口，并能跨框架检查页面状态、导航到“自定义导入”、设置“待审核”、读取任务中心、完成两段“确定”、核对48行字段对应并回读任务结果。文件选择和提交必须经过用户对明确批次的当次授权、manifest和任务基线校验；审核、发货、作废和删除始终禁止，详见 [docs/GUANYI_BROWSER_EXECUTOR.md](docs/GUANYI_BROWSER_EXECUTOR.md)。
 
 ## 上传前预检
 

@@ -18,6 +18,12 @@ export class NavigationError extends Error {
 }
 
 
+export const IMPORT_OPTION_LABELS = Object.freeze([
+  "相同平台单号，不同收货信息（收货人、收货地址）生成不同订单",
+  "不校验已存在单据平台单号，允许平台单号重复",
+]);
+
+
 async function clickFirstVisible(locator) {
   const target = await firstVisible(locator);
   if (!target) {
@@ -249,6 +255,80 @@ async function findOrderStatusControl(page) {
 }
 
 
+async function findExactCheckbox(page, labelText) {
+  const matches = [];
+  for (const frame of page.frames()) {
+    const accessible = frame.getByRole("checkbox", {
+      name: labelText,
+      exact: true,
+    });
+    let accessibleMatches = 0;
+    for (let index = 0; index < (await accessible.count()); index += 1) {
+      if (!(await accessible.nth(index).isVisible().catch(() => false))) {
+        continue;
+      }
+      matches.push({
+        checkbox: accessible.nth(index),
+        trigger: frame.getByText(labelText, { exact: true }).first(),
+      });
+      accessibleMatches += 1;
+    }
+    if (accessibleMatches > 0) {
+      continue;
+    }
+    const labels = frame.getByText(labelText, { exact: true });
+    for (let index = 0; index < (await labels.count()); index += 1) {
+      const text = labels.nth(index);
+      if (!(await text.isVisible().catch(() => false))) {
+        continue;
+      }
+      const wrapper = text.locator(
+        "xpath=ancestor::*[self::label or contains(concat(' ',normalize-space(@class),' '),' ant-checkbox-wrapper ')][1]",
+      );
+      const inputs = wrapper.locator('input[type="checkbox"]');
+      if ((await inputs.count()) === 1) {
+        matches.push({ checkbox: inputs.first(), trigger: text });
+      }
+    }
+  }
+  if (matches.length !== 1) {
+    throw new NavigationError(
+      "IMPORT_OPTION_NOT_UNIQUE",
+      "无法唯一定位自定义导入附加选项。",
+      { label: labelText, matchCount: matches.length },
+    );
+  }
+  return matches[0];
+}
+
+
+export async function ensureImportOptionsSelected(page) {
+  const selected = [];
+  for (const label of IMPORT_OPTION_LABELS) {
+    const target = await findExactCheckbox(page, label);
+    if (!(await target.checkbox.isChecked())) {
+      if (await target.checkbox.isVisible().catch(() => false)) {
+        await target.checkbox.setChecked(true);
+      } else {
+        await target.trigger.click();
+      }
+    }
+    if (!(await target.checkbox.isChecked())) {
+      throw new NavigationError(
+        "IMPORT_OPTION_NOT_CONFIRMED",
+        "自定义导入附加选项勾选后未能回读确认。",
+        { label },
+      );
+    }
+    selected.push(label);
+  }
+  return {
+    importOptions: selected,
+    importOptionsConfirmed: true,
+  };
+}
+
+
 async function exactVisibleOption(frame, text, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -264,6 +344,22 @@ async function exactVisibleOption(frame, text, timeoutMs = 5_000) {
     await frame.waitForTimeout(100);
   }
   return null;
+}
+
+
+async function clickExactVisibleOption(frame, text) {
+  const option = await exactVisibleOption(frame, text);
+  if (!option) return false;
+  try {
+    // Ant Design can replace or animate the dropdown between Playwright's
+    // stability checks. The candidate is already constrained to an exact
+    // label inside the currently visible dropdown, so dispatch its native
+    // click immediately and verify the rendered selection afterwards.
+    await option.evaluate((element) => element.click());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 
@@ -321,16 +417,15 @@ export async function selectOrderStatusControl(frame, input, orderStatus) {
     );
   }
   await selector.click();
-  const option = await exactVisibleOption(frame, orderStatus);
-  if (!option) {
+  if (!(await clickExactVisibleOption(frame, orderStatus))) {
     throw new NavigationError(
       "ORDER_STATUS_OPTION_NOT_FOUND",
       "订单状态下拉框没有找到待审核选项。",
     );
   }
-  await option.click();
 
   const selected = select.locator(".ant-select-selection-item");
+  await selected.waitFor({ state: "visible", timeout: 5_000 }).catch(() => null);
   const selectedText = (await selected.innerText().catch(() => "")).trim();
   const selectedTitle = await selected.getAttribute("title").catch(() => null);
   if (selectedText !== orderStatus || selectedTitle !== orderStatus) {
@@ -351,8 +446,13 @@ export async function selectOrderStatusControl(frame, input, orderStatus) {
 
 export async function prepareCustomImportForm(page) {
   const navigation = await navigateToCustomImport(page);
+  const orderStatus = await selectCustomImportOrderStatus(page, "待审核");
+  await ensurePageGeometry(page, "before_select_import_options");
+  const importOptions = await ensureImportOptionsSelected(page);
+  await ensurePageGeometry(page, "import_options_selected");
   return {
     ...navigation,
-    ...(await selectCustomImportOrderStatus(page, "待审核")),
+    ...orderStatus,
+    ...importOptions,
   };
 }

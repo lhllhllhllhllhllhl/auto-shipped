@@ -1,34 +1,37 @@
 # 管易浏览器执行器
 
-状态：受控的上传前执行器。已实现只读探针、待审核表单准备、任务基线、文件输入框检查和带当次授权的单次文件选择；当前不包含“确定”提交、审核或发货能力。
+状态：受控的订单导入执行器。已实现只读探针、待审核表单准备、任务基线、文件选择、两段“确定”、字段对应核验和任务结果回读。2026-10-14 已完成所有者授权的真实全量成功闭环验收；生产入口只对用户在当前对话明确指定并授权的批次开放。审核、发货、作废和删除始终不在能力范围内。
 
 ## 边界
 
 - 使用独立 Chrome 配置保存管易登录会话。
 - 默认由用户首次手动登录；也可从 macOS 钥匙串读取凭证自动登录。
-- Skill、源码、JSON、日志和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储，验证码仍由用户处理。
+- Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 只通过私有 GUI 填入登录页。聊天平台仍可能保留原消息，项目无法代为删除。
+- 云端可在 Xvfb 等私有显示环境中运行 headed Chromium，用户不需要看到浏览器窗口；几何与页面状态校验保持不变。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
 - 主框架与订单子框架统一按页面状态识别；首页加载、菜单展开和弹窗出现均使用有界等待，不依赖固定延时或坐标。
 - 截图只观察当前 viewport，截图前后验证页面尺寸和滚动位置不变；截图失败不覆盖原始业务结果。
-- 只关闭已登记的安全通知；遇到未知弹窗停止。
+- 只在标题已登记的弹窗内部点击“知道了”或语义明确的关闭控件；不点击页面品牌、背景、“不再提醒”或“去授权”。点击后必须确认弹窗消失且页面地址未变化，否则停止。
 - 默认导航到“自定义导入”后停止；只有完成manifest、操作状态、任务基线和当次授权校验后，才允许单次选择文件。
 - 可以验证上传预检 manifest 和 Excel 哈希，但该操作不打开文件选择器。
 
 ## 模块
 
 - `session.mjs`：专用 Chrome 会话与登录状态。
+- `login-operation.mjs`：跨消息短信验证的短时登录操作、私有控制通道和状态回执；不保存验证码。
 - `geometry.mjs`：原生窗口策略、页面几何快照、稳定性检测与写后 fail-close 接口。
 - `screenshot.mjs`：不改变 viewport、缩放和滚动的只读截图。
 - `credentials.mjs`：macOS 钥匙串凭证提供器，可独立替换。
 - `popup.mjs`：已知通知处理和未知弹窗阻断。
 - `states.mjs`：页面状态识别。
 - `navigation.mjs`：订单查询、自定义导入导航和“待审核”表单状态准备。
-- `task-center.mjs`：只读任务中心导航、结构探针和已完成导入任务记录 ID 核验，不打开任务行。
+- `task-center.mjs`：只读任务中心导航、结构探针、已完成导入任务记录 ID 核验和结果窗口回读；结果仅返回汇总数量与脱敏失败原因。
 - `task-reconciliation.mjs`：合并“执行中 + 已完成”任务建立上传前 ID 基线，并以集合差异识别唯一新增任务。
 - `manifest.mjs`：验证预检 manifest、Excel 路径、大小和 SHA-256。
 - `operation-state.mjs`：为通过预检的批次建立不可跳级的操作状态机和非敏感本地回执。
-- `file-selection.mjs`：复核操作记录、任务基线与文件哈希，唯一定位“订单信息上传”输入框，并在当次授权门禁后选择一次文件；不点击“确定”。
+- `file-selection.mjs`：复核操作记录、任务基线与文件哈希，唯一定位“订单信息上传”输入框，并在当次授权门禁后选择一次文件。
+- `submission.mjs`：在同一操作内选择文件，点击导入弹窗的第一次“确定”，完整滚动核对“自定义字段对应”的全部字段，再点击第二次“确定”；任一阶段出现未登记写请求、字段错配或证据不足即停止。
 - `cli.mjs`：稳定命令入口。
 
 ## 命令
@@ -41,6 +44,12 @@ npm run credential:set
 npm run credential:web
 npm run credential:status
 npm run login-auto
+npm run login-auto-start
+npm run login-agent-start
+npm run login-credentials-ready -- "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_FILLED"
+npm run login-status -- "<login-operation-id>"
+npm run login-sms-request -- "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
+npm run login-sms-submit -- "<login-operation-id>"
 npm run login-auto-sms
 npm run probe
 npm run navigate-import
@@ -50,13 +59,23 @@ npm run probe-completed-imports
 npm run capture-task-baseline -- "<operation-id>"
 npm run inspect-file-selection -- "<operation-id>"
 npm run select-import-file -- "<operation-id>" "CONFIRM_FILE_SELECTION_MAY_UPLOAD"
+npm run submit-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+npm run reconcile-operation -- "<operation-id>"
 npm run verify-manifest -- "/path/to/上传预检.json"
 npm run prepare-operation -- "/path/to/上传预检.json"
 ```
 
-`credential:set` 由员工在本机终端交互执行。看不到终端时可运行 `credential:web`，它会提供一次性 `127.0.0.1` 页面，配置成功后自动关闭本地服务。两种方式都只写入 macOS 钥匙串。不要把密码写进聊天、Skill、`.env`、源码或配置文件。通常优先复用专用 Chrome 的持久登录会话；会话失效时才调用 `login-auto`。
+`credential:set` 由员工在本机终端交互执行。看不到终端时可运行 `credential:web`，它会提供一次性 `127.0.0.1` 页面，配置成功后自动关闭本地服务。两种方式都只写入当前系统安全凭证区。通常优先复用专用 Chrome 的持久登录会话；会话失效时才调用登录流程。
 
-不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，钥匙串负责会话失效后的账号密码填充。默认 `login-auto` 在短信验证页等待人工处理。员工明确表示当前可以接收短信后，Agent 才可运行 `login-auto-sms`：执行器点击“获取验证码”，等待并核验“验证码将发送到手机号码为…”提示弹窗，只点击该弹窗的“知道了”，然后用户把本次验证码提供给 Agent，Agent 通过进程标准输入提交。验证码只存在于当前登录进程，不写入钥匙串、Skill、配置或处理报告，也不在命令输出中显示。
+Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；执行器只以参数 `get` 调用它，并从私有进程管道接收唯一一条 `{"username":"...","password":"..."}` JSON。助手不得把秘密输出到日志，执行器也不会写入或修改 Vault。
+
+平台没有安全入口时，先运行 `login-agent-start`。只有持久会话确实失效，它才返回 `waiting_for_credentials`。Agent 必须先说明“密码会留在平台对话历史中”，用户明确接受并发送本次账号密码后，Agent 使用平台 GUI 能力直接填入当前管易登录页；不得转存到文件、环境变量、剪贴板脚本或命令参数。填好后运行 `login-credentials-ready`，确定性执行器只检查两个输入框是否非空、勾选协议并点击登录，不读取或记录字段内容。这个入口扩展现有登录状态机，不建立第二套登录实现。
+
+不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent 通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
+
+同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
+
+正式 Skill 包装入口只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import`。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
 
 运行时会话和失败截图位于 `runtime/`，已排除出版本控制。截图可能包含后台信息，只用于本地故障诊断。
 
@@ -65,10 +84,10 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 1. 登录失效时返回 `needs_login`。
 2. 用户登录后返回可识别的已认证状态。
 3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。
-4. 已知公告可以安全关闭，未知弹窗返回 `popup_unknown`。
+4. 已知公告可以安全关闭；关闭未生效、页面地址变化或出现未知弹窗时返回 `popup_unknown`。
 5. 侧栏展开或折叠时都能进入订单查询。
 6. 能打开订单导入并切换到自定义导入。
-7. 默认流程不选择文件；受控文件选择必须经过精确授权口令，且始终不点击“确定”、不审核、不发货。
+7. 默认流程不选择文件；真实提交必须经过当前对话对明确批次的授权和精确口令，只能导入为“待审核”，不审核、不发货。
 8. manifest 与 Excel 不一致时在文件选择之前阻断。
 9. 浏览器启动、路由跳转、弹窗关闭和关键动作前的几何保持稳定。
 10. 截图前后 viewport 与滚动位置保持不变。
@@ -79,7 +98,14 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 15. `capture-task-baseline` 只能在 `prepared` 状态执行，保存“执行中 + 已完成”两个页签经过双重 ID 校验的当前任务集合；文件选择开始后禁止覆盖基线。
 16. `inspect-file-selection` 必须重新校验 manifest、文件 SHA-256、操作状态和任务基线，并唯一定位“订单信息上传”输入框；只报告就绪，不调用文件选择。
 17. `select-import-file` 只有在用户当次明确授权后才可运行；必须使用精确授权口令，选择文件前写入 `file_selection_started`，选择尝试后立即写入 `write_request_maybe_sent`。它记录脱敏网络请求元数据，但不点击“确定”；无论页面是否显示上传结果，都不得自动重试。
+18. `submit-import` 只有在用户明确授权当前批次后才可运行；文件选择只允许出现已登记的管易取 OSS 地址与指定 OSS 暂存请求，且两条响应必须成功。第一次“确定”后必须唯一出现“自定义字段对应”，完整遍历虚拟滚动表格的全部行，确认系统字段与 Excel 字段逐行同名、一一对应且必填字段齐全；随后才允许点击第二次“确定”。模板读取和最终导入请求必须分别精确匹配已登记接口，缺失、重复、非成功响应或任何额外写请求都停止并进入查重，禁止刷新、重选或重提。
+19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
+20. 相同 Excel 哈希只有在 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 或明确失败关闭后允许创建新操作，新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得用户授权。
 
 ## 实机验收记录
 
-2026-09-28 已在专用 Chrome 配置完成以下只读验收：钥匙串凭证登录、短信验证码请求、短信说明弹窗“知道了”、验证码提交、浏览器重启后的持久会话复用、Geometry Guard、订单查询子框架识别、已知通知关闭、进入“订单导入 → 自定义导入”、把订单状态设为“待审核”并回读确认，以及“常用页面 → 任务中心”真实页面结构和任务记录 ID 探针。真实页面的 `data-recordid` 与 ExtJS 记录模型 `id` 一致。执行器未选择文件、未上传、未点击导入确认、未打开任务行，也未点击结果下载链接。
+2026-09-28 已在专用 Chrome 配置完成以下只读验收：钥匙串凭证登录、短信验证码请求、短信说明弹窗“知道了”、验证码提交、浏览器重启后的持久会话复用、Geometry Guard、订单查询子框架识别、已知通知关闭、进入“订单导入 → 自定义导入”、把订单状态设为“待审核”并回读确认，以及“常用页面 → 任务中心”真实页面结构和任务记录 ID 探针。真实页面的 `data-recordid` 与 ExtJS 记录模型 `id` 一致。
+
+2026-10-14 在所有者逐步授权下完成第一次真实写入链路观测：文件暂存后第一次“确定”只读取自定义模板并打开“自定义字段对应”；虚拟滚动表格共核对 48 行，系统字段与 Excel 字段全部同名对应；第二次“确定”才调用最终导入接口。任务中心回读到唯一任务 ID `705662035`，结果为总数 2、成功 1、格式错误 1、非法数据 0。失败原因属于店铺无法匹配；原始结果行含收件信息，因此执行器只允许返回来源行号、错误代码和脱敏说明，不保存或输出原文。该批次证明了两段确认、最终请求、任务 ID 和结果窗口的真实结构，同时暴露了店铺名称配置问题。
+
+同日修正店铺名称后，用新 operation、重新建立任务基线并重新取得用户授权完成第二次真实验收。执行器核对同一套 48 行字段对应，任务中心回读唯一任务 ID `705668612`，结果为总数 2、成功 2、格式错误 0、非法数据 0，状态进入 `post_write_verified`。这条证据解锁 `GY-UPLOAD-SUBMISSION` 的生产规则门禁，但不会取消“转换后先交付确认”“当前对话明确指定批次”“仅待审核”“写后禁止盲目重试”等运行时边界。

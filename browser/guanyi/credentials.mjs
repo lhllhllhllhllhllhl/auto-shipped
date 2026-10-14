@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
+  CREDENTIAL_HELPER,
   KEYCHAIN_SERVICE,
   WINDOWS_CREDENTIAL_FILE,
 } from "./config.mjs";
@@ -21,7 +22,10 @@ export class CredentialError extends Error {
 }
 
 
-export function credentialProviderFor(platform) {
+export function credentialProviderFor(platform, helper = CREDENTIAL_HELPER) {
+  if (helper) {
+    return "external_secret_helper";
+  }
   if (platform === "darwin") {
     return "macos_keychain";
   }
@@ -46,6 +50,45 @@ function requireSupportedPlatform() {
     );
   }
   return provider;
+}
+
+
+function validatedCredentialHelper(helper = CREDENTIAL_HELPER) {
+  if (!helper || !path.isAbsolute(helper)) {
+    throw new CredentialError(
+      "CREDENTIAL_HELPER_INVALID",
+      "云端安全凭证助手必须配置为绝对可执行文件路径。",
+    );
+  }
+  return helper;
+}
+
+
+export async function readExternalCredentials(helperPath = CREDENTIAL_HELPER) {
+  const helper = validatedCredentialHelper(helperPath);
+  try {
+    await fs.access(helper);
+    const result = await execFileAsync(helper, ["get"], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 10_000,
+    });
+    const value = JSON.parse(result.stdout.trim());
+    if (
+      typeof value?.username !== "string" ||
+      !value.username ||
+      typeof value?.password !== "string" ||
+      !value.password
+    ) {
+      throw new Error("incomplete");
+    }
+    return { username: value.username, password: value.password };
+  } catch {
+    throw new CredentialError(
+      "CREDENTIAL_HELPER_UNAVAILABLE",
+      "云端安全凭证助手不可用或没有返回完整凭证。",
+    );
+  }
 }
 
 
@@ -227,7 +270,9 @@ $encrypted = ConvertFrom-SecureString $secure
 export async function storedCredentialStatus() {
   const provider = requireSupportedPlatform();
   try {
-    if (provider === "macos_keychain") {
+    if (provider === "external_secret_helper") {
+      await readExternalCredentials();
+    } else if (provider === "macos_keychain") {
       await findMacMetadata();
     } else {
       await fs.access(WINDOWS_CREDENTIAL_FILE);
@@ -249,6 +294,9 @@ export async function storedCredentialStatus() {
 
 export async function readStoredCredentials() {
   const provider = requireSupportedPlatform();
+  if (provider === "external_secret_helper") {
+    return await readExternalCredentials();
+  }
   return provider === "macos_keychain"
     ? await readMacCredentials()
     : await readWindowsCredentials();
@@ -261,6 +309,12 @@ export async function storeCredentials(username, password) {
     throw new CredentialError(
       "CREDENTIAL_INVALID",
       "账号和密码不能为空。",
+    );
+  }
+  if (provider === "external_secret_helper") {
+    throw new CredentialError(
+      "CREDENTIAL_HELPER_READ_ONLY",
+      "云端凭证由外部 Secret/Vault 管理，浏览器执行器不写入该凭证。",
     );
   }
   if (provider === "macos_keychain") {

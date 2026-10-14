@@ -217,9 +217,9 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | rule_id | 主题 | 直接证据 | 补充证据或决策 | 当前证据缺口 |
 | --- | --- | --- | --- | --- |
 | `GY-IMPORT-STATUS-PENDING-REVIEW` | 导入为待审核 | `SRC-SOP-PDF-001` p.9 | `SRC-UI-GY-DIALOG-001` | 无业务疑问，继续保留页面回读 |
-| `GY-IMPORT-OPTIONS` | 两项附加选项 | `SRC-SOP-PDF-001` p.9 | `DEC-GY-OPTIONS-001`、`SRC-UI-GY-DIALOG-001` | 现行页面两项的精确文字和选择结果需首次真实测试留证 |
-| `GY-UPLOAD-SUBMISSION` | 点击确定 | `SRC-SOP-PDF-001` p.9 | 上传安全设计 | 尚未实现和真实验收 |
-| `GY-TASK-RECONCILIATION` | 任务中心核验 | 系统安全设计 | 当前执行器和测试 | 不是PDF业务规则；待与真实提交闭环验收 |
+| `GY-IMPORT-OPTIONS` | 两项附加选项 | `SRC-SOP-PDF-001` p.9 | `DEC-GY-OPTIONS-001`、`SRC-UI-GY-DIALOG-001` | 已按精确文字定位、勾选并回读，2026-09-28完成真实页面只读验收 |
+| `GY-UPLOAD-SUBMISSION` | 两段确定与字段对应核验 | `SRC-SOP-PDF-001` p.9 | 上传安全设计、2026-10-14所有者授权真实验收 | 两段真实请求和48行字段映射结构已确认；任务`705668612`总数2、成功2、失败0，已完成全量成功闭环 |
+| `GY-TASK-RECONCILIATION` | 任务中心与结果汇总核验 | 系统安全设计 | 当前执行器和测试、2026-10-14任务结果窗口观测 | 唯一任务ID、任务状态和结果统计闭环已确认；部分成功仍必须人工确认 |
 | `GY-ORDER-AUDIT` | 订单审核 | `SRC-SOP-PDF-001` p.7、p.9 | 当前权限边界 | 自动审核尚未授权和实现 |
 | `BLH-SHIPPING-BACKFILL` | 百礼汇物流回填 | `SRC-SOP-PDF-001` p.13、p.14 | `DEC-BLH-ROUTE-001` | 写入授权、查重和失败恢复未设计完成 |
 

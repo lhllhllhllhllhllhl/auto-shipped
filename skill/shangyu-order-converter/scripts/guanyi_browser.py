@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from runtime_common import STATE_ROOT, resolve_project_root
@@ -16,6 +17,12 @@ from runtime_common import STATE_ROOT, resolve_project_root
 COMMANDS = {
     "login": "login",
     "login-auto": "login-auto",
+    "login-auto-start": "login-auto-start",
+    "login-agent-start": "login-agent-start",
+    "login-credentials-ready": "login-credentials-ready",
+    "login-status": "login-status",
+    "login-sms-request": "login-sms-request",
+    "login-sms-submit": "login-sms-submit",
     "login-auto-sms": "login-auto-sms",
     "login-auto-sms-task-center": "login-auto-sms-task-center",
     "credential-set": "credential:set",
@@ -29,6 +36,9 @@ COMMANDS = {
     "capture-task-baseline": "capture-task-baseline",
     "inspect-file-selection": "inspect-file-selection",
     "select-import-file": "select-import-file",
+    "submit-import": "submit-import",
+    "reconcile-operation": "reconcile-operation",
+    "resolve-no-task": "resolve-no-task",
     "verify-manifest": "verify-manifest",
     "prepare-operation": "prepare-operation",
 }
@@ -61,7 +71,31 @@ def main() -> int:
             "管易浏览器依赖尚未安装，请先运行 bootstrap_runtime.py。",
         )
 
+    if args.command == "submit-import":
+        audit = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "audit_rules.py"),
+                "--phase",
+                "upload",
+                "--project-root",
+                str(project_root),
+            ],
+            cwd=browser_root,
+            env=os.environ.copy(),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if audit.returncode != 0:
+            return fail(
+                "UPLOAD_RULE_GATE_BLOCKED",
+                "上传规则门禁尚未全部通过；Skill 不执行管易确定提交。请检查规则状态、实现引用和运行时打包是否一致。",
+            )
+
     environment = os.environ.copy()
+    if args.command == "submit-import":
+        environment["GUANYI_UPLOAD_RULES_READY"] = "1"
     environment.setdefault(
         "GUANYI_RUNTIME_ROOT",
         str(STATE_ROOT / "guanyi-browser"),

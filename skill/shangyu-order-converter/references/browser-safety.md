@@ -19,7 +19,7 @@
 - `select-import-file`：当前用户明确授权后，使用精确授权口令选择一次文件，不点“确定”；动作前后持久化状态并记录脱敏网络元数据。
 - `verify-manifest`：校验 Excel 的路径、大小和 SHA-256，不打开文件选择器。
 
-## 未来上传状态机
+## 上传状态机
 
 在上传模块实现前，禁止选择文件和提交。实现后至少区分：
 
@@ -27,17 +27,20 @@
 prepared
 file_selection_started
 write_request_maybe_sent
+submit_authorized
 write_request_sent
+reconciling
 task_id_observed
-post_write_verified
-failed_closed
+post_write_verified / needs_manual_review / retryable_failed / failed_closed
 ```
 
 文件选择可能触发自动上传，因此从 `file_selection_started` 起不得刷新页面或盲目重新选择文件。写请求已经发出或无法确定是否发出时，禁止自动重提；必须先到任务中心查重。推荐在写入前保存已完成任务 ID 基线，写入后只接受时间窗内唯一新增、标题匹配且 ID 双重核验通过的任务记录。
 
 真实选择文件必须获得用户当次授权，并在动作前完成任务基线和 manifest 复核。选择尝试一旦开始，异常也按“可能已写入”处理，禁止刷新或重复选择。
 
-最终成功不能只依据点击、Toast 或弹窗关闭。至少要求任务中心状态成功；条件允许时再回读本批订单号和数量，与 manifest 一致。
+最终成功不能只依据点击、Toast、网络 200、弹窗关闭或任务状态“执行完成”。第一次确定后必须核对完整字段映射，第二次确定后至少要求任务中心唯一新增任务 ID、任务名称和状态一致，再打开该任务的“查看结果”回读汇总。只有导入总数大于零、成功数等于总数且失败数为零，才进入 `post_write_verified`；部分成功必须人工确认，全部失败可在明确闭环后进入 `retryable_failed`。结果明细只输出脱敏错误代码、来源行号和通用说明，不输出收件人、手机号、地址或原始失败行。已经点击第二次确定但短时未出现新增任务时保持 `reconciling`，只允许稍后再次只读查询任务中心，不得重新提交。下一次尝试使用新 operation ID、关联 `retryOf`、重建基线并重新取得用户授权。已 `post_write_verified` 的同哈希文件永久阻止重复上传。
+
+同一对话可以一次授权多个明确列出的 manifest，但必须逐批闭环。每批使用独立 operation ID、文件哈希和任务基线；前一批未完成核验时不得启动下一批。隔离用于防止串批，不限制 Agent 理解“全部上传”“只上传其中两批”等自然语言。
 
 ## 暂态恢复
 

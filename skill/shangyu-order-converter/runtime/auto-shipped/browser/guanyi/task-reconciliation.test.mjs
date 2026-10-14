@@ -55,3 +55,17 @@ test("rejects task ids without record-model verification", () => {
       error.code === "TASK_IDS_NOT_VERIFIED",
   );
 });
+
+
+test("rejects an unverified empty task list", () => {
+  assert.throws(
+    () =>
+      buildVerifiedTaskSnapshot({
+        taskIdStatus: "task_id_unavailable_in_list",
+        tasks: [],
+      }),
+    (error) =>
+      error instanceof TaskReconciliationError &&
+      error.code === "TASK_SNAPSHOT_INVALID",
+  );
+});

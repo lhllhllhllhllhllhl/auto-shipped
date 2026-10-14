@@ -7,6 +7,12 @@
   "scripts": {
     "login": "node cli.mjs login",
     "login-auto": "node cli.mjs login-auto",
+    "login-auto-start": "node cli.mjs login-auto-start",
+    "login-agent-start": "node cli.mjs login-agent-start",
+    "login-credentials-ready": "node cli.mjs login-credentials-ready",
+    "login-status": "node cli.mjs login-status",
+    "login-sms-request": "node cli.mjs login-sms-request",
+    "login-sms-submit": "node cli.mjs login-sms-submit",
     "login-auto-sms": "node cli.mjs login-auto-sms",
     "login-auto-sms-task-center": "node cli.mjs login-auto-sms-task-center",
     "credential:set": "node credential-cli.mjs set",
@@ -20,10 +26,13 @@
     "capture-task-baseline": "node cli.mjs capture-task-baseline",
     "inspect-file-selection": "node cli.mjs inspect-file-selection",
     "select-import-file": "node cli.mjs select-import-file",
+    "submit-import": "node cli.mjs submit-import",
+    "reconcile-operation": "node cli.mjs reconcile-operation",
+    "resolve-no-task": "node cli.mjs resolve-no-task",
     "verify-manifest": "node cli.mjs verify-manifest",
     "prepare-operation": "node cli.mjs prepare-operation",
     "test": "node --test *.test.mjs",
-    "check": "node --check cli.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs"
+    "check": "node --check cli.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check login-operation.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check submission.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs"
   },
   "dependencies": {
     "playwright-core": "1.63.0"

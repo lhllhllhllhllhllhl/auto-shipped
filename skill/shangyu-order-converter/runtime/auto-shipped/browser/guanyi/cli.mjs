@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 
 import { ARTIFACT_DIR, LOGIN_TIMEOUT_MS } from "./config.mjs";
 import {
@@ -13,9 +15,28 @@ import {
 import { ManifestError, verifyUploadManifest } from "./manifest.mjs";
 import { GeometryError } from "./geometry.mjs";
 import {
+  createLoginControlServer,
+  createLoginOperation,
+  loadLoginOperation,
+  LoginOperationError,
+  LoginOperationState,
+  publicLoginOperation,
+  requireSmsRequestAuthorization,
+  requireTemporaryCredentialsReadyAuthorization,
+  sendLoginControl,
+  SMS_REQUEST_AUTHORIZATION,
+  TEMPORARY_CREDENTIALS_READY_AUTHORIZATION,
+  transitionLoginOperation,
+  waitForLoginOperation,
+} from "./login-operation.mjs";
+import {
   createPreparedOperation,
+  NO_TASK_RESOLUTION_AUTHORIZATION,
+  recordImportTaskResult,
+  reconcileOperationTask,
   OperationStateError,
   recordTaskBaseline,
+  resolveNoTaskManualReview,
 } from "./operation-state.mjs";
 import {
   FILE_SELECTION_AUTHORIZATION,
@@ -23,6 +44,11 @@ import {
   inspectFileSelectionReadiness,
   selectPreparedImportFile,
 } from "./file-selection.mjs";
+import {
+  SUBMIT_AUTHORIZATION,
+  SubmissionError,
+  submitPreparedImport,
+} from "./submission.mjs";
 import {
   navigateToCustomImport,
   NavigationError,
@@ -36,12 +62,15 @@ import {
   markDedicatedLoginWindow,
   openApp,
   requestSmsCode,
+  SessionError,
+  submitPreparedCredentialLogin,
   submitSmsCode,
   waitForAuthenticatedPage,
 } from "./session.mjs";
 import { detectState } from "./states.mjs";
 import { captureReadOnlyScreenshot } from "./screenshot.mjs";
 import {
+  readCompletedImportTaskResult,
   probeImportTaskSnapshot,
   probeCompletedImportTasks,
   probeTaskCenter,
@@ -57,10 +86,21 @@ function printJson(payload) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-sms|login-auto-sms-task-center|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|verify-manifest|prepare-operation> [path]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-ready|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
     commands: {
       login: "打开专用Chrome配置，由用户手动登录并保存会话。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
+      "login-auto-start":
+        "启动可跨消息恢复的自动登录；需要短信时先返回登录操作 ID，不发送短信。",
+      "login-agent-start":
+        "云端无安全凭证库时启动同一登录状态机，等待 Agent 把用户临时提供的凭据填入私有 GUI。",
+      "login-credentials-ready":
+        `Agent 已通过私有 GUI 填好临时凭据后继续登录；需要口令 ${TEMPORARY_CREDENTIALS_READY_AUTHORIZATION}。`,
+      "login-status": "读取登录操作状态；不启动第二个浏览器。",
+      "login-sms-request":
+        `用户确认可以接收短信后，请求验证码；需要口令 ${SMS_REQUEST_AUTHORIZATION}。`,
+      "login-sms-submit":
+        "从标准输入接收一次性验证码并交给仍在运行的登录操作。",
       "login-auto-sms":
         "经用户当次确认后请求短信验证码，从标准输入接收验证码并完成登录。",
       "login-auto-sms-task-center":
@@ -79,11 +119,390 @@ function help() {
         "复核 manifest、任务基线和订单上传输入框；不选择文件。",
       "select-import-file":
         `真实选择文件但不点确定；需要当次授权口令 ${FILE_SELECTION_AUTHORIZATION}。`,
+      "submit-import":
+        `在同一浏览器会话内选择文件并受控提交；需要当次授权口令 ${SUBMIT_AUTHORIZATION}。`,
+      "reconcile-operation":
+        "只读轮询任务中心，以唯一任务 ID、类型和状态核验提交结果。",
+      "resolve-no-task":
+        `任务中心确认没有新增任务后把旧操作标为可重试；需要口令 ${NO_TASK_RESOLUTION_AUTHORIZATION}。`,
       "verify-manifest": "校验预检 manifest 与 Excel 哈希，不打开文件选择器。",
       "prepare-operation":
         "校验 manifest 并建立 prepared 操作记录；不选择文件或上传。",
     },
   });
+}
+
+
+function commandMailbox(operationId) {
+  const queued = new Map();
+  const waiters = new Map();
+  const pendingActions = new Set();
+
+  function deliver(action, item) {
+    const waiter = waiters.get(action);
+    if (waiter) {
+      waiters.delete(action);
+      clearTimeout(waiter.timer);
+      waiter.resolve(item);
+      return;
+    }
+    const items = queued.get(action) || [];
+    items.push(item);
+    queued.set(action, items);
+  }
+
+  return {
+    async handle({ action, code }) {
+      const loaded = await loadLoginOperation(operationId);
+      if (
+        action === "credentials_ready" &&
+        loaded.record.state !== LoginOperationState.WAITING_FOR_CREDENTIALS
+      ) {
+        throw new LoginOperationError(
+          "TEMPORARY_CREDENTIALS_STATE_INVALID",
+          "当前登录操作不在等待临时账号密码状态。",
+        );
+      }
+      if (
+        action === "request_sms" &&
+        loaded.record.state !== LoginOperationState.NEEDS_VERIFICATION
+      ) {
+        throw new LoginOperationError(
+          "SMS_REQUEST_STATE_INVALID",
+          "当前登录操作不在等待短信确认状态。",
+        );
+      }
+      if (
+        action === "submit_sms" &&
+        loaded.record.state !== LoginOperationState.WAITING_FOR_USER_CODE
+      ) {
+        throw new LoginOperationError(
+          "SMS_SUBMIT_STATE_INVALID",
+          "当前登录操作不在等待验证码状态。",
+        );
+      }
+      if (action === "submit_sms" && !/^\d{4,8}$/.test(code || "")) {
+        throw new LoginOperationError(
+          "SMS_CODE_INVALID",
+          "短信验证码格式不正确，应为 4 到 8 位数字。",
+        );
+      }
+      if (!["credentials_ready", "request_sms", "submit_sms"].includes(action)) {
+        throw new LoginOperationError(
+          "LOGIN_CONTROL_ACTION_INVALID",
+          "登录控制动作不受支持。",
+        );
+      }
+      if (pendingActions.has(action)) {
+        throw new LoginOperationError(
+          "LOGIN_CONTROL_ACTION_ALREADY_PENDING",
+          "相同的登录控制动作已经在处理中。",
+        );
+      }
+      pendingActions.add(action);
+      return await new Promise((resolve, reject) => {
+        deliver(action, {
+          code,
+          resolve(value) {
+            pendingActions.delete(action);
+            resolve(value);
+          },
+          reject(error) {
+            pendingActions.delete(action);
+            reject(error);
+          },
+        });
+      });
+    },
+
+    async take(action, timeoutMs) {
+      const items = queued.get(action) || [];
+      if (items.length) {
+        const item = items.shift();
+        queued.set(action, items);
+        return item;
+      }
+      return await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          waiters.delete(action);
+          reject(
+            new LoginOperationError(
+              "LOGIN_OPERATION_EXPIRED",
+              "等待用户处理短信验证超时，请重新开始登录。",
+            ),
+          );
+        }, timeoutMs);
+        waiters.set(action, { resolve, reject, timer });
+      });
+    },
+  };
+}
+
+
+async function runLoginAutoWorker(operationId, credentialMode = "stored") {
+  if (!["stored", "agent_gui"].includes(credentialMode)) {
+    throw new LoginOperationError(
+      "LOGIN_CREDENTIAL_MODE_INVALID",
+      "登录凭据模式不受支持。",
+    );
+  }
+  const mailbox = commandMailbox(operationId);
+  let server;
+  let session;
+  let pendingCommand = null;
+  try {
+    server = await createLoginControlServer(
+      operationId,
+      async (message) => await mailbox.handle(message),
+    );
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "login_worker_started" },
+    );
+    session = await launchSession();
+    await openApp(session.page);
+    if (!isLoginUrl(session.page.url())) {
+      await transitionLoginOperation(
+        operationId,
+        LoginOperationState.AUTHENTICATED,
+        { reason: "persistent_session_authenticated" },
+      );
+      return 0;
+    }
+    await session.page.bringToFront();
+    await markDedicatedLoginWindow(session.page);
+    const loginOptions = {
+      onVerificationRequired: async (candidate) => {
+        const verification = await transitionLoginOperation(
+          operationId,
+          LoginOperationState.NEEDS_VERIFICATION,
+          { reason: "sms_verification_required" },
+        );
+        pendingCommand = await mailbox.take(
+          "request_sms",
+          Math.max(Date.parse(verification.record.expiresAt) - Date.now(), 1),
+        );
+        try {
+          await transitionLoginOperation(
+            operationId,
+            LoginOperationState.SMS_REQUESTING,
+            { reason: "current_user_confirmed_sms_request" },
+          );
+          await requestSmsCode(candidate);
+          const waiting = await transitionLoginOperation(
+            operationId,
+            LoginOperationState.WAITING_FOR_USER_CODE,
+            { reason: "sms_requested_and_notice_dismissed" },
+          );
+          pendingCommand.resolve(publicLoginOperation(waiting.record));
+          pendingCommand = await mailbox.take(
+            "submit_sms",
+            Math.max(Date.parse(waiting.record.expiresAt) - Date.now(), 1),
+          );
+          await submitSmsCode(candidate, pendingCommand.code);
+          const submitted = await transitionLoginOperation(
+            operationId,
+            LoginOperationState.CODE_SUBMITTED,
+            { reason: "one_time_sms_code_submitted" },
+          );
+          pendingCommand.resolve(publicLoginOperation(submitted.record));
+          pendingCommand = null;
+        } catch (error) {
+          pendingCommand?.reject(error);
+          pendingCommand = null;
+          throw error;
+        }
+      },
+    };
+    if (credentialMode === "agent_gui") {
+      const waiting = await transitionLoginOperation(
+        operationId,
+        LoginOperationState.WAITING_FOR_CREDENTIALS,
+        { reason: "temporary_agent_credentials_required" },
+      );
+      pendingCommand = await mailbox.take(
+        "credentials_ready",
+        Math.max(Date.parse(waiting.record.expiresAt) - Date.now(), 1),
+      );
+      try {
+        const authenticating = await transitionLoginOperation(
+          operationId,
+          LoginOperationState.AUTHENTICATING,
+          { reason: "temporary_agent_credentials_filled" },
+        );
+        await submitPreparedCredentialLogin(session.page);
+        pendingCommand.resolve(publicLoginOperation(authenticating.record));
+        pendingCommand = null;
+        await waitForAuthenticatedPage(
+          session.context,
+          session.page,
+          LOGIN_TIMEOUT_MS,
+          loginOptions,
+        );
+      } catch (error) {
+        pendingCommand?.reject(error);
+        pendingCommand = null;
+        throw error;
+      }
+    } else {
+      const credentials = await readStoredCredentials();
+      await loginWithCredentials(
+        session.context,
+        session.page,
+        credentials,
+        LOGIN_TIMEOUT_MS,
+        loginOptions,
+      );
+    }
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATED,
+      { reason: "authenticated_page_verified" },
+    );
+    return 0;
+  } catch (error) {
+    pendingCommand?.reject(error);
+    const loaded = await loadLoginOperation(operationId).catch(() => null);
+    if (
+      loaded &&
+      ![
+        LoginOperationState.AUTHENTICATED,
+        LoginOperationState.FAILED,
+        LoginOperationState.EXPIRED,
+      ].includes(loaded.record.state)
+    ) {
+      await transitionLoginOperation(
+        operationId,
+        error?.code === "LOGIN_OPERATION_EXPIRED"
+          ? LoginOperationState.EXPIRED
+          : LoginOperationState.FAILED,
+        {
+          reason: "login_worker_failed",
+          code: error?.code || error?.name || "LOGIN_FAILED",
+          message: error?.message || "管易登录失败。",
+        },
+      ).catch(() => null);
+    }
+    return 1;
+  } finally {
+    await new Promise((resolve) => server?.close(resolve) || resolve());
+    await session?.context.close().catch(() => null);
+  }
+}
+
+
+async function runLoginAutoStart(credentialMode = "stored") {
+  const created = await createLoginOperation();
+  const child = spawn(
+    process.execPath,
+    [
+      fileURLToPath(import.meta.url),
+      "login-auto-worker",
+      created.record.operationId,
+      credentialMode,
+    ],
+    {
+      detached: true,
+      env: process.env,
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+  child.once("error", async (error) => {
+    await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.FAILED,
+      {
+        reason: "login_worker_spawn_failed",
+        code: error?.code || "LOGIN_WORKER_SPAWN_FAILED",
+        message: "无法启动管易登录进程。",
+      },
+    ).catch(() => null);
+  });
+  child.once("exit", async (code) => {
+    if (code === 0) return;
+    const loaded = await loadLoginOperation(created.record.operationId).catch(
+      () => null,
+    );
+    if (
+      loaded &&
+      ![
+        LoginOperationState.AUTHENTICATED,
+        LoginOperationState.FAILED,
+        LoginOperationState.EXPIRED,
+      ].includes(loaded.record.state)
+    ) {
+      await transitionLoginOperation(
+        created.record.operationId,
+        LoginOperationState.FAILED,
+        {
+          reason: "login_worker_exited",
+          code: "LOGIN_WORKER_EXITED",
+          message: "管易登录进程提前结束。",
+        },
+      ).catch(() => null);
+    }
+  });
+  child.unref();
+  const loaded = await waitForLoginOperation(created.record.operationId, {
+    timeoutMs: 30_000,
+  });
+  printJson(publicLoginOperation(loaded.record));
+  return loaded.record.state === LoginOperationState.FAILED ? 2 : 0;
+}
+
+
+async function runLoginCredentialsReady(operationId, authorization) {
+  requireTemporaryCredentialsReadyAuthorization(authorization);
+  const result = await sendLoginControl(operationId, "credentials_ready");
+  printJson(result);
+  return 0;
+}
+
+
+async function runLoginStatus(operationId) {
+  let loaded = await loadLoginOperation(operationId);
+  if (
+    Date.parse(loaded.record.expiresAt) <= Date.now() &&
+    ![
+      LoginOperationState.AUTHENTICATED,
+      LoginOperationState.FAILED,
+      LoginOperationState.EXPIRED,
+    ].includes(loaded.record.state)
+  ) {
+    loaded = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.EXPIRED,
+      { reason: "login_operation_deadline_reached" },
+    );
+  }
+  printJson(publicLoginOperation(loaded.record));
+  return loaded.record.state === LoginOperationState.FAILED ? 2 : 0;
+}
+
+
+async function runLoginSmsRequest(operationId, authorization) {
+  requireSmsRequestAuthorization(authorization);
+  const result = await sendLoginControl(operationId, "request_sms");
+  printJson(result);
+  return 0;
+}
+
+
+async function runLoginSmsSubmit(operationId) {
+  const code = await readSmsCode();
+  await sendLoginControl(operationId, "submit_sms", { code });
+  const loaded = await waitForLoginOperation(operationId, {
+    timeoutMs: 30_000,
+    states: new Set([
+      LoginOperationState.AUTHENTICATED,
+      LoginOperationState.FAILED,
+      LoginOperationState.EXPIRED,
+    ]),
+  });
+  printJson(publicLoginOperation(loaded.record));
+  return loaded.record.state === LoginOperationState.AUTHENTICATED ? 0 : 2;
 }
 
 
@@ -393,6 +812,128 @@ async function runSelectImportFile(page, operationId, authorization) {
 }
 
 
+async function runSubmitImport(page, operationId, authorization) {
+  if (!operationId) {
+    throw new OperationStateError(
+      "OPERATION_ID_REQUIRED",
+      "提交导入需要操作 ID。",
+    );
+  }
+  await openApp(page);
+  const observed = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    printJson(observed);
+    return 2;
+  }
+  const result = await submitPreparedImport(page, operationId, authorization);
+  printJson(result);
+  return result.status === "submit_maybe_sent" ? 0 : 2;
+}
+
+
+async function runReconcileOperation(page, operationId) {
+  if (!operationId) {
+    throw new OperationStateError(
+      "OPERATION_ID_REQUIRED",
+      "核验导入结果需要操作 ID。",
+    );
+  }
+  await openApp(page);
+  const observed = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    printJson(observed);
+    return 2;
+  }
+  const deadline = Date.now() + 30_000;
+  let result;
+  do {
+    const tasks = await probeImportTaskSnapshot(page);
+    result = await reconcileOperationTask(operationId, tasks);
+    if (result.status === "result_required") {
+      const importResult = await readCompletedImportTaskResult(
+        page,
+        result.task.taskId,
+      );
+      result = await recordImportTaskResult(operationId, importResult);
+      printJson({
+        status: result.status,
+        reason: result.reason || null,
+        operationId,
+        state: result.record.state,
+        task: {
+          taskId: importResult.taskId,
+          taskName: importResult.taskName,
+          taskStatus: importResult.taskStatus,
+        },
+        importResult: {
+          summary: importResult.summary,
+          failures: importResult.failures,
+          visibleFailureCount: importResult.visibleFailureCount,
+          detailsTruncated: importResult.detailsTruncated,
+        },
+        safety:
+          "Recipient, phone, address, and raw platform-order content are omitted from this result.",
+      });
+      return result.status === "verified" ? 0 : 3;
+    }
+    if (result.status !== "reconciling") {
+      printJson({
+        status: result.status,
+        reason: result.reason || null,
+        operationId,
+        state: result.record.state,
+        task: result.task || null,
+        candidates: result.candidates || null,
+      });
+      return result.status === "verified" ? 0 : 3;
+    }
+    if (Date.now() < deadline) {
+      await page.waitForTimeout(2_000);
+    }
+  } while (Date.now() < deadline);
+
+  printJson({
+    status: "reconciling",
+    reason: result?.reason || "task_not_yet_visible",
+    operationId,
+    state: result.record.state,
+    safety:
+      "No unique completed task is visible yet. Do not resubmit; run reconciliation again later.",
+  });
+  return 2;
+}
+
+
+async function runResolveNoTask(page, operationId, authorization) {
+  if (!operationId) {
+    throw new OperationStateError(
+      "OPERATION_ID_REQUIRED",
+      "关闭人工复核操作需要操作 ID。",
+    );
+  }
+  await openApp(page);
+  const observed = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    printJson(observed);
+    return 2;
+  }
+  const tasks = await probeImportTaskSnapshot(page);
+  const closed = await resolveNoTaskManualReview(
+    operationId,
+    tasks,
+    authorization,
+  );
+  printJson({
+    status: "operation_retryable_no_task",
+    operationId,
+    state: closed.record.state,
+    failureCode: closed.record.failure.code,
+    safety: "The verified task snapshot had no additions; no browser write was performed.",
+  });
+  return 0;
+}
+
+
 async function main() {
   const command = process.argv[2];
   if (!command || ["help", "--help", "-h"].includes(command)) {
@@ -403,6 +944,13 @@ async function main() {
     ![
       "login",
       "login-auto",
+      "login-auto-start",
+      "login-agent-start",
+      "login-auto-worker",
+      "login-credentials-ready",
+      "login-status",
+      "login-sms-request",
+      "login-sms-submit",
       "login-auto-sms",
       "login-auto-sms-task-center",
       "probe",
@@ -413,6 +961,9 @@ async function main() {
       "capture-task-baseline",
       "inspect-file-selection",
       "select-import-file",
+      "submit-import",
+      "reconcile-operation",
+      "resolve-no-task",
       "verify-manifest",
       "prepare-operation",
     ].includes(command)
@@ -437,6 +988,8 @@ async function main() {
       printJson({
         status: "operation_prepared",
         operationId: prepared.record.operationId,
+        retryOf: prepared.record.retryOf,
+        attemptNumber: prepared.record.attemptNumber,
         state: prepared.record.state,
         receiptPath: prepared.receiptPath,
         orders: prepared.record.counts.orders,
@@ -467,6 +1020,27 @@ async function main() {
 
   let session;
   try {
+    if (command === "login-auto-worker") {
+      return await runLoginAutoWorker(process.argv[3], process.argv[4]);
+    }
+    if (command === "login-auto-start") {
+      return await runLoginAutoStart();
+    }
+    if (command === "login-agent-start") {
+      return await runLoginAutoStart("agent_gui");
+    }
+    if (command === "login-credentials-ready") {
+      return await runLoginCredentialsReady(process.argv[3], process.argv[4]);
+    }
+    if (command === "login-status") {
+      return await runLoginStatus(process.argv[3]);
+    }
+    if (command === "login-sms-request") {
+      return await runLoginSmsRequest(process.argv[3], process.argv[4]);
+    }
+    if (command === "login-sms-submit") {
+      return await runLoginSmsSubmit(process.argv[3]);
+    }
     session = await launchSession();
     if (command === "login") {
       return await runLogin(session.context, session.page);
@@ -509,6 +1083,23 @@ async function main() {
         process.argv[4],
       );
     }
+    if (command === "submit-import") {
+      return await runSubmitImport(
+        session.page,
+        process.argv[3],
+        process.argv[4],
+      );
+    }
+    if (command === "reconcile-operation") {
+      return await runReconcileOperation(session.page, process.argv[3]);
+    }
+    if (command === "resolve-no-task") {
+      return await runResolveNoTask(
+        session.page,
+        process.argv[3],
+        process.argv[4],
+      );
+    }
     return await runNavigateImport(session.page);
   } catch (error) {
     const screenshot = session?.page
@@ -522,6 +1113,26 @@ async function main() {
         screenshot,
       });
       return 2;
+    }
+    if (error instanceof LoginOperationError) {
+      printJson({
+        status: "login_operation_blocked",
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        screenshot,
+      });
+      return 2;
+    }
+    if (error instanceof SessionError) {
+      printJson({
+        status: "access_blocked",
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        screenshot,
+      });
+      return 4;
     }
     if (error instanceof GeometryError) {
       printJson({
@@ -557,6 +1168,16 @@ async function main() {
     if (error instanceof FileSelectionError) {
       printJson({
         status: "file_selection_not_ready",
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        screenshot,
+      });
+      return 3;
+    }
+    if (error instanceof SubmissionError) {
+      printJson({
+        status: "submission_blocked",
         code: error.code,
         message: error.message,
         details: error.details,
