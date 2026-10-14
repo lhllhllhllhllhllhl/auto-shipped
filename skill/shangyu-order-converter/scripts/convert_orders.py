@@ -102,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="可重复提供的已确认商品映射覆盖层JSON",
     )
     parser.add_argument(
+        "--mapping-replacement",
+        action="append",
+        default=[],
+        help="可重复提供的当前批次正式映射临时替换记录JSON",
+    )
+    parser.add_argument(
         "--official-mapping-snapshot",
         help="Agent原生飞书能力已经读取并校验生成的正式映射快照；提供后不再调用lark-cli同步",
     )
@@ -131,6 +137,18 @@ def _common_cli_args(
             continue
         seen.add(key)
         values.extend(["--mapping-overlay", key])
+    replacement_candidates = [
+        *args.mapping_replacement,
+        str(STATE_ROOT / "config" / "current-batch-mapping-replacements.json"),
+    ]
+    seen_replacements: set[str] = set()
+    for value in replacement_candidates:
+        replacement = Path(value).expanduser().resolve()
+        key = str(replacement)
+        if key in seen_replacements or not replacement.is_file():
+            continue
+        seen_replacements.add(key)
+        values.extend(["--mapping-replacement", key])
     if official_mapping_snapshot is not None:
         values.extend(["--official-mapping-status", "auto"])
     else:

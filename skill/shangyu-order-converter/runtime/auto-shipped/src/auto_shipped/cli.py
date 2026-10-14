@@ -6,12 +6,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from auto_shipped.catalog import (
+    BatchMappingReplacementError,
     PackageSemanticsStoreError,
     ProductCatalog,
     ProductMappingStoreError,
     export_package_semantics_proposals,
     list_package_semantics_proposals,
     save_package_semantics_proposal,
+    save_batch_mapping_replacement,
     save_confirmed_mapping,
 )
 from auto_shipped.companies import audit_company_registry, load_company_registry
@@ -23,6 +25,7 @@ from auto_shipped.integrations.feishu import (
     LarkCliGatewayError,
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
+    add_confirmed_mapping_direct,
     build_correction_feedback_record,
     build_pending_mapping_proposal,
     load_official_mapping_snapshot,
@@ -150,6 +153,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="可重复提供的已确认商品映射覆盖层JSON",
     )
     convert_batch.add_argument(
+        "--mapping-replacement",
+        action="append",
+        default=[],
+        help="可重复提供的当前批次正式映射临时替换记录JSON",
+    )
+    convert_batch.add_argument(
         "--template",
         default=str(PROJECT_ROOT / "assets/templates/guanyi/自定义订单导入模板.xlsx"),
     )
@@ -162,6 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="可重复提供的已确认商品映射覆盖层JSON",
+    )
+    convert.add_argument(
+        "--mapping-replacement",
+        action="append",
+        default=[],
+        help="可重复提供的当前批次正式映射临时替换记录JSON",
     )
     for conversion_parser in (convert, convert_batch):
         conversion_parser.add_argument(
@@ -457,6 +472,39 @@ def build_parser() -> argparse.ArgumentParser:
     publish_pending.add_argument("--operation-id")
     publish_pending.add_argument("--confirmation-token", required=True)
 
+    direct_add = subparsers.add_parser(
+        "direct-add-official-mapping",
+        help="用户明确以后沿用后，受控新增一条无冲突正式商品映射",
+    )
+    direct_add.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    direct_add.add_argument("--catalog", required=True)
+    direct_add.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    direct_add.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    direct_add.add_argument("--company-id", required=True)
+    direct_add.add_argument("--source-profile", required=True)
+    direct_add.add_argument(
+        "--identifier-type",
+        required=True,
+        choices=["product_code", "barcode", "product_name"],
+    )
+    direct_add.add_argument("--source-value", required=True)
+    direct_add.add_argument("--source-spec", default="")
+    direct_add.add_argument("--target-platform", default="guanyi")
+    direct_add.add_argument("--product-code", required=True)
+    direct_add.add_argument("--spec-code", default="")
+    direct_add.add_argument("--evidence", required=True)
+    direct_add.add_argument("--operation-id")
+    direct_add.add_argument("--output")
+    direct_add.add_argument("--confirmation-token", required=True)
+
     save_mapping = subparsers.add_parser(
         "save-product-mapping",
         help="在用户明确授权后，把已确认商品映射写入覆盖层",
@@ -485,6 +533,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
     save_mapping.add_argument("--source-fingerprint", default="")
     save_mapping.add_argument("--confirmation-token", required=True)
+
+    save_replacement = subparsers.add_parser(
+        "save-batch-mapping-replacement",
+        help="用户否决已有正式映射后，保存仅绑定当前来源文件的临时替换",
+    )
+    save_replacement.add_argument("--catalog", required=True)
+    save_replacement.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    save_replacement.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    save_replacement.add_argument(
+        "--mapping-overlay", action="append", default=[], required=True
+    )
+    save_replacement.add_argument("--output", required=True)
+    save_replacement.add_argument("--company-id", required=True)
+    save_replacement.add_argument("--source-profile", required=True)
+    save_replacement.add_argument(
+        "--identifier-type",
+        required=True,
+        choices=["product_code", "barcode", "product_name"],
+    )
+    save_replacement.add_argument("--source-value", required=True)
+    save_replacement.add_argument("--source-spec", default="")
+    save_replacement.add_argument("--expected-product-code", required=True)
+    save_replacement.add_argument("--expected-spec-code", default="")
+    save_replacement.add_argument("--replacement-product-code", required=True)
+    save_replacement.add_argument("--replacement-spec-code", default="")
+    save_replacement.add_argument("--source-fingerprint", required=True)
+    save_replacement.add_argument("--reason", required=True)
+    save_replacement.add_argument("--confirmed-by", required=True)
+    save_replacement.add_argument("--confirmation-token", required=True)
 
     save_package_semantics = subparsers.add_parser(
         "save-package-semantics-proposal",
@@ -537,7 +620,9 @@ def build_parser() -> argparse.ArgumentParser:
         sync_official_native,
         plan_publish,
         publish_pending,
+        direct_add,
         save_mapping,
+        save_replacement,
     ):
         catalog_parser.add_argument(
             "--preferred-catalog",
@@ -630,6 +715,7 @@ def run_convert(args: argparse.Namespace) -> int:
         company_hint=args.company,
         adaptive_plan_path=args.adaptive_plan,
         mapping_overlay_paths=tuple(args.mapping_overlay),
+        mapping_replacement_paths=tuple(args.mapping_replacement),
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )
@@ -699,6 +785,7 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         company_hints=company_hints,
         adaptive_plan_hints=adaptive_plan_hints,
         mapping_overlay_paths=tuple(args.mapping_overlay),
+        mapping_replacement_paths=tuple(args.mapping_replacement),
         batch_name=args.batch_name,
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
@@ -1095,7 +1182,27 @@ def run_provision_pending_sheet(args: argparse.Namespace) -> int:
             )
         )
         return 2
-    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    payload = asdict(result)
+    if result.status in {"created", "already_exists"} and args.output:
+        try:
+            snapshot = build_official_mapping_snapshot(
+                gateway.list_official_mapping_records(),
+                gateway.get_official_repository_metadata(),
+                catalog,
+            )
+            output = write_official_mapping_snapshot(args.output, snapshot)
+            payload["snapshot_output"] = str(output)
+            payload["snapshot_revision"] = snapshot["mapping_revision"]
+        except (OSError, ValueError, OfficialMappingSyncError, LarkCliGatewayError) as exc:
+            payload["status"] = "created_but_snapshot_sync_failed"
+            payload["code"] = "DIRECT_MAPPING_SNAPSHOT_SYNC_FAILED"
+            payload["reason"] = (
+                "正式映射写入已完成，但本机快照同步失败；转换前必须重新sync："
+                f"{exc}"
+            )
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 2
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if result.status == "ready" else 2
 
 
@@ -1378,6 +1485,54 @@ def run_publish_pending_mappings(args: argparse.Namespace) -> int:
     return 0 if result.status in {"published", "no_changes"} else 2
 
 
+def run_direct_add_official_mapping(args: argparse.Namespace) -> int:
+    try:
+        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        direct_policy = config.get("direct_add_policy") or {}
+        if direct_policy.get("enabled") is not True:
+            raise ValueError("飞书映射治理配置未启用受控直接新增。")
+        gateway, catalog, _, companies, source_profiles = (
+            _load_mapping_publisher_context(args)
+        )
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog,
+            allowed_company_ids=companies,
+            allowed_source_profile_ids=source_profiles,
+            company_id=args.company_id,
+            source_profile_id=args.source_profile,
+            identifier_type=args.identifier_type,
+            source_value=args.source_value,
+            source_spec=args.source_spec,
+            target_platform=args.target_platform,
+            product_code=args.product_code,
+            spec_code=args.spec_code,
+            evidence=args.evidence,
+            confirmation_token=args.confirmation_token,
+            operation_id=args.operation_id,
+        )
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "DIRECT_MAPPING_ADD_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"created", "already_exists"} else 2
+
+
 def run_save_product_mapping(args: argparse.Namespace) -> int:
     try:
         catalog = ProductCatalog.from_files(
@@ -1424,6 +1579,83 @@ def run_save_product_mapping(args: argparse.Namespace) -> int:
                 "spec_code": args.spec_code,
                 "scope": args.reuse_scope,
                 "source_fingerprint": args.source_fingerprint,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def run_save_batch_mapping_replacement(args: argparse.Namespace) -> int:
+    try:
+        registry = load_company_registry(args.registry)
+        matching_companies = [
+            company
+            for company in registry.get("companies", [])
+            if str(company.get("company_id") or "").strip() == args.company_id
+            and company.get("status") == "active"
+            and company.get("enabled", True) is not False
+        ]
+        if len(matching_companies) != 1:
+            raise BatchMappingReplacementError("公司未在活动公司库中唯一登记")
+        profiles = {
+            str(item.get("source_profile_id") or "").strip()
+            for item in matching_companies[0].get("source_profiles", [])
+            if item.get("status") == "active" and item.get("enabled", True) is not False
+        }
+        if args.source_profile not in profiles:
+            raise BatchMappingReplacementError("来源配置不属于指定公司或未启用")
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+            mapping_overlay_paths=tuple(args.mapping_overlay),
+        )
+        saved = save_batch_mapping_replacement(
+            args.output,
+            catalog,
+            company_id=args.company_id,
+            source_profile_id=args.source_profile,
+            identifier_type=args.identifier_type,
+            source_value=args.source_value,
+            source_spec=args.source_spec,
+            expected_product_code=args.expected_product_code,
+            expected_spec_code=args.expected_spec_code,
+            replacement_product_code=args.replacement_product_code,
+            replacement_spec_code=args.replacement_spec_code,
+            source_fingerprint=args.source_fingerprint,
+            reason=args.reason,
+            confirmed_by=args.confirmed_by,
+            confirmation_token=args.confirmation_token,
+        )
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        BatchMappingReplacementError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "BATCH_MAPPING_REPLACEMENT_NOT_SAVED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {
+                "status": "saved",
+                "output": str(saved),
+                "scope": "current_batch",
+                "source_fingerprint": args.source_fingerprint,
+                "formal_mapping_changed": False,
+                "admin_action_required": True,
             },
             ensure_ascii=False,
             indent=2,
@@ -1558,8 +1790,12 @@ def main() -> int:
         return run_plan_pending_mapping_publish(args)
     if args.command == "publish-pending-mappings":
         return run_publish_pending_mappings(args)
+    if args.command == "direct-add-official-mapping":
+        return run_direct_add_official_mapping(args)
     if args.command == "save-product-mapping":
         return run_save_product_mapping(args)
+    if args.command == "save-batch-mapping-replacement":
+        return run_save_batch_mapping_replacement(args)
     if args.command == "save-package-semantics-proposal":
         return run_save_package_semantics_proposal(args)
     if args.command == "list-package-semantics-proposals":

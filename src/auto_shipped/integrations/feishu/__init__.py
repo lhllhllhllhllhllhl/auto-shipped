@@ -34,6 +34,8 @@ from .official_mappings import (
     write_official_mapping_snapshot,
 )
 from .owner_publisher import (
+    DIRECT_ADD_CONFIRMATION_TOKEN,
+    DirectMappingAddResult,
     MappingPublishItem,
     MappingPublishLogRecord,
     MappingPublishPlan,
@@ -41,6 +43,7 @@ from .owner_publisher import (
     OfficialMappingRecord,
     OwnerMappingPublishError,
     PUBLISH_CONFIRMATION_TOKEN,
+    add_confirmed_mapping_direct,
     plan_pending_mapping_publish,
     publish_pending_mappings,
 )
@@ -77,12 +80,15 @@ __all__ = [
     "validate_official_mapping_snapshot",
     "write_official_mapping_snapshot",
     "MappingPublishItem",
+    "DIRECT_ADD_CONFIRMATION_TOKEN",
+    "DirectMappingAddResult",
     "MappingPublishLogRecord",
     "MappingPublishPlan",
     "MappingPublishResult",
     "OfficialMappingRecord",
     "OwnerMappingPublishError",
     "PUBLISH_CONFIRMATION_TOKEN",
+    "add_confirmed_mapping_direct",
     "plan_pending_mapping_publish",
     "publish_pending_mappings",
 ]

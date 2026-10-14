@@ -13,10 +13,12 @@ from .pending_mappings import (
     FeishuIdentity,
     ManagedPendingSheet,
     PendingMappingProposal,
+    build_mapping_key,
 )
 
 
 PUBLISH_CONFIRMATION_TOKEN = "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS"
+DIRECT_ADD_CONFIRMATION_TOKEN = "CONFIRM_ADD_NEW_OFFICIAL_MAPPING"
 
 
 class OwnerMappingPublishError(ValueError):
@@ -127,6 +129,19 @@ class MappingPublishResult:
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class DirectMappingAddResult:
+    status: str
+    operation_id: str
+    mapping_key: str
+    revision_before: str
+    revision_after: str
+    product_code: str
+    spec_code: str
+    code: str = ""
+    reason: str = ""
+
+
 class OwnerMappingPublisherGateway(Protocol):
     def get_current_identity(self) -> FeishuIdentity: ...
 
@@ -214,6 +229,370 @@ def _gather_pending(
                 gathered.append((sheet.sheet_id, proposal))
     gathered.sort(key=lambda item: (item[1].submitted_at, item[1].proposal_id))
     return gathered
+
+
+def add_confirmed_mapping_direct(
+    gateway: OwnerMappingPublisherGateway,
+    catalog: ProductCatalog,
+    *,
+    allowed_company_ids: Sequence[str],
+    allowed_source_profile_ids: Sequence[str],
+    company_id: str,
+    source_profile_id: str,
+    identifier_type: str,
+    source_value: str,
+    source_spec: str,
+    target_platform: str,
+    product_code: str,
+    spec_code: str,
+    evidence: str,
+    confirmation_token: str,
+    operation_id: str | None = None,
+    timestamp: str | None = None,
+) -> DirectMappingAddResult:
+    """Append one conflict-free user-confirmed mapping to the official table.
+
+    This path is deliberately create-only. It never replaces, deletes, merges,
+    or re-keys an existing official mapping.
+    """
+
+    company_id = clean_identifier(company_id)
+    source_profile_id = clean_identifier(source_profile_id)
+    identifier_type = clean_identifier(identifier_type)
+    source_value = clean_identifier(source_value)
+    source_spec = clean_identifier(source_spec)
+    target_platform = clean_identifier(target_platform)
+    evidence = clean_identifier(evidence)
+    if confirmation_token != DIRECT_ADD_CONFIRMATION_TOKEN:
+        return DirectMappingAddResult(
+            status="needs_confirmation",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_ADD_CONFIRMATION_REQUIRED",
+            reason="新增正式映射前必须取得用户明确的‘以后沿用’确认。",
+        )
+    identity = gateway.get_current_identity()
+    if identity.identity_type != "user" or not clean_identifier(identity.user_id):
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_USER_IDENTITY_REQUIRED",
+            reason="必须使用可追溯的飞书用户身份，禁止共享机器人身份写正式映射。",
+        )
+    if company_id not in {clean_identifier(value) for value in allowed_company_ids}:
+        return DirectMappingAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_COMPANY_NOT_REGISTERED",
+            reason="公司尚未登记，不能通过商品映射入口新增；请联系管理员维护公司库。",
+        )
+    if source_profile_id not in {
+        clean_identifier(value) for value in allowed_source_profile_ids
+    }:
+        return DirectMappingAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_SOURCE_PROFILE_NOT_REGISTERED",
+            reason="来源配置尚未登记，请联系管理员维护来源配置。",
+        )
+    if target_platform != "guanyi":
+        return DirectMappingAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_TARGET_PLATFORM_UNSUPPORTED",
+            reason="当前受控新增入口只支持管易商品映射。",
+        )
+    if identifier_type not in {"product_code", "barcode", "product_name"}:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_IDENTIFIER_TYPE_INVALID",
+            reason="来源商品标识类型不受支持。",
+        )
+    if not evidence:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_EVIDENCE_REQUIRED",
+            reason="必须记录用户确认依据。",
+        )
+    try:
+        mapping_key = build_mapping_key(
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+            target_platform=target_platform,
+        )
+    except ValueError as exc:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_KEY_INVALID",
+            reason=str(exc),
+        )
+    target = catalog.resolve_unique_target(product_code, spec_code)
+    if target is None:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key=mapping_key,
+            revision_before="",
+            revision_after="",
+            product_code=clean_identifier(product_code),
+            spec_code=clean_identifier(spec_code),
+            code="DIRECT_MAPPING_TARGET_NOT_UNIQUE",
+            reason="目标商品代码与规格代码在有效商品目录中不存在或不唯一。",
+        )
+
+    metadata = gateway.get_official_repository_metadata()
+    revision_before = clean_identifier(metadata.get("mapping_revision"))
+    if clean_identifier(metadata.get("repository_status")) != "active":
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or clean_identifier(
+                metadata.get("publish_operation_id")
+            ),
+            mapping_key=mapping_key,
+            revision_before=revision_before,
+            revision_after="",
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
+            reason="正式映射库不是active，需管理员先核对并恢复。",
+        )
+    revision_after = _next_revision(revision_before)
+    official_records = gateway.list_official_mapping_records()
+    existing = [
+        record
+        for record in official_records
+        if clean_identifier(record.get("mapping_key")) == mapping_key
+    ]
+    if len(existing) > 1:
+        return DirectMappingAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            mapping_key=mapping_key,
+            revision_before=revision_before,
+            revision_after=revision_before,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            code="DIRECT_MAPPING_DUPLICATE_OFFICIAL_KEY",
+            reason="正式映射中同一键存在多条记录，请联系管理员治理。",
+        )
+    if existing:
+        existing_target = _candidate(existing[0])
+        if (
+            clean_identifier(existing[0].get("status")) == "active"
+            and existing_target == (target.product_code, target.spec_code)
+        ):
+            return DirectMappingAddResult(
+                status="already_exists",
+                operation_id=operation_id or "",
+                mapping_key=mapping_key,
+                revision_before=revision_before,
+                revision_after=revision_before,
+                product_code=target.product_code,
+                spec_code=target.spec_code,
+                reason="正式库已存在完全相同映射，未重复写入。",
+            )
+        return DirectMappingAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            mapping_key=mapping_key,
+            revision_before=revision_before,
+            revision_after=revision_before,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            code="DIRECT_MAPPING_CONFLICTS_WITH_OFFICIAL",
+            reason="同一映射键已存在不同目标或异常状态，禁止普通用户覆盖；请联系管理员。",
+        )
+
+    written_at = timestamp or _now()
+    stable_operation_id = operation_id or _stable_id(
+        "direct-add",
+        revision_before,
+        mapping_key,
+        target.product_code,
+        target.spec_code,
+        identity.user_id,
+    )
+    record = OfficialMappingRecord(
+        mapping_id=_stable_id("mapping", mapping_key),
+        mapping_key=mapping_key,
+        company_id=company_id,
+        source_profile_id=source_profile_id,
+        identifier_type=identifier_type,
+        source_value=source_value,
+        source_spec=source_spec,
+        target_platform=target_platform,
+        product_code=target.product_code,
+        spec_code=target.spec_code,
+        status="active",
+        mapping_version=revision_after,
+        confirmed_by=identity.user_id,
+        confirmed_at=written_at,
+        evidence=evidence,
+    )
+    try:
+        build_official_mapping_snapshot(
+            [*official_records, record.to_dict()],
+            {
+                **metadata,
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            synced_at=written_at,
+        )
+    except OfficialMappingSyncError as exc:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=stable_operation_id,
+            mapping_key=mapping_key,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            code="DIRECT_MAPPING_SNAPSHOT_INVALID",
+            reason=str(exc),
+        )
+    try:
+        latest = gateway.get_official_repository_metadata()
+        if (
+            clean_identifier(latest.get("repository_status")) != "active"
+            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        ):
+            return DirectMappingAddResult(
+                status="blocked",
+                operation_id=stable_operation_id,
+                mapping_key=mapping_key,
+                revision_before=revision_before,
+                revision_after=revision_after,
+                product_code=target.product_code,
+                spec_code=target.spec_code,
+                code="DIRECT_MAPPING_REVISION_CHANGED",
+                reason="正式映射库在预检后发生变化，未写入。",
+            )
+        gateway.update_official_repository_metadata(
+            {
+                "repository_status": "publishing",
+                "publish_operation_id": stable_operation_id,
+            }
+        )
+        gateway.upsert_official_mapping_record(replace(record, status="inactive"))
+        event_id = _stable_id("event", stable_operation_id, mapping_key)
+        gateway.upsert_mapping_publish_log(
+            MappingPublishLogRecord(
+                event_id=event_id,
+                operation_id=stable_operation_id,
+                action="DIRECT_CREATE",
+                mapping_key=mapping_key,
+                old_value="{}",
+                new_value=json.dumps(
+                    {
+                        "product_code": target.product_code,
+                        "spec_code": target.spec_code,
+                        "status": "active",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                source_proposal_id="",
+                submitted_by=identity.user_id,
+                approved_by=identity.user_id,
+                reason=evidence,
+                official_revision_before=revision_before,
+                official_revision_after=revision_after,
+                status="staged",
+                created_at=written_at,
+            )
+        )
+        gateway.update_official_mapping_status(mapping_key, "active")
+        gateway.update_official_repository_metadata(
+            {
+                "mapping_revision": revision_after,
+                "last_published_at": written_at,
+                "last_published_by": identity.user_id,
+            }
+        )
+        verified_records = gateway.list_official_mapping_records()
+        verify_metadata = gateway.get_official_repository_metadata()
+        build_official_mapping_snapshot(
+            verified_records,
+            {**verify_metadata, "repository_status": "active"},
+            catalog,
+            synced_at=written_at,
+        )
+        gateway.update_mapping_publish_log_status(event_id, "published")
+        gateway.update_official_repository_metadata(
+            {"repository_status": "active", "publish_operation_id": ""}
+        )
+    except Exception as exc:
+        return DirectMappingAddResult(
+            status="failed_closed",
+            operation_id=stable_operation_id,
+            mapping_key=mapping_key,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            code="DIRECT_MAPPING_WRITE_INTERRUPTED",
+            reason=(
+                "写入中断；正式库保持可核验状态，禁止继续转换。请管理员按"
+                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+            ),
+        )
+    return DirectMappingAddResult(
+        status="created",
+        operation_id=stable_operation_id,
+        mapping_key=mapping_key,
+        revision_before=revision_before,
+        revision_after=revision_after,
+        product_code=target.product_code,
+        spec_code=target.spec_code,
+    )
 
 
 def plan_pending_mapping_publish(

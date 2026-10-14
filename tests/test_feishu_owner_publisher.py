@@ -13,6 +13,7 @@ from auto_shipped.integrations.feishu import (
     PendingMappingProposal,
     PendingSheetMetadata,
     build_pending_mapping_proposal,
+    add_confirmed_mapping_direct,
     plan_pending_mapping_publish,
     publish_pending_mappings,
 )
@@ -174,6 +175,115 @@ def official_for(item: PendingMappingProposal, product_code: str, spec_code: str
 
 
 class FeishuOwnerPublisherTests(unittest.TestCase):
+    def test_direct_add_requires_exact_confirmation_without_writing(self) -> None:
+        gateway = FakePublisherGateway()
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="来源商品",
+            source_spec="蓝色",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认以后沿用",
+            confirmation_token="",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "needs_confirmation")
+        self.assertEqual(gateway.official, [])
+        self.assertEqual(gateway.logs, [])
+        self.assertEqual(gateway.metadata["mapping_revision"], "2")
+
+    def test_direct_add_creates_logs_and_increments_revision(self) -> None:
+        gateway = FakePublisherGateway()
+        gateway.identity = FeishuIdentity("ou-employee", display_name="员工")
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="来源商品",
+            source_spec="蓝色",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认以后沿用",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "created")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+        self.assertEqual(gateway.metadata["repository_status"], "active")
+        self.assertEqual(gateway.official[0]["confirmed_by"], "ou-employee")
+        self.assertEqual(gateway.logs[0]["action"], "DIRECT_CREATE")
+        self.assertEqual(gateway.logs[0]["status"], "published")
+
+    def test_direct_add_exact_duplicate_is_idempotent(self) -> None:
+        gateway = FakePublisherGateway()
+        item = proposal()
+        gateway.official = [official_for(item, "P1", "S1")]
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="来源商品",
+            source_spec="蓝色",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认以后沿用",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "already_exists")
+        self.assertEqual(gateway.metadata["mapping_revision"], "2")
+        self.assertEqual(gateway.logs, [])
+
+    def test_direct_add_conflict_requires_admin_without_writing(self) -> None:
+        gateway = FakePublisherGateway()
+        item = proposal()
+        gateway.official = [official_for(item, "P2", "S2")]
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="来源商品",
+            source_spec="蓝色",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认以后沿用",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "needs_admin")
+        self.assertEqual(gateway.metadata["mapping_revision"], "2")
+        self.assertEqual(gateway.logs, [])
+
     def test_blank_target_spec_is_canonicalized_for_single_variant_product(self) -> None:
         gateway = FakePublisherGateway()
         gateway.proposals = [proposal(spec_code="")]

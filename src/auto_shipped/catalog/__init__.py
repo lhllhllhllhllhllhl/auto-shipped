@@ -4,6 +4,12 @@ from .mapping_store import (
     ProductMappingStoreError,
     save_confirmed_mapping,
 )
+from .batch_mapping_replacement import (
+    BATCH_REPLACEMENT_CONFIRMATION,
+    BatchMappingReplacementError,
+    save_batch_mapping_replacement,
+    validate_batch_mapping_replacement_document,
+)
 from .product_catalog import (
     ProductCatalog,
     ProductRecord,
@@ -28,10 +34,12 @@ from .white_label_library import (
 __all__ = [
     "PERSIST_MAPPING_CONFIRMATION",
     "CURRENT_BATCH_MAPPING_CONFIRMATION",
+    "BATCH_REPLACEMENT_CONFIRMATION",
     "PACKAGE_SEMANTICS_REUSE_CONFIRMATION",
     "ProductCatalog",
     "ProductRecord",
     "ProductMappingStoreError",
+    "BatchMappingReplacementError",
     "PackageSemanticsStoreError",
     "ProductResolution",
     "clean_identifier",
@@ -41,6 +49,8 @@ __all__ = [
     "list_package_semantics_proposals",
     "save_package_semantics_proposal",
     "save_confirmed_mapping",
+    "save_batch_mapping_replacement",
+    "validate_batch_mapping_replacement_document",
     "WhiteLabelLibrary",
     "WhiteLabelLibraryError",
     "load_white_label_library",

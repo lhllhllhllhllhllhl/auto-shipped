@@ -211,6 +211,7 @@ def convert_order_batch(
     company_hints: dict[str, str] | None = None,
     adaptive_plan_hints: dict[str, str] | None = None,
     mapping_overlay_paths: tuple[str | Path, ...] = (),
+    mapping_replacement_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
     batch_name: str = "批量订单",
@@ -283,6 +284,7 @@ def convert_order_batch(
                 company_hint=_hint_for_source(source, companies),
                 adaptive_plan_path=_hint_for_source(source, adaptive_plans),
                 mapping_overlay_paths=mapping_overlay_paths,
+                mapping_replacement_paths=mapping_replacement_paths,
                 official_mapping_ready=official_mapping_ready,
                 official_mapping_error=official_mapping_error,
             )
