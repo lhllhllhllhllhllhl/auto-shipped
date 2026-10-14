@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from auto_shipped.catalog import ProductCatalog, ProductRecord
+from auto_shipped.catalog.catalog_layers import CatalogLayer, build_effective_catalog
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -146,6 +147,35 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(product.product_name, "黄糯玉米10根礼盒装")
         self.assertEqual(product.spec_code, "")
         self.assertEqual(product.catalog_source_id, "business_preferred_0")
+
+    def test_real_preferred_catalog_matches_current_replacement_snapshot(self) -> None:
+        build = build_effective_catalog(
+            [
+                CatalogLayer(
+                    source_id="business_preferred",
+                    path=PROJECT_ROOT / "assets/catalog/preferred_product_catalog.csv",
+                    priority=1000,
+                )
+            ]
+        )
+
+        self.assertEqual(build.layers[0].active_rows, 10)
+        self.assertEqual(build.layers[0].pending_rows, 2)
+        self.assertEqual(
+            {(row.product_code, row.spec_code) for row in build.rows},
+            {
+                ("GMBN1", "6974768564804"),
+                ("GMCN-1", "6974768564798"),
+                ("GMHN-1", "6974768564729"),
+                ("JTW8E1", "6974768564811"),
+                ("JTTZE1", "6974768564835"),
+                ("JTBN1E1-EH", "6974768564842"),
+                ("MYQLH10", "MYQLH10"),
+                ("6974768564859", ""),
+                ("6974768564873", ""),
+                ("6974768564880", ""),
+            },
+        )
 
     def test_formal_mapping_can_target_preferred_only_product(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
