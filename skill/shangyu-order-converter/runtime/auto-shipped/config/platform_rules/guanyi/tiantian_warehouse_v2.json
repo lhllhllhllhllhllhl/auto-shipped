@@ -3,7 +3,7 @@
   "profile_id": "guanyi_tiantian_warehouse_v2",
   "source_profile_id": "tiantian_warehouse_v2",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 8,
+  "version": 9,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
@@ -142,16 +142,16 @@
         "evidence": "页面已真实回读待审核状态"
       },
       "GY-IMPORT-OPTIONS": {
-        "status": "pending_implementation",
+        "status": "implemented",
         "confirmed": true,
-        "question": "业务已确认自定义导入页面下面两项都要勾选；请在上传阶段完成两项控件的精确定位和回读验收。",
-        "reason": "规则已确认，但当前浏览器执行器尚未完成两项控件的实现和真实验收。"
+        "implementation_ref": "browser.guanyi.import_options.verified_current_ui",
+        "evidence": "两项控件已按精确文字定位、勾选并回读；2026-09-28完成真实页面只读验收。"
       },
       "GY-UPLOAD-SUBMISSION": {
-        "status": "pending_implementation",
-        "confirmed": false,
-        "question": "管易导入的“确定”提交尚未启用，完成真实MVP验收前保持关闭。",
-        "reason": "文件选择可能已触发网络写入，提交必须有独立授权和幂等核验。"
+        "status": "implemented",
+        "confirmed": true,
+        "implementation_ref": "browser.guanyi.submit_import.guarded",
+        "evidence": "2026-10-14所有者授权真实验收已确认文件暂存、两段确定、48行字段逐行同名对应、最终导入请求、唯一任务ID和结果窗口回读；修正店铺后任务705668612回读总数2、成功2、格式错误0、非法数据0，完成全量成功闭环。生产入口仍要求当前对话对明确批次的独立上传授权。"
       },
       "GY-TASK-RECONCILIATION": {
         "status": "implemented",

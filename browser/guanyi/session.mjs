@@ -7,6 +7,7 @@ import {
   CHROME_EXECUTABLE,
   DEFAULT_TIMEOUT_MS,
   PROFILE_DIR,
+  LOGIN_URL,
   WINDOW_HEIGHT,
   WINDOW_WIDTH,
 } from "./config.mjs";
@@ -18,6 +19,34 @@ import {
 
 export function isLoginUrl(url) {
   return /(?:login\.|www\.)?guanyierp\.com\/login/i.test(url);
+}
+
+
+export class SessionError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = "SessionError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+
+export function isAccessBlockedText(text) {
+  const value = String(text || "");
+  return (
+    value.includes("405") &&
+    value.includes("安全威胁") &&
+    value.includes("访问被阻断")
+  );
+}
+
+
+async function isAccessBlockedPage(page) {
+  return await Promise.all([
+    page.title().catch(() => ""),
+    page.evaluate(() => document.body?.innerText || "").catch(() => ""),
+  ]).then(([title, text]) => isAccessBlockedText(`${title} ${text}`));
 }
 
 
@@ -63,6 +92,21 @@ export async function launchSession() {
 
 export async function openApp(page) {
   await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
+  let accessBlocked = await isAccessBlockedPage(page);
+  if (accessBlocked) {
+    // A direct /index navigation can be rejected by the current application
+    // firewall. Enter through the official login route instead; an existing
+    // authenticated session may redirect back to the application normally.
+    await page.goto(LOGIN_URL, { waitUntil: "domcontentloaded" });
+    accessBlocked = await isAccessBlockedPage(page);
+  }
+  if (accessBlocked) {
+    throw new SessionError(
+      "APP_ACCESS_BLOCKED",
+      "管易安全防火墙阻断了当前网络出口；请让 guanyierp.com 走直连后重试。",
+      { url: page.url() },
+    );
+  }
   if (!isLoginUrl(page.url())) {
     await page.waitForFunction(
       () => document.body?.innerText?.trim().length > 0,
@@ -157,6 +201,15 @@ export async function loginWithCredentials(
   timeoutMs,
   options = {},
 ) {
+  const { panel, inputs } = await prepareCredentialLogin(page);
+  await inputs.nth(0).fill(credentials.username);
+  await inputs.nth(1).fill(credentials.password);
+  await submitPreparedCredentialLogin(page, { panel, inputs });
+  return await waitForAuthenticatedPage(context, page, timeoutMs, options);
+}
+
+
+export async function prepareCredentialLogin(page) {
   const accountLogin = page.getByRole("tab", {
     name: "账户登录",
     exact: true,
@@ -168,10 +221,30 @@ export async function loginWithCredentials(
   const panel = page.locator("#rc-tabs-0-panel-Account");
   const inputs = panel.locator("input");
   if ((await inputs.count()) < 2) {
-    throw new Error("账户登录区域没有找到账号和密码输入框。");
+    throw new SessionError(
+      "LOGIN_CREDENTIAL_INPUTS_MISSING",
+      "账户登录区域没有找到账号和密码输入框。",
+    );
   }
-  await inputs.nth(0).fill(credentials.username);
-  await inputs.nth(1).fill(credentials.password);
+  return { panel, inputs };
+}
+
+
+export async function submitPreparedCredentialLogin(
+  page,
+  prepared = null,
+) {
+  const { panel, inputs } = prepared || (await prepareCredentialLogin(page));
+  const filled = await Promise.all([
+    inputs.nth(0).evaluate((input) => Boolean(input.value)),
+    inputs.nth(1).evaluate((input) => Boolean(input.value)),
+  ]);
+  if (!filled.every(Boolean)) {
+    throw new SessionError(
+      "TEMPORARY_CREDENTIALS_NOT_FILLED",
+      "Agent 尚未在管易登录页完整填写账号和密码。",
+    );
+  }
 
   const agreement = panel.getByRole("checkbox", {
     name: /我已阅读并同意/,
@@ -180,7 +253,7 @@ export async function loginWithCredentials(
     await agreement.setChecked(true);
   }
   await panel.getByRole("button", { name: "登 录", exact: true }).click();
-  return await waitForAuthenticatedPage(context, page, timeoutMs, options);
+  return { submitted: true };
 }
 
 

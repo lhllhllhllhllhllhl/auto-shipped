@@ -20,6 +20,8 @@ const TASK_CENTER_HEADERS = [
 
 const COMPLETED_IMPORT_TASK_NAME = "自定义订单导入";
 const MAX_COMPLETED_IMPORT_SUMMARIES = 20;
+const IMPORT_RESULT_TITLE = "Excel导入结果信息";
+const MAX_VISIBLE_FAILURE_SUMMARIES = 10;
 
 
 export class TaskCenterError extends Error {
@@ -32,6 +34,33 @@ export class TaskCenterError extends Error {
 }
 
 
+async function frameSurfaceIsVisible(frame) {
+  if (!frame.parentFrame()) {
+    return true;
+  }
+  const element = await frame.frameElement().catch(() => null);
+  if (!element) {
+    return false;
+  }
+  return await element.evaluate((iframe) => {
+    let current = iframe;
+    while (current instanceof Element) {
+      const style = current.ownerDocument.defaultView?.getComputedStyle(current);
+      if (
+        current.getAttribute("aria-hidden") === "true" ||
+        style?.display === "none" ||
+        style?.visibility === "hidden"
+      ) {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    const rect = iframe.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  });
+}
+
+
 async function visibleExact(scope, text) {
   return await firstVisible(scope.getByText(text, { exact: true }));
 }
@@ -39,6 +68,9 @@ async function visibleExact(scope, text) {
 
 export async function findTaskCenterFrame(page) {
   for (const frame of page.frames()) {
+    if (!(await frameSurfaceIsVisible(frame))) {
+      continue;
+    }
     let anchorCount = 0;
     for (const header of TASK_CENTER_HEADERS) {
       if (await visibleExact(frame, header).catch(() => null)) {
@@ -53,6 +85,68 @@ export async function findTaskCenterFrame(page) {
     }
   }
   return null;
+}
+
+
+export function parseImportResultSummary(value) {
+  const text = normalizedText(value);
+  const match = text.match(
+    /导入总数[：:]\s*(\d+)\s*条.*?成功导入\s*(\d+)\s*条.*?格式错误\s*(\d+)\s*条.*?非法数据\s*(\d+)\s*条/,
+  );
+  if (!match) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_SUMMARY_INVALID",
+      "无法从结果窗口读取完整的导入统计。",
+    );
+  }
+  const [total, successful, formatErrors, illegalData] = match
+    .slice(1)
+    .map((item) => Number.parseInt(item, 10));
+  const failed = formatErrors + illegalData;
+  if (total !== successful + failed) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_COUNTS_INCONSISTENT",
+      "导入结果总数与成功、失败数量不一致，已停止自动判定。",
+    );
+  }
+  return { total, successful, formatErrors, illegalData, failed };
+}
+
+
+export function sanitizeImportFailure(value) {
+  const text = normalizedText(value);
+  const rowMatch = text.match(/第\s*(\d+)\s*行/);
+  const sourceRow = rowMatch ? Number.parseInt(rowMatch[1], 10) : null;
+  const knownReasons = [
+    {
+      pattern: /无法匹配到系统中店铺信息/,
+      code: "STORE_NOT_FOUND",
+      message: "无法匹配到管易店铺信息",
+    },
+    {
+      pattern: /商品.*(?:不存在|无法匹配|未匹配)/,
+      code: "PRODUCT_NOT_FOUND",
+      message: "商品信息无法匹配",
+    },
+    {
+      pattern: /规格.*(?:不存在|无法匹配|未匹配)/,
+      code: "SKU_NOT_FOUND",
+      message: "规格信息无法匹配",
+    },
+    {
+      pattern: /平台单号.*(?:重复|已存在)/,
+      code: "PLATFORM_ORDER_DUPLICATE",
+      message: "平台单号重复或已存在",
+    },
+  ];
+  const known = knownReasons.find(({ pattern }) => pattern.test(text));
+  return {
+    sourceRow,
+    code: known?.code || "IMPORT_FAILURE_REDACTED",
+    message:
+      known?.message ||
+      "管易返回了未登记的失败原因；详细内容已脱敏，请在结果窗口人工查看。",
+  };
 }
 
 
@@ -342,6 +436,194 @@ export async function readCompletedImportTasks(
 }
 
 
+async function findVisibleImportResultSurface(page) {
+  const matches = [];
+  for (const frame of page.frames()) {
+    if (!(await frameSurfaceIsVisible(frame))) {
+      continue;
+    }
+    const surfaces = frame.locator(
+      '[role="dialog"], .x-window, .ant-modal, .el-dialog',
+    );
+    for (let index = 0; index < (await surfaces.count()); index += 1) {
+      const surface = surfaces.nth(index);
+      if (!(await surface.isVisible().catch(() => false))) {
+        continue;
+      }
+      const text = await surface.innerText().catch(() => "");
+      if (text.includes(IMPORT_RESULT_TITLE) && text.includes("导入总数")) {
+        matches.push({ frame, surface });
+      }
+    }
+  }
+  if (matches.length > 1) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_DIALOG_AMBIGUOUS",
+      "页面同时出现多个导入结果窗口，已停止读取。",
+      { matchCount: matches.length },
+    );
+  }
+  return matches[0] || null;
+}
+
+
+async function waitForImportResultSurface(page, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const match = await findVisibleImportResultSurface(page);
+    if (match) {
+      return match;
+    }
+    await page.waitForTimeout(200);
+  }
+  throw new TaskCenterError(
+    "IMPORT_RESULT_DIALOG_TIMEOUT",
+    "点击查看结果后，没有在限定时间内读到导入结果窗口。",
+  );
+}
+
+
+async function findCompletedTaskRow(frame, taskId) {
+  if (!/^\d+$/.test(taskId || "")) {
+    throw new TaskCenterError(
+      "TASK_ID_INVALID",
+      "查看导入结果需要经过核验的数字任务 ID。",
+    );
+  }
+  const rows = frame.locator("tbody tr:visible");
+  const matches = [];
+  for (let index = 0; index < (await rows.count()); index += 1) {
+    const row = rows.nth(index);
+    const identity = await readTaskRecordIdentity(row);
+    if (
+      identity.taskId === taskId &&
+      identity.taskIdEvidence === "dom_and_record_model"
+    ) {
+      matches.push(row);
+    }
+  }
+  if (matches.length !== 1) {
+    throw new TaskCenterError(
+      "COMPLETED_TASK_ROW_NOT_UNIQUE",
+      "无法在已完成列表中唯一定位目标导入任务。",
+      { taskId, matchCount: matches.length },
+    );
+  }
+  return matches[0];
+}
+
+
+export async function readCompletedImportTaskResultFromFrame(
+  page,
+  frame,
+  taskId,
+) {
+  const completedTab = await visibleExact(frame, "已完成");
+  if (!completedTab) {
+    throw new TaskCenterError(
+      "COMPLETED_TAB_NOT_FOUND",
+      "任务中心没有找到“已完成”页签。",
+    );
+  }
+  await completedTab.click();
+  await waitForTaskTable(frame);
+  if (await findVisibleImportResultSurface(page)) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_DIALOG_ALREADY_OPEN",
+      "页面已经打开一个导入结果窗口，无法确认它属于当前任务。",
+    );
+  }
+
+  const row = await findCompletedTaskRow(frame, taskId);
+  const cells = row.locator("td:visible");
+  if ((await cells.count()) < 4) {
+    throw new TaskCenterError(
+      "COMPLETED_TASK_ROW_INVALID",
+      "目标任务行缺少必要的名称、时间或状态字段。",
+    );
+  }
+  const taskName = normalizedText(
+    await cells.nth(1).innerText().catch(() => ""),
+  );
+  const taskStatus = normalizedText(
+    await cells.nth(3).innerText().catch(() => ""),
+  );
+  if (taskName !== COMPLETED_IMPORT_TASK_NAME || taskStatus !== "执行完成") {
+    throw new TaskCenterError(
+      "COMPLETED_TASK_RESULT_NOT_READY",
+      "目标任务尚未以“执行完成”状态进入结果读取阶段。",
+      { taskId, taskName, taskStatus },
+    );
+  }
+
+  const actions = row.getByText("查看结果", { exact: true });
+  const visibleActions = [];
+  for (let index = 0; index < (await actions.count()); index += 1) {
+    const action = actions.nth(index);
+    if (await action.isVisible().catch(() => false)) {
+      visibleActions.push(action);
+    }
+  }
+  if (visibleActions.length !== 1) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_ACTION_NOT_UNIQUE",
+      "无法在目标任务行中唯一定位“查看结果”。",
+      { taskId, matchCount: visibleActions.length },
+    );
+  }
+  await visibleActions[0].click();
+  const { surface } = await waitForImportResultSurface(page);
+  const text = await surface.innerText();
+  const summary = parseImportResultSummary(text);
+
+  const rawFailureTexts = [];
+  const failureRows = surface.locator("tbody tr:visible");
+  for (let index = 0; index < (await failureRows.count()); index += 1) {
+    const rowText = normalizedText(
+      await failureRows.nth(index).innerText().catch(() => ""),
+    );
+    if (rowText) {
+      rawFailureTexts.push(rowText);
+    }
+  }
+  if (rawFailureTexts.length === 0 && summary.failed > 0) {
+    for (const line of String(text).split(/\r?\n/)) {
+      if (/第\s*\d+\s*行/.test(line)) {
+        rawFailureTexts.push(line);
+      }
+    }
+  }
+  const failures = rawFailureTexts
+    .slice(0, MAX_VISIBLE_FAILURE_SUMMARIES)
+    .map(sanitizeImportFailure);
+  return {
+    status: "import_task_result_ready",
+    taskId,
+    taskName,
+    taskStatus,
+    summary,
+    failures,
+    visibleFailureCount: failures.length,
+    detailsTruncated: summary.failed > failures.length,
+    safety:
+      "Only aggregate counts, source row numbers, and allowlisted failure categories were returned. Recipient, phone, address, and raw platform-order content were not returned.",
+  };
+}
+
+
+export async function readCompletedImportTaskResult(page, taskId) {
+  const navigation = await navigateToTaskCenter(page);
+  return {
+    ...(await readCompletedImportTaskResultFromFrame(
+      page,
+      navigation.frame,
+      taskId,
+    )),
+    route: navigation.route,
+  };
+}
+
+
 async function readVisibleImportTasks(
   frame,
   {
@@ -424,26 +706,32 @@ export async function readImportTaskSnapshot(frame) {
     status: "executing_import_tasks_ready",
   });
   const completed = await readCompletedImportTasks(frame);
+  const observedTasks = [...executing.tasks, ...completed.tasks];
+  const allIdsVerified =
+    observedTasks.length > 0 &&
+    observedTasks.every(
+      (task) =>
+        task.taskId && task.taskIdEvidence === "dom_and_record_model",
+    );
   const byId = new Map();
-  for (const task of [...executing.tasks, ...completed.tasks]) {
-    if (task.taskId && !byId.has(task.taskId)) {
-      byId.set(task.taskId, task);
+  if (allIdsVerified) {
+    for (const task of observedTasks) {
+      if (!byId.has(task.taskId)) {
+        byId.set(task.taskId, task);
+      }
     }
   }
-  const tasks = [...byId.values()];
-  const hasVerifiedIds =
-    tasks.length > 0 &&
-    tasks.every(
-      (task) => task.taskIdEvidence === "dom_and_record_model",
-    );
+  // Keep unverified rows in the snapshot. Dropping them would turn an
+  // observable-but-unverifiable task list into a falsely verified empty list.
+  const tasks = allIdsVerified ? [...byId.values()] : observedTasks;
   return {
     status: "import_task_snapshot_ready",
     taskName: COMPLETED_IMPORT_TASK_NAME,
-    matchCount: tasks.length,
+    matchCount: observedTasks.length,
     tasks,
-    taskIdStatus: hasVerifiedIds
+    taskIdStatus: allIdsVerified
       ? "task_record_ids_verified"
-      : tasks.length === 0
+      : observedTasks.length === 0
         ? "verified_empty_list"
         : "task_record_ids_observed",
     phases: {

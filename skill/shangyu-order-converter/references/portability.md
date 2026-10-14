@@ -34,7 +34,9 @@
 
 6. 再运行 `doctor.py`、浏览器 `probe` 和只读 `navigate-import` 验收。
 
-运行时自动识别操作系统：macOS 使用 Keychain；Windows 使用当前 Windows 用户的 DPAPI 加密凭证文件。两者都必须在新电脑重新配置，不能回退到明文配置。Linux 当前只支持转换，不启用自动登录。
+运行时自动识别操作系统：macOS 使用 Keychain；Windows 使用当前 Windows 用户的 DPAPI 加密凭证文件。两者都必须在新电脑重新配置，不能回退到明文配置。Linux/云端优先由平台 Secret/Vault 配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；该助手接受 `get` 参数并通过私有标准输出返回账号密码 JSON，Skill 不负责写入 Vault。没有安全凭证入口时仍先复用已有浏览器会话；会话失效且用户明确接受对话历史会保留密码时，可使用 `login-agent-start`，由 Agent 通过私有 GUI 临时填入登录页。项目不得把聊天凭据复制到文件、环境变量、命令参数或日志。
+
+云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口。跨消息短信验证使用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；验证码由用户临时提供，只保存在登录进程内存，不写文件或日志。
 
 macOS 已完成真实登录和导航验收。Windows 已实现路径选择、虚拟环境、Chrome 发现和 DPAPI 提供器，并通过平台路由单元测试；首次拿到真实 Windows 电脑时仍必须完成 `doctor → credential-web → probe → navigate-import` 实机验收后，才能启用自动登录。
 

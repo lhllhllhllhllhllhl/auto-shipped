@@ -72,13 +72,15 @@ def main() -> int:
     npm = shutil.which("npm")
     lark_cli = shutil.which("lark-cli")
     browser_root = project_root / "browser" / "guanyi"
+    configured_chrome = os.environ.get("GUANYI_CHROME_EXECUTABLE")
     if platform.system() == "Darwin":
         chrome_candidates = [
+            Path(configured_chrome) if configured_chrome else None,
             Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
             Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
         ]
     elif platform.system() == "Windows":
-        chrome_candidates = [
+        chrome_candidates = ([Path(configured_chrome)] if configured_chrome else []) + [
             Path(value) / "Google" / "Chrome" / "Application" / "chrome.exe"
             for value in [
                 os.environ.get("PROGRAMFILES"),
@@ -89,11 +91,26 @@ def main() -> int:
         ]
     else:
         chrome_candidates = [
+            Path(configured_chrome) if configured_chrome else None,
+            Path("/usr/local/bin/chromium"),
             Path("/usr/bin/google-chrome"),
             Path("/usr/bin/google-chrome-stable"),
             Path("/usr/bin/chromium"),
         ]
-    chrome = next((path for path in chrome_candidates if path.is_file()), None)
+    chrome = next(
+        (path for path in chrome_candidates if path is not None and path.is_file()),
+        None,
+    )
+    credential_helper = os.environ.get("GUANYI_CREDENTIAL_HELPER")
+    credential_helper_path = (
+        Path(credential_helper) if credential_helper else None
+    )
+    external_credential_ready = bool(
+        credential_helper_path
+        and credential_helper_path.is_absolute()
+        and credential_helper_path.is_file()
+        and os.access(credential_helper_path, os.X_OK)
+    )
     checks = {
         "runtime": {"ready": True, "path": str(project_root)},
         "bundle_integrity": (
@@ -122,18 +139,36 @@ def main() -> int:
             "preferred_product_catalog.json",
         ),
         "credential_provider": {
-            "ready": platform.system() in {"Darwin", "Windows"},
+            "ready": (
+                platform.system() in {"Darwin", "Windows"}
+                or external_credential_ready
+            ),
             "provider": (
-                "macos_keychain"
+                "external_secret_helper"
+                if external_credential_ready
+                else "macos_keychain"
                 if platform.system() == "Darwin"
                 else "windows_dpapi"
                 if platform.system() == "Windows"
                 else None
             ),
+            "helper_path": (
+                str(credential_helper_path)
+                if external_credential_ready
+                else None
+            ),
+        },
+        "temporary_agent_gui": {
+            "ready": chrome is not None,
+            "mode": "current_conversation_only",
+            "requires_explicit_user_risk_acceptance": True,
+            "warning": "密码会保留在平台对话历史中；项目不保存或跨任务复用。",
         },
     }
     required_checks = {
-        key: value for key, value in checks.items() if key != "lark_cli"
+        key: value
+        for key, value in checks.items()
+        if key not in {"lark_cli", "credential_provider"}
     }
     ready = all(value.get("ready") for value in required_checks.values())
     print(json.dumps({"status": "ready" if ready else "needs_setup", "checks": checks}, ensure_ascii=False, indent=2))

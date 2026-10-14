@@ -5,6 +5,8 @@ import { chromium } from "playwright-core";
 
 import { CHROME_EXECUTABLE } from "./config.mjs";
 import {
+  ensureImportOptionsSelected,
+  IMPORT_OPTION_LABELS,
   NavigationError,
   selectCustomImportOrderStatus,
   selectOrderStatusControl,
@@ -80,6 +82,31 @@ test("rejects importing directly as shipped", async () => {
       (error) =>
         error instanceof NavigationError &&
         error.code === "ORDER_STATUS_NOT_ALLOWED",
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
+
+test("selects and confirms both required custom-import options", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <label><input type="checkbox">${IMPORT_OPTION_LABELS[0]}</label>
+      <label><input type="checkbox">${IMPORT_OPTION_LABELS[1]}</label>
+    `);
+    const result = await ensureImportOptionsSelected(page);
+    assert.equal(result.importOptionsConfirmed, true);
+    assert.deepEqual(result.importOptions, [...IMPORT_OPTION_LABELS]);
+    assert.deepEqual(
+      await page.locator('input[type="checkbox"]').evaluateAll((items) =>
+        items.map((item) => item.checked)),
+      [true, true],
     );
   } finally {
     await browser.close();

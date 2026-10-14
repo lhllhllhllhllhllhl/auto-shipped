@@ -194,11 +194,13 @@ class BusinessRuleCoverageTests(unittest.TestCase):
         upload = audit_rule_coverage(
             catalog, rules, "tiantian_to_guanyi_v1", phase="upload"
         )
-        self.assertEqual(upload.status, "needs_input")
-        self.assertEqual(
-            set(upload.blocked_rule_ids),
-            {"GY-IMPORT-OPTIONS", "GY-UPLOAD-SUBMISSION"},
-        )
+        self.assertEqual(upload.status, "ready")
+        self.assertEqual(upload.ready_rule_ids, [
+            "GY-IMPORT-STATUS-PENDING-REVIEW",
+            "GY-IMPORT-OPTIONS",
+            "GY-UPLOAD-SUBMISSION",
+        ])
+        self.assertEqual(upload.blocked_rule_ids, [])
 
 
 if __name__ == "__main__":

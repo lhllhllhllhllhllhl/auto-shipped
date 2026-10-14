@@ -47,7 +47,19 @@ export async function locateOrderInfoFileInput(page) {
       );
       const inputs = upload.locator('input[type="file"]');
       if ((await inputs.count()) === 1) {
-        matches.push({ frame, input: inputs.first(), trigger: label });
+        const confirmationRoots = label.locator(
+          "xpath=ancestor::*[@role='dialog' or " +
+            "contains(concat(' ',normalize-space(@class),' '),' ant-modal-content ')][1]",
+        );
+        matches.push({
+          frame,
+          input: inputs.first(),
+          trigger: label,
+          confirmationRoot:
+            (await confirmationRoots.count()) === 1
+              ? confirmationRoots.first()
+              : null,
+        });
       }
     }
   }
@@ -95,8 +107,59 @@ export function validateFileSelectionOperation(record, verifiedManifest) {
 }
 
 
-export async function setFileInputOnce(input, artifact) {
-  const beforeCount = await input.evaluate(
+async function readSelectedFile(input) {
+  return await input.evaluate((element) => {
+    const file = element.files?.[0];
+    return file
+      ? { count: element.files.length, name: file.name, size: file.size }
+      : { count: 0, name: null, size: null };
+  });
+}
+
+
+async function readUploadListEvidence(confirmationRoot, expectedFileName) {
+  if (!confirmationRoot) {
+    return { matchCount: 0 };
+  }
+  return await confirmationRoot.evaluate((root, expected) => {
+    const selectors = [
+      ".ant-upload-list-item-name",
+      ".ant-upload-list-item a",
+      ".ant-upload-list-item [title]",
+      '[class*="upload-list"] a',
+      '[class*="upload-list"] [title]',
+    ];
+    const matches = new Set();
+    for (const element of root.querySelectorAll(selectors.join(","))) {
+      const text = element.textContent?.trim() || "";
+      const title = element.getAttribute("title")?.trim() || "";
+      const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+      const visible =
+        style?.display !== "none" &&
+        style?.visibility !== "hidden" &&
+        element.getClientRects().length > 0;
+      if (visible && (text === expected || title === expected)) {
+        matches.add(element);
+      }
+    }
+    return { matchCount: matches.size };
+  }, expectedFileName);
+}
+
+
+export async function setFileInputOnce(
+  input,
+  artifact,
+  { confirmationRoot = null } = {},
+) {
+  const inputHandle = await input.elementHandle();
+  if (!inputHandle) {
+    throw new FileSelectionError(
+      "FILE_INPUT_NOT_ATTACHED",
+      "订单文件输入框当前不可用。",
+    );
+  }
+  const beforeCount = await inputHandle.evaluate(
     (element) => element.files?.length || 0,
   );
   if (beforeCount !== 0) {
@@ -105,29 +168,50 @@ export async function setFileInputOnce(input, artifact) {
       "订单文件输入框已经包含文件，禁止覆盖或重复选择。",
     );
   }
-  await input.setInputFiles(artifact.path);
-  const selected = await input.evaluate((element) => {
-    const file = element.files?.[0];
-    return file
-      ? { count: element.files.length, name: file.name, size: file.size }
-      : { count: 0, name: null, size: null };
-  });
-  if (
+  await inputHandle.setInputFiles(artifact.path);
+  const selected = await readSelectedFile(inputHandle).catch(() => ({
+    count: 0,
+    name: null,
+    size: null,
+  }));
+  const inputReadbackMatches =
     selected.count !== 1 ||
     selected.name !== artifact.fileName ||
     selected.size !== artifact.sizeBytes
-  ) {
+      ? false
+      : true;
+  if (inputReadbackMatches) {
+    return { ...selected, evidence: "input_files" };
+  }
+
+  let uploadList = { matchCount: 0 };
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    uploadList = await readUploadListEvidence(
+      confirmationRoot,
+      artifact.fileName,
+    ).catch(() => ({ matchCount: 0 }));
+    if (uploadList.matchCount !== 0) {
+      break;
+    }
+    await input.page().waitForTimeout(100);
+  }
+  if (uploadList.matchCount !== 1) {
     throw new FileSelectionError(
       "FILE_SELECTION_NOT_CONFIRMED",
-      "文件选择后回读的名称或大小与操作记录不一致。",
-      { selected },
+      "文件选择后既无法从原始文件框回读，也无法在当前导入弹窗中唯一确认文件名。",
+      { selected, uploadListMatchCount: uploadList.matchCount },
     );
   }
-  return selected;
+  return {
+    count: 1,
+    name: artifact.fileName,
+    size: artifact.sizeBytes,
+    evidence: "upload_list_after_input_replaced",
+  };
 }
 
 
-function safeRequestMetadata(request) {
+export function safeRequestMetadata(request) {
   try {
     const url = new URL(request.url());
     return {
@@ -149,7 +233,7 @@ function safeRequestMetadata(request) {
 }
 
 
-export async function inspectFileSelectionReadiness(
+export async function prepareFileSelectionTarget(
   page,
   operationId,
   directory,
@@ -170,6 +254,20 @@ export async function inspectFileSelectionReadiness(
       { accept, fileCount },
     );
   }
+  return { loaded, verified, form, target, accept };
+}
+
+
+export async function inspectFileSelectionReadiness(
+  page,
+  operationId,
+  directory,
+) {
+  const { loaded, form } = await prepareFileSelectionTarget(
+    page,
+    operationId,
+    directory,
+  );
   return {
     status: "file_selection_ready",
     operationId,
@@ -189,11 +287,11 @@ export async function selectPreparedImportFile(
   directory,
 ) {
   requireFileSelectionAuthorization(authorization);
-  const loaded = await loadOperation(operationId, directory);
-  const verified = await verifyUploadManifest(loaded.record.manifest.path);
-  validateFileSelectionOperation(loaded.record, verified);
-  const form = await prepareCustomImportForm(page);
-  const target = await locateOrderInfoFileInput(page);
+  const { loaded, form, target } = await prepareFileSelectionTarget(
+    page,
+    operationId,
+    directory,
+  );
   await ensurePageGeometry(page, "before_authorized_file_selection");
 
   await transitionOperation(
@@ -210,7 +308,11 @@ export async function selectPreparedImportFile(
   try {
     let selectionError = null;
     try {
-      selection = await setFileInputOnce(target.input, loaded.record.artifact);
+      selection = await setFileInputOnce(
+        target.input,
+        loaded.record.artifact,
+        { confirmationRoot: target.confirmationRoot },
+      );
     } catch (error) {
       selectionError = error;
     }
@@ -227,7 +329,7 @@ export async function selectPreparedImportFile(
   } catch (error) {
     await transitionOperation(
       operationId,
-      OperationState.FAILED_CLOSED,
+      OperationState.NEEDS_MANUAL_REVIEW,
       {
         reason: "file_selection_result_uncertain",
         failureCode: error?.code || error?.name || "FILE_SELECTION_FAILED",

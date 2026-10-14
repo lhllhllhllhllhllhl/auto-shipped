@@ -1,4 +1,4 @@
-import { firstVisible, firstVisibleInFrames } from "./states.mjs";
+import { firstVisible } from "./states.mjs";
 import { ensurePageGeometry } from "./geometry.mjs";
 
 
@@ -7,9 +7,20 @@ const BLOCKING_SURFACES = [
   ".ant-modal-wrap:visible .ant-modal:visible",
   ".el-dialog__wrapper:visible .el-dialog:visible",
   ".vxe-modal--wrapper:visible",
+  ".x-window:visible",
 ].join(", ");
 
 const SAFE_ACKNOWLEDGEMENTS = ["知道了", "我知道了"];
+const SAFE_CLOSE_SELECTORS = [
+  'button[aria-label="Close"]',
+  'button[aria-label="关闭"]',
+  'button[title="关闭"]',
+  ".ant-modal-close",
+  ".el-dialog__headerbtn",
+  ".vxe-modal--close-btn",
+  ".x-tool-close",
+  '[data-qtip="关闭"]',
+].join(", ");
 const KNOWN_CLOSEABLE_TITLES = [
   "店铺授权到期提醒",
   "公告",
@@ -17,17 +28,27 @@ const KNOWN_CLOSEABLE_TITLES = [
   "版本更新",
 ];
 const KNOWN_NON_BLOCKING_SURFACES = ["全部功能菜单"];
+const CLOSE_CONFIRM_TIMEOUT_MS = 3_000;
 
 
-async function clickVisibleButton(root, name) {
+async function visibleButton(root, name) {
   const button = await firstVisible(
     root.getByRole("button", { name, exact: true }),
   );
-  if (!button) {
-    return false;
+  return button || null;
+}
+
+
+async function clickAndConfirmClosed(page, surface, target) {
+  await target.click();
+  const deadline = Date.now() + CLOSE_CONFIRM_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!(await surface.isVisible().catch(() => false))) {
+      return true;
+    }
+    await page.waitForTimeout(50);
   }
-  await button.click();
-  return true;
+  return false;
 }
 
 
@@ -48,25 +69,9 @@ async function visibleBlockingSurfaces(page) {
 
 export async function dismissKnownPopups(page, maxPasses = 6) {
   const dismissed = [];
+  const initialUrl = page.url();
   for (let pass = 0; pass < maxPasses; pass += 1) {
     let changed = false;
-
-    for (const text of SAFE_ACKNOWLEDGEMENTS) {
-      const button = await firstVisibleInFrames(
-        page,
-        (frame) => frame.getByRole("button", { name: text, exact: true }),
-      );
-      if (button) {
-        await button.click();
-        dismissed.push(text);
-        changed = true;
-        await page.waitForTimeout(250);
-        break;
-      }
-    }
-    if (changed) {
-      continue;
-    }
 
     const surfaces = await visibleBlockingSurfaces(page);
     for (const surface of surfaces) {
@@ -75,20 +80,44 @@ export async function dismissKnownPopups(page, maxPasses = 6) {
       if (!known) {
         continue;
       }
-      const closeByLabel = await firstVisible(
-        surface.locator('button[aria-label="Close"], button[aria-label="关闭"]'),
-      );
-      if (closeByLabel) {
-        await closeByLabel.click();
-        dismissed.push("known_modal_close");
-        changed = true;
-        await page.waitForTimeout(250);
+      let attemptedClose = false;
+      for (const text of SAFE_ACKNOWLEDGEMENTS) {
+        const button = await visibleButton(surface, text);
+        if (!button) {
+          continue;
+        }
+        attemptedClose = true;
+        if (await clickAndConfirmClosed(page, surface, button)) {
+          dismissed.push(text);
+          changed = true;
+        }
         break;
       }
-      if (await clickVisibleButton(surface, "关闭")) {
-        dismissed.push("known_modal_close");
-        changed = true;
-        await page.waitForTimeout(250);
+      if (changed) {
+        break;
+      }
+      if (attemptedClose) {
+        break;
+      }
+      const closeByLabel = await firstVisible(
+        surface.locator(SAFE_CLOSE_SELECTORS),
+      );
+      if (closeByLabel) {
+        attemptedClose = true;
+        if (await clickAndConfirmClosed(page, surface, closeByLabel)) {
+          dismissed.push("known_modal_close");
+          changed = true;
+        }
+      }
+      if (changed || attemptedClose) {
+        break;
+      }
+      const closeButton = await visibleButton(surface, "关闭");
+      if (closeButton) {
+        if (await clickAndConfirmClosed(page, surface, closeButton)) {
+          dismissed.push("known_modal_close");
+          changed = true;
+        }
         break;
       }
     }
@@ -112,8 +141,12 @@ export async function dismissKnownPopups(page, maxPasses = 6) {
       unknown.push(text);
     }
   }
+  const pageUrlUnchanged = page.url() === initialUrl;
+  if (!pageUrlUnchanged) {
+    unknown.push("已知弹窗关闭动作改变了页面地址");
+  }
   if (dismissed.length > 0) {
     await ensurePageGeometry(page, "known_popups_closed");
   }
-  return { dismissed, unknown };
+  return { dismissed, unknown, pageUrlUnchanged };
 }

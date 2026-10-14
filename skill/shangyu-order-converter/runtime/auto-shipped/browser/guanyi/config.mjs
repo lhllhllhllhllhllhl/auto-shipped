@@ -19,6 +19,11 @@ export const ARTIFACT_DIR = path.resolve(
 export const OPERATION_DIR = path.resolve(
   process.env.GUANYI_OPERATION_DIR || path.join(RUNTIME_ROOT, "guanyi-operations"),
 );
+export const LOGIN_OPERATION_DIR = path.resolve(
+  process.env.GUANYI_LOGIN_OPERATION_DIR ||
+    path.join(RUNTIME_ROOT, "guanyi-login-operations"),
+);
+export const CREDENTIAL_HELPER = process.env.GUANYI_CREDENTIAL_HELPER || "";
 function browserCandidates() {
   const configured = process.env.GUANYI_CHROME_EXECUTABLE;
   if (process.platform === "darwin") {

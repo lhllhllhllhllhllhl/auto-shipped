@@ -61,7 +61,107 @@ test("selects one authorized local file and verifies name and size", async () =>
       count: 1,
       name: "orders.xlsx",
       size: stat.size,
+      evidence: "input_files",
     });
+  } finally {
+    await browser.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("confirms selection from the same dialog when Ant replaces its file input", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-ant-file-"));
+  try {
+    const filePath = path.join(directory, "orders.xlsx");
+    await fs.writeFile(filePath, "simulated workbook");
+    const stat = await fs.stat(filePath);
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div role="dialog">
+        <span class="ant-upload" role="button">
+          <input id="order-file" type="file" accept=".xls,.xlsx">
+          <button><span>订单信息上传</span></button>
+        </span>
+        <div class="ant-upload-list ant-upload-list-text"></div>
+      </div>
+      <script>
+        const input = document.querySelector("#order-file");
+        input.addEventListener("change", () => {
+          const fileName = input.files[0].name;
+          document.querySelector(".ant-upload-list").innerHTML =
+            '<div class="ant-upload-list-item"><a class="ant-upload-list-item-name">' +
+            fileName + '</a></div>';
+          input.value = "";
+          input.replaceWith(input.cloneNode());
+        });
+      </script>
+    `);
+    const target = await locateOrderInfoFileInput(page);
+    const selected = await setFileInputOnce(
+      target.input,
+      { path: filePath, fileName: "orders.xlsx", sizeBytes: stat.size },
+      { confirmationRoot: target.confirmationRoot },
+    );
+    assert.deepEqual(selected, {
+      count: 1,
+      name: "orders.xlsx",
+      size: stat.size,
+      evidence: "upload_list_after_input_replaced",
+    });
+    assert.equal(
+      await target.input.evaluate((element) => element.files.length),
+      0,
+    );
+  } finally {
+    await browser.close();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("rejects a replaced file input without exact upload-list evidence", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-ant-miss-"));
+  try {
+    const filePath = path.join(directory, "orders.xlsx");
+    await fs.writeFile(filePath, "simulated workbook");
+    const stat = await fs.stat(filePath);
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div role="dialog">
+        <span class="ant-upload" role="button">
+          <input id="order-file" type="file" accept=".xlsx">
+          <button><span>订单信息上传</span></button>
+        </span>
+        <div class="ant-upload-list ant-upload-list-text"></div>
+      </div>
+      <script>
+        const input = document.querySelector("#order-file");
+        input.addEventListener("change", () => {
+          input.value = "";
+          input.replaceWith(input.cloneNode());
+        });
+      </script>
+    `);
+    const target = await locateOrderInfoFileInput(page);
+    await assert.rejects(
+      setFileInputOnce(
+        target.input,
+        { path: filePath, fileName: "orders.xlsx", sizeBytes: stat.size },
+        { confirmationRoot: target.confirmationRoot },
+      ),
+      (error) =>
+        error instanceof Error &&
+        error.code === "FILE_SELECTION_NOT_CONFIRMED",
+    );
   } finally {
     await browser.close();
     await fs.rm(directory, { recursive: true, force: true });

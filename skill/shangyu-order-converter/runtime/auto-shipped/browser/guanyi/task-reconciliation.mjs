@@ -14,15 +14,10 @@ export class TaskReconciliationError extends Error {
 function safeVerifiedTasks(result) {
   const tasks = Array.isArray(result?.tasks) ? result.tasks : [];
   if (tasks.length === 0) {
-    if (
-      result?.taskIdStatus &&
-      !["verified_empty_list", "task_id_unavailable_in_list"].includes(
-        result.taskIdStatus,
-      )
-    ) {
+    if (result?.taskIdStatus !== "verified_empty_list") {
       throw new TaskReconciliationError(
         "TASK_SNAPSHOT_INVALID",
-        "空任务快照的验证状态不正确。",
+        "只有经过核验的真实空列表才能作为任务快照。",
       );
     }
     return [];

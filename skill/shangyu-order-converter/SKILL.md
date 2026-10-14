@@ -1,6 +1,6 @@
 ---
 name: shangyu-order-converter
-description: 识别尚舆收到的公司原始订单Excel、聊天文字或截图订单；已知模板用确定性脚本处理，未知Excel或非结构化订单先经Agent提取和用户确认，再按商品映射与平台规则生成经过校验的导入文件。也用于管易登录、预检和只读导入页导航；缺失业务事实必须追问，未授权前不提交、审核或发货。
+description: 识别尚舆收到的公司原始订单Excel、聊天文字或截图订单；已知模板用确定性脚本处理，未知Excel或非结构化订单先经Agent提取和用户确认，再按商品映射与平台规则生成经过校验的导入文件。也用于管易登录、受控上传和结果核验；缺失业务事实必须追问，未授权前不提交，始终不审核或发货。
 ---
 
 # 尚舆订单转换
@@ -86,7 +86,7 @@ python3 <skill-dir>/scripts/doctor.py
 
 6. 读取命令输出的 JSON，并严格按 `status` 处理：
 
-   - `ready`、退出码 `0`：确认 `upload_manifest` 存在且状态为 `ready`，再返回 `outputs` 中的 Excel，并简要说明识别来源、订单数和输出行数。若 `detection.schema_warnings` 非空，必须同时提醒用户来源Excel出现了未登记新列，不能静默忽略。manifest 不是上传授权。
+   - `ready`、退出码 `0`：确认 `upload_manifest` 存在且状态为 `ready`，再返回 `outputs` 中的 Excel、manifest 和脱敏摘要，简要说明识别来源、订单数和输出行数，然后停止等待用户确认。若 `detection.schema_warnings` 非空，必须同时提醒用户来源Excel出现了未登记新列，不能静默忽略。生成文件、转换请求和 manifest 都不是上传授权；只有用户查看交付结果后，在当前对话的新指令中明确指定“上传这批/这些批次”，才进入浏览器上传流程。
    - `needs_input`、退出码 `2`：向用户提出 `clarifications` 中的问题。不要生成占位文件，也不要把候选商品映射当成已确认映射。
    - `failed` 或退出码 `1`：说明具体错误和可执行的补救步骤，不把失败结果描述为可上传文件。
 
@@ -140,7 +140,7 @@ python3 <skill-dir>/scripts/audit_companies.py
 
 - 当前输出是“管易自定义订单导入 Excel”，不是已经上传或审核的订单。
 - 多文件批次成功时只交付一个合并后的管易 Excel、一个对应预检 manifest 和一个不含收件信息的处理报告；单文件暂存结果只存在于临时目录，不作为交付物。
-- 不自动登录管易，不点击上传、审核、作废或发货。用户另行明确要求这些操作时，再使用独立执行模块和对应授权。
+- 转换结束不得自动登录管易或选择文件。只有用户查看转换结果后另行明确指定上传批次，才使用独立浏览器执行模块；审核、作废和发货始终禁止。
 - 不在聊天、日志或处理摘要中展示完整姓名、手机号和详细地址。向用户交付生成文件即可。
 - 不修改原始 Excel，不在 Skill 中保存账号、密码或会话。公司业务规则只能保存在内置运行时的版本化配置中，不得散落到Skill说明文字、临时脚本或模板渲染器中。
 
@@ -179,6 +179,12 @@ python3 <skill-dir>/scripts/audit_companies.py
 ```bash
 python3 <skill-dir>/scripts/guanyi_browser.py login
 python3 <skill-dir>/scripts/guanyi_browser.py login-auto
+python3 <skill-dir>/scripts/guanyi_browser.py login-auto-start
+python3 <skill-dir>/scripts/guanyi_browser.py login-agent-start
+python3 <skill-dir>/scripts/guanyi_browser.py login-credentials-ready "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_FILLED"
+python3 <skill-dir>/scripts/guanyi_browser.py login-status "<login-operation-id>"
+python3 <skill-dir>/scripts/guanyi_browser.py login-sms-request "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
+python3 <skill-dir>/scripts/guanyi_browser.py login-sms-submit "<login-operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py login-auto-sms
 python3 <skill-dir>/scripts/guanyi_browser.py probe
 python3 <skill-dir>/scripts/guanyi_browser.py navigate-import
@@ -188,6 +194,9 @@ python3 <skill-dir>/scripts/guanyi_browser.py probe-completed-imports
 python3 <skill-dir>/scripts/guanyi_browser.py capture-task-baseline "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py inspect-file-selection "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py select-import-file "<operation-id>" "CONFIRM_FILE_SELECTION_MAY_UPLOAD"
+python3 <skill-dir>/scripts/guanyi_browser.py submit-import "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+python3 <skill-dir>/scripts/guanyi_browser.py reconcile-operation "<operation-id>"
+python3 <skill-dir>/scripts/guanyi_browser.py resolve-no-task "<operation-id>" "CONFIRM_CLOSE_NO_TASK_OPERATION"
 python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/path/to/上传预检.json"
 python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传预检.json"
 ```
@@ -195,9 +204,10 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 浏览器几何、截图、暂态恢复和未来写入边界见 [references/browser-safety.md](references/browser-safety.md)。
 
 - `login` 使用专用 Chrome 配置，由用户手动登录。
-- `login-auto` 只允许读取系统安全凭证提供器：macOS Keychain 或当前 Windows 用户的 DPAPI 加密存储。不得把凭证写入 Skill、源码、普通配置、命令或日志。未配置时运行 `credential-web` 产生的一次性 `127.0.0.1` 页面；不要从聊天内容代写。
+- `login-auto` 只读取安全凭证提供器：macOS Keychain、当前 Windows 用户的 DPAPI，或云端平台 Secret/Vault 提供的只读外部凭证助手。不得把凭证写入 Skill、源码、普通配置、环境变量、命令参数或日志。本地未配置时可运行 `credential-web` 产生一次性 `127.0.0.1` 页面。
+- 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，Agent 只通过私有 GUI 填入当前管易登录页，再运行 `login-credentials-ready`。不得转存、复述、写入剪贴板脚本或跨任务复用。执行器只检查字段是否非空并继续现有登录状态机，不读取或保存字段内容。
 - 登录后的持久会话优先于重复读取凭证；不勾选管易“记住账户”，不启用 Chrome 保存密码。
-- 出现短信验证时先输出 `needs_verification`，询问用户当前是否可以接收短信。只有用户当次明确确认后，才运行 `login-auto-sms` 点击“获取验证码”。管易随后出现“验证码将发送到手机号码为…”提示时，执行器只点击该已知弹窗的“知道了”，关闭后再等待用户验证码。用户把本次验证码提供给 Agent 后，通过该进程的标准输入提交；验证码只用于本次登录，不写入钥匙串、Skill、配置、命令输出或处理报告。
+- 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，再通过 `login-sms-submit` 标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
 - `probe` 检查登录和页面状态，只关闭已登记的安全通知。
 - `navigate-import` 导航到“自定义导入”页面后停止，禁止选择文件。
 - `prepare-import-form` 导航到“订单导入 → 自定义导入”，只允许把订单状态设为“待审核”并回读确认；文件输入必须保持为空，禁止点击“确定”。
@@ -206,11 +216,17 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - `capture-task-baseline` 只允许在 `prepared` 状态合并保存“执行中 + 已完成”两个页签经过核验的任务 ID 集合；文件选择开始后禁止重新建立或覆盖基线。上传后只有唯一新增且双重核验通过的任务 ID 才可与操作记录关联，多条新增任务必须停止并追问。
 - `inspect-file-selection` 重新校验 manifest、Excel 哈希、操作状态和任务基线，进入待审核表单并唯一定位“订单信息上传”输入框；它不得选择文件。
 - `select-import-file` 是受控写入边界。只有用户在当前对话中明确同意本次真实文件选择后才可运行，并必须传入精确授权口令 `CONFIRM_FILE_SELECTION_MAY_UPLOAD`。执行器在动作前写入 `file_selection_started`，文件输入变更尝试后立即进入 `write_request_maybe_sent`，仅记录不含查询串和请求正文的网络元数据；禁止点击“确定”、刷新、重新选文件或盲目重试。
+- `submit-import` 已实现“选择文件 → 第一次确定 → 完整核对自定义字段对应 → 第二次确定”的同一写入边界。只有用户在当前对话明确授权当前批次时才可传入 `CONFIRM_GUANYI_IMPORT_SUBMISSION`。文件选择只允许出现已登记的管易取 OSS 地址和指定 OSS 暂存请求；第一次确定只允许调用已登记的模板读取接口；字段表必须遍历全部虚拟滚动行，系统字段与Excel字段逐行同名、一一对应且必填字段齐全；第二次确定只允许调用已登记的最终导入接口。任一证据缺失、重复、非成功或出现额外写请求都停止并先查任务中心。
+- 正式 `guanyi_browser.py` 入口只有在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时才会为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import`。`GUANYI_CONTROLLED_WRITE_VALIDATION` 只保留给维护者未来重新验收，不参与普通生产流程，也永远不能代替当前批次的用户提交授权。
+- `reconcile-operation` 只读查询任务中心。已经点击第二次确定但短时没有新增任务时保持 `reconciling`，不得重提；只有尚未进入最终提交且任务中心确认无新增任务时才可进入 `retryable_failed`。唯一新增任务的 ID、任务名称和“执行完成”状态只证明任务结束，必须继续打开“查看结果”，回读总数、成功数、格式错误数和非法数据数；只有全部成功才返回 `verified`，部分成功返回 `needs_manual_review`，全部失败返回 `retryable_failed`。多条新增、任务 ID 证据不足、统计矛盾或未知状态进入 `needs_manual_review`。
+- Agent 必须把最终任务 ID、导入总数、成功数、失败分类和需要人工处理的来源行号返回给用户；不得返回或记录结果窗口中的收件人、手机号、详细地址或原始失败整行。未登记的失败文本统一脱敏为人工查看提示。
+- 同一 Excel 哈希只有在已 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 和明确失败关闭后允许创建新操作；新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得本次上传授权。
+- 同一对话可以一次授权多个明确列出的已转换批次。Agent必须先回显 manifest/operation 清单，再按顺序逐批提交；每批独立绑定路径、SHA-256、操作 ID 和任务基线，前一批未 `verified` 时不得开始下一批。不得扫描目录猜测“最新文件”。
 - `verify-manifest` 只校验预检 manifest 与 Excel 的路径、大小和 SHA-256；失败时停止。即使通过，也不得据此选择文件或上传。
 - `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；它仍不代表上传授权，不得跳级到写入状态。
 - 返回 `popup_unknown` 或 `navigation_failed` 时停止并报告，不使用坐标或盲目重试。
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
-- 当前阶段已实现带当次授权门禁的文件选择，但尚未启用“确定”、审核或发货命令；不要用其他临时浏览器步骤绕过此边界。
+- 2026-10-14 已完成真实全量成功闭环验收：两段确定、48行字段映射核验、唯一新增任务识别和结果汇总回读均通过，任务 `705668612` 为总数2、成功2、失败0。生产使用只对当前对话中明确授权的具体批次开放；不要用其他临时浏览器步骤绕过门禁。审核、发货、作废和删除不在本模块能力范围内。
 
 ## 当前能力
 
@@ -220,7 +236,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - NDD礼品订单：公司最终模板v1.2（Roy版）位于`runtime/auto-shipped/assets/templates/ndd/`，首列为“订单编号”，不含“商品小计”；通过`Sheet1`固定示例标记自动识别。解析时忽略第2、3行示例，真实订单从后续行读取，并优先用每条订单的“套餐配套商品信息”校验组成。福利套餐四展开为黄糯8根装和白糯8根装各1件；基础平台单号为`NDD`+订单编号优先值，公共平台层追加`A`，整单按16根走中通重货。
 - 玉米入仓订单：能识别，但用途不明时必须先追问。
 - 百礼汇：路由已确认为“专用后台取单后导入管易”，后台连接器尚待样本和取单方式确认。
-- 管易网页：Playwright 只读执行器已具备持久会话、系统安全凭证、短信验证交接、Geometry Guard、只读截图不变量、跨框架状态识别、已知通知处理、导入页导航、“待审核”表单准备、任务中心结构探针、上传前任务 ID 基线、唯一新增任务匹配和文件输入框就绪检查；导入页、任务中心与文件输入框定位均已完成真实只读验收。普通 Chrome 只用于人工参考和只读探查，不作为正式执行环境。
+- 管易网页：Playwright 执行器已具备持久会话、安全凭证适配、跨消息短信验证交接、Geometry Guard、只读截图不变量、跨框架状态识别、已知通知处理、导入页导航、“待审核”表单准备、任务中心结构探针、上传前任务 ID 基线、文件选择、两段确定、字段映射核验、唯一新增任务识别和结果汇总回读。2026-10-14 已完成总数2、成功2、失败0的真实全量成功闭环验收；生产入口仍要求用户对明确批次的当次上传授权。
 - 可迁移性：Skill 已内置确定性运行时、模板、规则、商品资料快照和 SHA-256 清单；新 Windows/macOS 电脑会自动选择目录和凭证提供器，但仍需安装依赖、重新配置本机凭证并建立登录会话。
 - 上传前预检：转换成功时生成不含收件信息的 manifest，并由浏览器执行器复核 Excel 路径、大小和 SHA-256；manifest 不包含上传授权。
 - 多文件合并：统一入口已将“合并为一个管易Excel”设为多文件默认行为；只有用户明确要求分开时才启用`--separate`。每份原始 Excel 先走完整单文件链路，全部通过后才按输入顺序合并；重复源文件、跨文件平台单号冲突、目标模板不一致或任一追问都会 fail-close，不产生部分成品。
