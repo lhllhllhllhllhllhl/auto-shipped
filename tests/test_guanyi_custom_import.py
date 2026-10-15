@@ -541,7 +541,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             rules,
             self.profile,
             business_date=date(2026, 9, 29),
-            official_mapping_ready=False,
+            official_mapping_ready=True,
         )
 
         self.assertEqual(result.status, "ready")
@@ -598,7 +598,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
-                official_mapping_ready=False,
+                official_mapping_ready=True,
             )
             repeated = build_custom_import_lines(
                 [order],
@@ -614,7 +614,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
-                official_mapping_ready=False,
+                official_mapping_ready=True,
             )
         self.assertEqual(generated.status, "ready")
         self.assertTrue(
@@ -719,10 +719,49 @@ class GuanyiCustomImportTests(unittest.TestCase):
                 ],
             ),
         ]
+        catalog.item_expansion_rules = tuple(
+            {
+                "rule_id": f"sam-central-bundle-{index}",
+                "company_id": "sam",
+                "source_profile_id": "sam_order_v1",
+                "identifier_type": "product_code",
+                "source_value": source_code,
+                "source_spec": source_spec,
+                "target_platform": "guanyi",
+                "confirmed": True,
+                "reuse_scope": "future",
+                "components": [
+                    {
+                        "component_index": component_index,
+                        "product_code": product_code,
+                        "spec_code": spec_code,
+                        "quantity_multiplier": multiplier,
+                    }
+                    for component_index, (
+                        product_code,
+                        spec_code,
+                        multiplier,
+                    ) in enumerate(expected, start=1)
+                ],
+            }
+            for index, (source_code, source_spec, expected) in enumerate(
+                cases, start=1
+            )
+        )
 
         for source_code, source_spec, expected in cases:
             with self.subTest(source_code=source_code, source_spec=source_spec):
                 order = parsed_order()
+                order.source = ParsedSource(
+                    profile_id="sam_order_v1",
+                    source_label="SAM群接龙订单",
+                    order_type=order.source.order_type,
+                    source_order_no=order.source.source_order_no,
+                    file_name=order.source.file_name,
+                    file_fingerprint=order.source.file_fingerprint,
+                    sheet_name=order.source.sheet_name,
+                    row_numbers=order.source.row_numbers,
+                )
                 order.items = [
                     ParsedItem(
                         source_product_code=source_code,
@@ -744,10 +783,15 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     rules,
                     self.profile,
                     business_date=date(2026, 10, 15),
-                    official_mapping_ready=False,
+                    source_company_id="sam",
+                    official_mapping_ready=True,
                 )
 
-                self.assertEqual(result.status, "ready")
+                self.assertEqual(
+                    result.status,
+                    "ready",
+                    [item.to_dict() for item in result.clarifications],
+                )
                 self.assertEqual(
                     [(line["商品代码"], line["规格代码"], line["数量"]) for line in result.lines],
                     expected,

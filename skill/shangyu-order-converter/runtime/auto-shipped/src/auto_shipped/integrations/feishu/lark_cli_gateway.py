@@ -23,6 +23,10 @@ from .owner_publisher import (
     OfficialMappingRecord,
 )
 from .manual_store_routes import ManualStoreRouteRecord
+from .item_expansion_registry import (
+    ITEM_EXPANSION_HEADERS,
+    ItemExpansionComponentRecord,
+)
 from .correction_feedback import CorrectionFeedbackRecord
 
 
@@ -48,6 +52,7 @@ class LarkCliFeishuSheetGateway:
         official_metadata_sheet_id: str,
         official_publish_log_sheet_id: str,
         official_manual_store_sheet_id: str = "",
+        official_item_expansion_sheet_id: str = "",
         feedback_spreadsheet_token: str = "",
         feedback_sheet_id: str = "",
         feedback_sheet_title: str = "",
@@ -82,6 +87,9 @@ class LarkCliFeishuSheetGateway:
         self.official_manual_store_sheet_id = str(
             official_manual_store_sheet_id or ""
         ).strip()
+        self.official_item_expansion_sheet_id = str(
+            official_item_expansion_sheet_id or ""
+        ).strip()
         self.feedback_spreadsheet_token = str(feedback_spreadsheet_token or "").strip()
         self.feedback_sheet_id = str(feedback_sheet_id or "").strip()
         self.feedback_sheet_title = str(feedback_sheet_title or "").strip()
@@ -100,6 +108,14 @@ class LarkCliFeishuSheetGateway:
         official = config.get("official_repository") or {}
         pending = config.get("pending_repository") or {}
         feedback = config.get("correction_feedback_repository") or {}
+        adapter_status = config.get("adapter_status") or {}
+        if (
+            adapter_status.get("item_expansion_rule_table") == "ready"
+            and not str(official.get("item_expansion_sheet_id") or "").strip()
+        ):
+            raise LarkCliGatewayError(
+                "飞书配置声明组合商品规则表已启用，但缺少item_expansion_sheet_id"
+            )
         return cls(
             pending_spreadsheet_token=pending.get("spreadsheet_token"),
             route_sheet_id=pending.get("route_sheet_id"),
@@ -109,6 +125,9 @@ class LarkCliFeishuSheetGateway:
             official_metadata_sheet_id=official.get("metadata_sheet_id"),
             official_publish_log_sheet_id=official.get("publish_log_sheet_id"),
             official_manual_store_sheet_id=official.get("manual_store_sheet_id"),
+            official_item_expansion_sheet_id=official.get(
+                "item_expansion_sheet_id"
+            ),
             feedback_spreadsheet_token=feedback.get("spreadsheet_token"),
             feedback_sheet_id=feedback.get("sheet_id"),
             feedback_sheet_title=feedback.get("sheet_title"),
@@ -762,6 +781,122 @@ class LarkCliFeishuSheetGateway:
             if padded[0].strip():
                 records.append(dict(zip(expected, padded)))
         return records
+
+    def list_item_expansion_component_records(self) -> list[dict[str, str]]:
+        if not self.official_item_expansion_sheet_id:
+            return []
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_item_expansion_sheet_id,
+            cell_range="A1:R5000",
+        )
+        expected = list(ITEM_EXPANSION_HEADERS)
+        if not rows:
+            raise LarkCliGatewayError("组合商品规则Sheet为空。")
+        header = (rows[0][1] + [""] * len(expected))[: len(expected)]
+        if header != expected:
+            raise LarkCliGatewayError("组合商品规则Sheet表头与合同不一致。")
+        records: list[dict[str, str]] = []
+        for _, values in rows[1:]:
+            padded = (values + [""] * len(expected))[: len(expected)]
+            if padded[0].strip():
+                records.append(dict(zip(expected, padded)))
+        return records
+
+    def upsert_item_expansion_component_records(
+        self,
+        records: Sequence[ItemExpansionComponentRecord],
+    ) -> None:
+        existing = self.list_item_expansion_component_records()
+        by_component_id = {
+            item.get("component_id", "").strip(): item
+            for item in existing
+            if item.get("component_id", "").strip()
+        }
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_item_expansion_sheet_id,
+            cell_range="A2:A5000",
+        )
+        next_row = self._first_empty_row(rows, 2)
+        for record in records:
+            expected = record.to_dict()
+            current = by_component_id.get(record.component_id)
+            if current is not None:
+                if current == expected:
+                    continue
+                raise LarkCliGatewayError(
+                    "组合商品component_id已存在不同内容，拒绝覆盖："
+                    f"{record.component_id}"
+                )
+            self._write_row(
+                spreadsheet_token=self.official_spreadsheet_token,
+                sheet_id=self.official_item_expansion_sheet_id,
+                row_number=next_row,
+                end_column="R",
+                values=[
+                    str(getattr(record, field_name))
+                    for field_name in ITEM_EXPANSION_HEADERS
+                ],
+            )
+            next_row += 1
+            by_component_id[record.component_id] = expected
+        readback = self.list_item_expansion_component_records()
+        actual = {
+            item.get("component_id", "").strip(): item
+            for item in readback
+            if item.get("component_id", "").strip()
+        }
+        for record in records:
+            if actual.get(record.component_id) != record.to_dict():
+                raise LarkCliGatewayError(
+                    f"组合商品组件写入后回读不一致：{record.component_id}"
+                )
+
+    def update_item_expansion_rule_status(
+        self,
+        rule_key: str,
+        status: str,
+    ) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_item_expansion_sheet_id,
+            cell_range="A2:R5000",
+        )
+        matching = [
+            row_number
+            for row_number, values in rows
+            if len(values) >= 3 and values[2].strip() == rule_key
+        ]
+        if not matching:
+            raise LarkCliGatewayError(
+                f"组合商品rule_key不存在，无法更新状态：{rule_key}"
+            )
+        for row_number in matching:
+            self._run(
+                "sheets",
+                "+cells-set",
+                "--as",
+                "user",
+                "--spreadsheet-token",
+                self.official_spreadsheet_token,
+                "--sheet-id",
+                self.official_item_expansion_sheet_id,
+                "--range",
+                f"N{row_number}",
+                "--cells",
+                json.dumps([[{"value": status}]], ensure_ascii=False),
+                "--json",
+            )
+        readback = [
+            item
+            for item in self.list_item_expansion_component_records()
+            if item.get("rule_key") == rule_key
+        ]
+        if len(readback) != len(matching) or any(
+            item.get("status") != status for item in readback
+        ):
+            raise LarkCliGatewayError("组合商品规则状态写入后回读不一致。")
 
     def upsert_manual_store_route_record(
         self,

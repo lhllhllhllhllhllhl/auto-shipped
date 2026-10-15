@@ -3,7 +3,7 @@
   "profile_id": "guanyi_sam_order_v1",
   "source_profile_id": "sam_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 13,
+  "version": 14,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.sam_fixed.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -99,72 +99,9 @@
   "item_expansion_policy": {
     "strategy": "confirmed_source_item_expansions",
     "on_unmatched": "standard_product_mapping",
+    "registry_source": "feishu_official_item_expansions",
     "confirmed": true,
-    "rules": [
-      {
-        "rule_id": "sam_corn_white_8_plus_1",
-        "match": {
-          "source_product_code": "276388650",
-          "source_spec": "光9-JTBN1T1-EH"
-        },
-        "components": [
-          {
-            "product_code": "JTBN1E1-EH",
-            "spec_code": "6974768564842",
-            "quantity_multiplier": 1
-          },
-          {
-            "product_code": "GMBN1",
-            "spec_code": "6974768564804",
-            "quantity_multiplier": 1
-          }
-        ],
-        "confirmed": true,
-        "source": "SAM原始样本与人工成品逐行对照；用户确认云仓无8+1/9根组合，需要拆为8根装和单根装；2026-10-02"
-      },
-      {
-        "rule_id": "sam_corn_flower_8_plus_1",
-        "match": {
-          "source_product_code": "276388650",
-          "source_spec": "光9-JTTZT1"
-        },
-        "components": [
-          {
-            "product_code": "JTTZE1",
-            "spec_code": "6974768564835",
-            "quantity_multiplier": 1
-          },
-          {
-            "product_code": "GMCN-1",
-            "spec_code": "6974768564798",
-            "quantity_multiplier": 1
-          }
-        ],
-        "confirmed": true,
-        "source": "用户核对SAM跟团号842-845样本后确认：花糯8根+1根拆为花糯8棒家庭装和花糯彩袋单棒装，并要求以后沿用；2026-10-15"
-      },
-      {
-        "rule_id": "sam_corn_yellow_8_plus_1",
-        "match": {
-          "source_product_code": "YHGMMYQXNYM31631159",
-          "source_spec": "光-QJTW8-F9-EH"
-        },
-        "components": [
-          {
-            "product_code": "JTW8E1",
-            "spec_code": "6974768564811",
-            "quantity_multiplier": 1
-          },
-          {
-            "product_code": "GMHN-1",
-            "spec_code": "6974768564729",
-            "quantity_multiplier": 1
-          }
-        ],
-        "confirmed": true,
-        "source": "用户核对SAM跟团号842-845样本后确认：黄糯8根+1根拆为黄糯8棒家庭装和黄糯彩袋单棒装，并要求以后沿用；2026-10-15"
-      }
-    ]
+    "rules": []
   },
   "business_rule_coverage": {
     "catalog_id": "shangyu_shipping_sop_v1",
@@ -228,7 +165,7 @@
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.item_expansion.confirmed_source_components",
-        "evidence": "SAM已确认白糯、花糯和黄糯三种8+1来源身份，分别展开为对应8棒家庭装和对应彩袋单棒装两行；其他一对多组成仍须用户确认后登记。"
+        "evidence": "组合展开执行器读取飞书正式库的组合商品规则；SAM白糯、花糯和黄糯三种8+1已迁入中央规则表，普通规则包不再复制组成明细。"
       },
       "GY-RECIPIENT-COMPLETENESS": {
         "status": "implemented",

@@ -4,8 +4,10 @@ import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from auto_shipped.catalog import (
+    BatchItemExpansionError,
     BatchMappingReplacementError,
     PackageSemanticsStoreError,
     ProductCatalog,
@@ -14,6 +16,7 @@ from auto_shipped.catalog import (
     list_package_semantics_proposals,
     save_package_semantics_proposal,
     save_batch_mapping_replacement,
+    save_batch_item_expansion,
     save_confirmed_mapping,
 )
 from auto_shipped.companies import audit_company_registry, load_company_registry
@@ -25,6 +28,7 @@ from auto_shipped.integrations.feishu import (
     LarkCliGatewayError,
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
+    add_confirmed_item_expansion_direct,
     add_confirmed_manual_store_route_direct,
     add_confirmed_mapping_direct,
     build_correction_feedback_record,
@@ -531,6 +535,67 @@ def build_parser() -> argparse.ArgumentParser:
     direct_store_route.add_argument("--output")
     direct_store_route.add_argument("--confirmation-token", required=True)
 
+    direct_item_expansion = subparsers.add_parser(
+        "direct-add-item-expansion",
+        help="用户明确以后沿用后，受控新增一条来源商品到多个管易商品的组合规则",
+    )
+    direct_item_expansion.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    direct_item_expansion.add_argument("--catalog", required=True)
+    direct_item_expansion.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    direct_item_expansion.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    direct_item_expansion.add_argument("--company-id", required=True)
+    direct_item_expansion.add_argument("--source-profile", required=True)
+    direct_item_expansion.add_argument(
+        "--identifier-type",
+        required=True,
+        choices=["product_code", "barcode", "product_name"],
+    )
+    direct_item_expansion.add_argument("--source-value", required=True)
+    direct_item_expansion.add_argument("--source-spec", default="")
+    direct_item_expansion.add_argument("--target-platform", default="guanyi")
+    direct_item_expansion.add_argument(
+        "--components-json",
+        required=True,
+        help="JSON数组；每项含product_code、spec_code和quantity_multiplier",
+    )
+    direct_item_expansion.add_argument("--evidence", required=True)
+    direct_item_expansion.add_argument("--operation-id")
+    direct_item_expansion.add_argument("--output")
+    direct_item_expansion.add_argument("--confirmation-token", required=True)
+
+    batch_item_expansion = subparsers.add_parser(
+        "save-batch-item-expansion",
+        help="用户确认仅本次后，保存只绑定当前来源文件的一对多组合规则",
+    )
+    batch_item_expansion.add_argument("--catalog", required=True)
+    batch_item_expansion.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    batch_item_expansion.add_argument("--output", required=True)
+    batch_item_expansion.add_argument("--company-id", required=True)
+    batch_item_expansion.add_argument("--source-profile", required=True)
+    batch_item_expansion.add_argument(
+        "--identifier-type",
+        required=True,
+        choices=["product_code", "barcode", "product_name"],
+    )
+    batch_item_expansion.add_argument("--source-value", required=True)
+    batch_item_expansion.add_argument("--source-spec", default="")
+    batch_item_expansion.add_argument("--target-platform", default="guanyi")
+    batch_item_expansion.add_argument("--source-fingerprint", required=True)
+    batch_item_expansion.add_argument("--components-json", required=True)
+    batch_item_expansion.add_argument("--evidence", required=True)
+    batch_item_expansion.add_argument("--confirmation-token", required=True)
+
     save_mapping = subparsers.add_parser(
         "save-product-mapping",
         help="在用户明确授权后，把已确认商品映射写入覆盖层",
@@ -648,6 +713,8 @@ def build_parser() -> argparse.ArgumentParser:
         publish_pending,
         direct_add,
         direct_store_route,
+        direct_item_expansion,
+        batch_item_expansion,
         save_mapping,
         save_replacement,
     ):
@@ -1096,12 +1163,14 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
         )
         records = gateway.list_official_mapping_records()
         manual_store_routes = gateway.list_manual_store_route_records()
+        item_expansion_records = gateway.list_item_expansion_component_records()
         metadata = gateway.get_official_repository_metadata()
         snapshot = build_official_mapping_snapshot(
             records,
             metadata,
             catalog,
             manual_store_route_records=manual_store_routes,
+            item_expansion_records=item_expansion_records,
         )
         output = write_official_mapping_snapshot(args.output, snapshot)
     except (
@@ -1130,6 +1199,7 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
                 "mapping_revision": snapshot["mapping_revision"],
                 "mapping_count": len(snapshot["mappings"]),
                 "manual_store_route_count": len(snapshot["manual_store_routes"]),
+                "item_expansion_count": len(snapshot["item_expansions"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
                 "output": str(output),
             },
@@ -1163,11 +1233,55 @@ def run_sync_feishu_official_mappings_from_payload(
             raise OfficialMappingSyncError(
                 "Agent原生飞书载荷manual_store_routes必须是列表。"
             )
+        item_expansions = payload.get("item_expansions", [])
+        if not isinstance(item_expansions, list):
+            raise OfficialMappingSyncError(
+                "Agent原生飞书载荷item_expansions必须是列表。"
+            )
+        item_expansion_records: list[dict[str, Any]] = []
+        for rule in item_expansions:
+            if not isinstance(rule, dict):
+                raise OfficialMappingSyncError(
+                    "Agent原生飞书载荷item_expansions包含非对象规则。"
+                )
+            for component in rule.get("components") or []:
+                if not isinstance(component, dict):
+                    raise OfficialMappingSyncError(
+                        "Agent原生飞书载荷组合规则包含非对象组件。"
+                    )
+                item_expansion_records.append(
+                    {
+                        "component_id": (
+                            f"{rule.get('rule_id', '')}-"
+                            f"{component.get('component_index', '')}"
+                        ),
+                        "rule_id": rule.get("rule_id", ""),
+                        "rule_key": rule.get("rule_key", ""),
+                        "company_id": rule.get("company_id", ""),
+                        "source_profile_id": rule.get("source_profile_id", ""),
+                        "identifier_type": rule.get("identifier_type", ""),
+                        "source_value": rule.get("source_value", ""),
+                        "source_spec": rule.get("source_spec", ""),
+                        "target_platform": rule.get("target_platform", ""),
+                        "component_index": component.get("component_index", ""),
+                        "product_code": component.get("product_code", ""),
+                        "spec_code": component.get("spec_code", ""),
+                        "quantity_multiplier": component.get(
+                            "quantity_multiplier", ""
+                        ),
+                        "status": rule.get("status", "active"),
+                        "rule_version": rule.get("rule_version", ""),
+                        "confirmed_by": rule.get("confirmed_by", ""),
+                        "confirmed_at": rule.get("confirmed_at", ""),
+                        "evidence": rule.get("evidence", ""),
+                    }
+                )
         snapshot = build_official_mapping_snapshot(
             records,
             metadata,
             catalog,
             manual_store_route_records=manual_store_routes,
+            item_expansion_records=item_expansion_records,
         )
         output = write_official_mapping_snapshot(args.output, snapshot)
     except (
@@ -1196,6 +1310,7 @@ def run_sync_feishu_official_mappings_from_payload(
                 "mapping_revision": snapshot["mapping_revision"],
                 "mapping_count": len(snapshot["mappings"]),
                 "manual_store_route_count": len(snapshot["manual_store_routes"]),
+                "item_expansion_count": len(snapshot["item_expansions"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
                 "output": str(output),
             },
@@ -1235,6 +1350,9 @@ def run_provision_pending_sheet(args: argparse.Namespace) -> int:
                 gateway.get_official_repository_metadata(),
                 catalog,
                 manual_store_route_records=gateway.list_manual_store_route_records(),
+                item_expansion_records=(
+                    gateway.list_item_expansion_component_records()
+                ),
             )
             output = write_official_mapping_snapshot(args.output, snapshot)
             payload["snapshot_output"] = str(output)
@@ -1563,6 +1681,9 @@ def run_direct_add_official_mapping(args: argparse.Namespace) -> int:
                 gateway.get_official_repository_metadata(),
                 catalog,
                 manual_store_route_records=gateway.list_manual_store_route_records(),
+                item_expansion_records=(
+                    gateway.list_item_expansion_component_records()
+                ),
             )
             write_official_mapping_snapshot(args.output, snapshot)
     except (
@@ -1613,6 +1734,9 @@ def run_direct_add_manual_store_route(args: argparse.Namespace) -> int:
                 gateway.get_official_repository_metadata(),
                 catalog,
                 manual_store_route_records=gateway.list_manual_store_route_records(),
+                item_expansion_records=(
+                    gateway.list_item_expansion_component_records()
+                ),
             )
             write_official_mapping_snapshot(args.output, snapshot)
     except (
@@ -1635,6 +1759,128 @@ def run_direct_add_manual_store_route(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     return 0 if result.status in {"created", "already_exists"} else 2
+
+
+def run_direct_add_item_expansion(args: argparse.Namespace) -> int:
+    try:
+        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        policy = config.get("item_expansion_direct_add_policy") or {}
+        if policy.get("enabled") is not True:
+            raise ValueError("飞书映射治理配置未启用受控组合商品规则新增。")
+        components = json.loads(args.components_json)
+        if not isinstance(components, list):
+            raise ValueError("components-json必须是JSON数组。")
+        gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        registry = load_company_registry(args.registry)
+        allowed_pairs = [
+            (
+                str(company.get("company_id") or "").strip(),
+                str(source.get("source_profile_id") or "").strip(),
+            )
+            for company in registry.get("companies", [])
+            if company.get("status") == "active"
+            and company.get("enabled", True) is not False
+            for source in company.get("source_profiles", [])
+            if source.get("status") == "active"
+            and source.get("enabled", True) is not False
+        ]
+        result = add_confirmed_item_expansion_direct(
+            gateway,
+            catalog,
+            allowed_company_source_pairs=allowed_pairs,
+            company_id=args.company_id,
+            source_profile_id=args.source_profile,
+            identifier_type=args.identifier_type,
+            source_value=args.source_value,
+            source_spec=args.source_spec,
+            target_platform=args.target_platform,
+            components=components,
+            evidence=args.evidence,
+            confirmation_token=args.confirmation_token,
+            operation_id=args.operation_id,
+        )
+        if result.status in {"created", "already_exists"} and args.output:
+            snapshot = build_official_mapping_snapshot(
+                gateway.list_official_mapping_records(),
+                gateway.get_official_repository_metadata(),
+                catalog,
+                manual_store_route_records=gateway.list_manual_store_route_records(),
+                item_expansion_records=(
+                    gateway.list_item_expansion_component_records()
+                ),
+            )
+            write_official_mapping_snapshot(args.output, snapshot)
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "DIRECT_ITEM_EXPANSION_ADD_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"created", "already_exists"} else 2
+
+
+def run_save_batch_item_expansion(args: argparse.Namespace) -> int:
+    try:
+        components = json.loads(args.components_json)
+        if not isinstance(components, list):
+            raise BatchItemExpansionError("components-json必须是JSON数组。")
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
+        saved = save_batch_item_expansion(
+            args.output,
+            catalog=catalog,
+            company_id=args.company_id,
+            source_profile_id=args.source_profile,
+            identifier_type=args.identifier_type,
+            source_value=args.source_value,
+            source_spec=args.source_spec,
+            target_platform=args.target_platform,
+            source_fingerprint=args.source_fingerprint,
+            components=components,
+            evidence=args.evidence,
+            confirmation_token=args.confirmation_token,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, BatchItemExpansionError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "BATCH_ITEM_EXPANSION_SAVE_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(
+        json.dumps(
+            {
+                "status": "saved",
+                "output": str(saved),
+                "reuse_scope": "current_batch",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
 
 
 def run_save_product_mapping(args: argparse.Namespace) -> int:
@@ -1898,6 +2144,10 @@ def main() -> int:
         return run_direct_add_official_mapping(args)
     if args.command == "direct-add-manual-store-route":
         return run_direct_add_manual_store_route(args)
+    if args.command == "direct-add-item-expansion":
+        return run_direct_add_item_expansion(args)
+    if args.command == "save-batch-item-expansion":
+        return run_save_batch_item_expansion(args)
     if args.command == "save-product-mapping":
         return run_save_product_mapping(args)
     if args.command == "save-batch-mapping-replacement":

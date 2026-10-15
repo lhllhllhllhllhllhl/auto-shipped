@@ -776,6 +776,7 @@ def convert_order_file(
         rules,
         platform_profile,
         white_label_library=white_label_library,
+        source_company_id=str(source_profile.get("company_id") or ""),
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )

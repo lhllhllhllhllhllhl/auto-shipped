@@ -187,7 +187,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(policy["value"], "张")
         self.assertTrue(policy["confirmed"])
 
-    def test_sam_buyer_member_and_bundle_rules_are_explicit(self):
+    def test_sam_buyer_member_is_explicit_and_bundle_facts_are_centralized(self):
         rules = load_guanyi_rules("sam_order_v1.json")
         self.assertEqual(
             rules["field_output_policy"]["product_name"]["strategy"],
@@ -204,58 +204,10 @@ class ArchitectureContractTests(unittest.TestCase):
 
         expansion = rules["item_expansion_policy"]
         self.assertEqual(expansion["strategy"], "confirmed_source_item_expansions")
-        bundles = {item["rule_id"]: item for item in expansion["rules"]}
         self.assertEqual(
-            set(bundles),
-            {
-                "sam_corn_white_8_plus_1",
-                "sam_corn_flower_8_plus_1",
-                "sam_corn_yellow_8_plus_1",
-            },
+            expansion["registry_source"], "feishu_official_item_expansions"
         )
-        expected = {
-            "sam_corn_white_8_plus_1": (
-                "276388650",
-                "光9-JTBN1T1-EH",
-                [
-                    ("JTBN1E1-EH", "6974768564842", 1),
-                    ("GMBN1", "6974768564804", 1),
-                ],
-            ),
-            "sam_corn_flower_8_plus_1": (
-                "276388650",
-                "光9-JTTZT1",
-                [
-                    ("JTTZE1", "6974768564835", 1),
-                    ("GMCN-1", "6974768564798", 1),
-                ],
-            ),
-            "sam_corn_yellow_8_plus_1": (
-                "YHGMMYQXNYM31631159",
-                "光-QJTW8-F9-EH",
-                [
-                    ("JTW8E1", "6974768564811", 1),
-                    ("GMHN-1", "6974768564729", 1),
-                ],
-            ),
-        }
-        for rule_id, (source_code, source_spec, components) in expected.items():
-            with self.subTest(rule_id=rule_id):
-                bundle = bundles[rule_id]
-                self.assertTrue(bundle["confirmed"])
-                self.assertEqual(bundle["match"]["source_product_code"], source_code)
-                self.assertEqual(bundle["match"]["source_spec"], source_spec)
-                self.assertEqual(
-                    [
-                        (
-                            item["product_code"],
-                            item["spec_code"],
-                            item["quantity_multiplier"],
-                        )
-                        for item in bundle["components"]
-                    ],
-                    components,
-                )
+        self.assertEqual(expansion["rules"], [])
         self.assertEqual(rules["defaults"]["unit_price"]["value"], 0)
         self.assertEqual(rules["defaults"]["payment_amount"]["value"], 0)
         self.assertEqual(rules["defaults"]["freight"]["value"], "")

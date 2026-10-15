@@ -13,6 +13,12 @@ from .manual_store_routes import (
     ManualStoreRouteRecord,
     build_manual_store_route_key,
 )
+from .item_expansion_registry import (
+    ItemExpansionComponentRecord,
+    ItemExpansionRegistryError,
+    build_item_expansion_rule_key,
+    normalize_item_expansion_rules,
+)
 from .pending_mappings import (
     FeishuIdentity,
     ManagedPendingSheet,
@@ -24,6 +30,7 @@ from .pending_mappings import (
 PUBLISH_CONFIRMATION_TOKEN = "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS"
 DIRECT_ADD_CONFIRMATION_TOKEN = "CONFIRM_ADD_NEW_OFFICIAL_MAPPING"
 DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN = "CONFIRM_ADD_MANUAL_STORE_ROUTE"
+DIRECT_ITEM_EXPANSION_CONFIRMATION_TOKEN = "CONFIRM_ADD_ITEM_EXPANSION_RULE"
 
 
 class OwnerMappingPublishError(ValueError):
@@ -161,6 +168,19 @@ class DirectManualStoreRouteAddResult:
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class DirectItemExpansionAddResult:
+    status: str
+    operation_id: str
+    rule_key: str
+    rule_id: str
+    revision_before: str
+    revision_after: str
+    component_count: int
+    code: str = ""
+    reason: str = ""
+
+
 class OwnerMappingPublisherGateway(Protocol):
     def get_current_identity(self) -> FeishuIdentity: ...
 
@@ -197,6 +217,19 @@ class OwnerMappingPublisherGateway(Protocol):
         status: str,
     ) -> None: ...
 
+    def list_item_expansion_component_records(self) -> list[dict[str, str]]: ...
+
+    def upsert_item_expansion_component_records(
+        self,
+        records: Sequence[ItemExpansionComponentRecord],
+    ) -> None: ...
+
+    def update_item_expansion_rule_status(
+        self,
+        rule_key: str,
+        status: str,
+    ) -> None: ...
+
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None: ...
 
     def update_official_mapping_status(self, mapping_key: str, status: str) -> None: ...
@@ -214,6 +247,13 @@ def _now() -> str:
 
 def _manual_store_routes(gateway: OwnerMappingPublisherGateway) -> list[dict[str, str]]:
     reader = getattr(gateway, "list_manual_store_route_records", None)
+    return list(reader()) if callable(reader) else []
+
+
+def _item_expansion_records(
+    gateway: OwnerMappingPublisherGateway,
+) -> list[dict[str, str]]:
+    reader = getattr(gateway, "list_item_expansion_component_records", None)
     return list(reader()) if callable(reader) else []
 
 
@@ -521,6 +561,7 @@ def add_confirmed_mapping_direct(
             },
             catalog,
             manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=_item_expansion_records(gateway),
             synced_at=written_at,
         )
     except OfficialMappingSyncError as exc:
@@ -602,6 +643,7 @@ def add_confirmed_mapping_direct(
             {**verify_metadata, "repository_status": "active"},
             catalog,
             manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=_item_expansion_records(gateway),
             synced_at=written_at,
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
@@ -839,6 +881,7 @@ def add_confirmed_manual_store_route_direct(
             },
             catalog,
             manual_store_route_records=[*existing_routes, record.to_dict()],
+            item_expansion_records=_item_expansion_records(gateway),
             synced_at=written_at,
         )
     except OfficialMappingSyncError as exc:
@@ -924,6 +967,7 @@ def add_confirmed_manual_store_route_direct(
             {**verify_metadata, "repository_status": "active"},
             catalog,
             manual_store_route_records=verified_routes,
+            item_expansion_records=_item_expansion_records(gateway),
             synced_at=written_at,
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
@@ -955,6 +999,379 @@ def add_confirmed_manual_store_route_direct(
         product_code=target.product_code,
         spec_code=target.spec_code,
         store=store,
+    )
+
+
+def add_confirmed_item_expansion_direct(
+    gateway: OwnerMappingPublisherGateway,
+    catalog: ProductCatalog,
+    *,
+    allowed_company_source_pairs: Sequence[tuple[str, str]],
+    company_id: str,
+    source_profile_id: str,
+    identifier_type: str,
+    source_value: str,
+    source_spec: str,
+    target_platform: str,
+    components: Sequence[Mapping[str, Any]],
+    evidence: str,
+    confirmation_token: str,
+    operation_id: str | None = None,
+    timestamp: str | None = None,
+) -> DirectItemExpansionAddResult:
+    """Create one confirmed one-to-many rule without replacing existing facts."""
+
+    company_id = clean_identifier(company_id)
+    source_profile_id = clean_identifier(source_profile_id)
+    identifier_type = clean_identifier(identifier_type)
+    source_value = clean_identifier(source_value)
+    source_spec = clean_identifier(source_spec)
+    target_platform = clean_identifier(target_platform)
+    evidence = clean_identifier(evidence)
+
+    def outcome(
+        status: str,
+        *,
+        rule_key: str = "",
+        rule_id: str = "",
+        revision_before: str = "",
+        revision_after: str = "",
+        component_count: int = 0,
+        code: str = "",
+        reason: str = "",
+        resolved_operation_id: str | None = None,
+    ) -> DirectItemExpansionAddResult:
+        return DirectItemExpansionAddResult(
+            status=status,
+            operation_id=resolved_operation_id or operation_id or "",
+            rule_key=rule_key,
+            rule_id=rule_id,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            component_count=component_count,
+            code=code,
+            reason=reason,
+        )
+
+    if confirmation_token != DIRECT_ITEM_EXPANSION_CONFIRMATION_TOKEN:
+        return outcome(
+            "needs_confirmation",
+            code="DIRECT_ITEM_EXPANSION_CONFIRMATION_REQUIRED",
+            reason="新增正式组合规则前必须取得用户明确的‘以后沿用’确认。",
+        )
+    identity = gateway.get_current_identity()
+    if identity.identity_type != "user" or not clean_identifier(identity.user_id):
+        return outcome(
+            "blocked",
+            code="DIRECT_ITEM_EXPANSION_USER_IDENTITY_REQUIRED",
+            reason="必须使用可追溯的飞书用户身份，禁止共享机器人身份写正式组合规则。",
+        )
+    allowed_pairs = {
+        (clean_identifier(company), clean_identifier(profile))
+        for company, profile in allowed_company_source_pairs
+    }
+    if (company_id, source_profile_id) not in allowed_pairs:
+        return outcome(
+            "needs_admin",
+            code="DIRECT_ITEM_EXPANSION_SOURCE_NOT_REGISTERED",
+            reason="公司与来源配置的归属关系未登记，不能通过组合规则入口新增。",
+        )
+    if not evidence:
+        return outcome(
+            "blocked",
+            code="DIRECT_ITEM_EXPANSION_EVIDENCE_REQUIRED",
+            reason="必须记录用户确认组成和以后沿用的依据。",
+        )
+    try:
+        rule_key = build_item_expansion_rule_key(
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+            target_platform=target_platform,
+        )
+    except ItemExpansionRegistryError as exc:
+        return outcome(
+            "blocked",
+            code="DIRECT_ITEM_EXPANSION_KEY_INVALID",
+            reason=str(exc),
+        )
+    if len(components) < 2:
+        return outcome(
+            "blocked",
+            rule_key=rule_key,
+            code="DIRECT_ITEM_EXPANSION_COMPONENTS_INSUFFICIENT",
+            reason="组合规则至少需要两个目标商品。",
+        )
+
+    canonical_components: list[dict[str, Any]] = []
+    seen_targets: set[tuple[str, str]] = set()
+    for index, component in enumerate(components, start=1):
+        target = catalog.resolve_unique_target(
+            component.get("product_code"), component.get("spec_code")
+        )
+        try:
+            multiplier = float(component.get("quantity_multiplier"))
+        except (TypeError, ValueError):
+            multiplier = 0
+        if target is None or multiplier <= 0:
+            return outcome(
+                "blocked",
+                rule_key=rule_key,
+                code="DIRECT_ITEM_EXPANSION_COMPONENT_INVALID",
+                reason=f"第{index}个目标商品不存在、不唯一或数量倍数无效。",
+            )
+        pair = (target.product_code, target.spec_code)
+        if pair in seen_targets:
+            return outcome(
+                "blocked",
+                rule_key=rule_key,
+                code="DIRECT_ITEM_EXPANSION_COMPONENT_DUPLICATE",
+                reason="组合规则包含重复目标商品，请先合并数量倍数。",
+            )
+        seen_targets.add(pair)
+        canonical_components.append(
+            {
+                "component_index": index,
+                "product_code": target.product_code,
+                "spec_code": target.spec_code,
+                "quantity_multiplier": multiplier,
+            }
+        )
+
+    metadata = gateway.get_official_repository_metadata()
+    revision_before = clean_identifier(metadata.get("mapping_revision"))
+    if clean_identifier(metadata.get("repository_status")) != "active":
+        return outcome(
+            "blocked",
+            rule_key=rule_key,
+            revision_before=revision_before,
+            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
+            reason="正式映射库不是active，需管理员先核对并恢复。",
+        )
+    revision_after = _next_revision(revision_before)
+    existing_rows = _item_expansion_records(gateway)
+    same_key_rows = [
+        row
+        for row in existing_rows
+        if clean_identifier(row.get("rule_key")) == rule_key
+    ]
+    if same_key_rows:
+        try:
+            existing_rules = normalize_item_expansion_rules(
+                existing_rows,
+                catalog=catalog,
+                repository_revision=revision_before,
+            )
+        except ItemExpansionRegistryError as exc:
+            return outcome(
+                "needs_admin",
+                rule_key=rule_key,
+                revision_before=revision_before,
+                revision_after=revision_before,
+                code="DIRECT_ITEM_EXPANSION_REGISTRY_INVALID",
+                reason=str(exc),
+            )
+        matching = [rule for rule in existing_rules if rule["rule_key"] == rule_key]
+        if len(matching) == 1:
+            existing_components = [
+                {
+                    "component_index": component["component_index"],
+                    "product_code": component["product_code"],
+                    "spec_code": component["spec_code"],
+                    "quantity_multiplier": float(component["quantity_multiplier"]),
+                }
+                for component in matching[0]["components"]
+            ]
+            if existing_components == canonical_components:
+                return outcome(
+                    "already_exists",
+                    rule_key=rule_key,
+                    rule_id=matching[0]["rule_id"],
+                    revision_before=revision_before,
+                    revision_after=revision_before,
+                    component_count=len(canonical_components),
+                    reason="正式库已存在完全相同组合规则，未重复写入。",
+                )
+        return outcome(
+            "needs_admin",
+            rule_key=rule_key,
+            revision_before=revision_before,
+            revision_after=revision_before,
+            component_count=len(canonical_components),
+            code="DIRECT_ITEM_EXPANSION_CONFLICTS_WITH_OFFICIAL",
+            reason="同一来源组合键已存在不同组成或异常状态，禁止普通用户覆盖。",
+        )
+
+    written_at = timestamp or _now()
+    rule_id = _stable_id("item-expansion-rule", rule_key)
+    stable_operation_id = operation_id or _stable_id(
+        "direct-item-expansion",
+        revision_before,
+        rule_key,
+        json.dumps(canonical_components, sort_keys=True, separators=(",", ":")),
+        identity.user_id,
+    )
+    records = tuple(
+        ItemExpansionComponentRecord(
+            component_id=_stable_id(
+                "item-expansion-component",
+                rule_key,
+                str(component["component_index"]),
+            ),
+            rule_id=rule_id,
+            rule_key=rule_key,
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+            target_platform=target_platform,
+            component_index=str(component["component_index"]),
+            product_code=component["product_code"],
+            spec_code=component["spec_code"],
+            quantity_multiplier=(
+                str(int(component["quantity_multiplier"]))
+                if float(component["quantity_multiplier"]).is_integer()
+                else format(float(component["quantity_multiplier"]), ".15g")
+            ),
+            status="active",
+            rule_version=revision_after,
+            confirmed_by=identity.user_id,
+            confirmed_at=written_at,
+            evidence=evidence,
+        )
+        for component in canonical_components
+    )
+    official_records = gateway.list_official_mapping_records()
+    manual_routes = _manual_store_routes(gateway)
+    try:
+        build_official_mapping_snapshot(
+            official_records,
+            {
+                **metadata,
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            manual_store_route_records=manual_routes,
+            item_expansion_records=[
+                *existing_rows,
+                *(record.to_dict() for record in records),
+            ],
+            synced_at=written_at,
+        )
+    except OfficialMappingSyncError as exc:
+        return outcome(
+            "blocked",
+            rule_key=rule_key,
+            rule_id=rule_id,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            component_count=len(records),
+            code="DIRECT_ITEM_EXPANSION_SNAPSHOT_INVALID",
+            reason=str(exc),
+            resolved_operation_id=stable_operation_id,
+        )
+    try:
+        latest = gateway.get_official_repository_metadata()
+        if (
+            clean_identifier(latest.get("repository_status")) != "active"
+            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        ):
+            return outcome(
+                "blocked",
+                rule_key=rule_key,
+                rule_id=rule_id,
+                revision_before=revision_before,
+                revision_after=revision_after,
+                component_count=len(records),
+                code="DIRECT_ITEM_EXPANSION_REVISION_CHANGED",
+                reason="正式映射库在预检后发生变化，未写入。",
+                resolved_operation_id=stable_operation_id,
+            )
+        gateway.update_official_repository_metadata(
+            {
+                "repository_status": "publishing",
+                "publish_operation_id": stable_operation_id,
+            }
+        )
+        gateway.upsert_item_expansion_component_records(
+            tuple(replace(record, status="inactive") for record in records)
+        )
+        event_id = _stable_id("event", stable_operation_id, rule_key)
+        gateway.upsert_mapping_publish_log(
+            MappingPublishLogRecord(
+                event_id=event_id,
+                operation_id=stable_operation_id,
+                action="DIRECT_CREATE_ITEM_EXPANSION",
+                mapping_key=rule_key,
+                old_value="{}",
+                new_value=json.dumps(
+                    {
+                        "rule_id": rule_id,
+                        "components": canonical_components,
+                        "status": "active",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                source_proposal_id="",
+                submitted_by=identity.user_id,
+                approved_by=identity.user_id,
+                reason=evidence,
+                official_revision_before=revision_before,
+                official_revision_after=revision_after,
+                status="staged",
+                created_at=written_at,
+            )
+        )
+        gateway.update_item_expansion_rule_status(rule_key, "active")
+        gateway.update_official_repository_metadata(
+            {
+                "mapping_revision": revision_after,
+                "last_published_at": written_at,
+                "last_published_by": identity.user_id,
+            }
+        )
+        verified_metadata = gateway.get_official_repository_metadata()
+        build_official_mapping_snapshot(
+            gateway.list_official_mapping_records(),
+            {**verified_metadata, "repository_status": "active"},
+            catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=_item_expansion_records(gateway),
+            synced_at=written_at,
+        )
+        gateway.update_mapping_publish_log_status(event_id, "published")
+        gateway.update_official_repository_metadata(
+            {"repository_status": "active", "publish_operation_id": ""}
+        )
+    except Exception as exc:
+        return outcome(
+            "failed_closed",
+            rule_key=rule_key,
+            rule_id=rule_id,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            component_count=len(records),
+            code="DIRECT_ITEM_EXPANSION_WRITE_INTERRUPTED",
+            reason=(
+                "写入中断；正式库保持失败关闭状态，请管理员按"
+                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+            ),
+            resolved_operation_id=stable_operation_id,
+        )
+    return outcome(
+        "created",
+        rule_key=rule_key,
+        rule_id=rule_id,
+        revision_before=revision_before,
+        revision_after=revision_after,
+        component_count=len(records),
+        resolved_operation_id=stable_operation_id,
     )
 
 
@@ -1205,6 +1622,7 @@ def plan_pending_mapping_publish(
             },
             catalog,
             manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=_item_expansion_records(gateway),
             synced_at=published_at,
         )
     except OfficialMappingSyncError as exc:
@@ -1379,6 +1797,7 @@ def publish_pending_mappings(
                 },
                 catalog,
                 manual_store_route_records=_manual_store_routes(gateway),
+                item_expansion_records=_item_expansion_records(gateway),
                 synced_at=published_at,
             )
             gateway.update_official_repository_metadata(

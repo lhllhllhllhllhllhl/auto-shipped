@@ -14,6 +14,8 @@
     "owner_publisher": "ready",
     "governed_direct_add": "ready",
     "manual_store_route_table": "ready",
+    "item_expansion_rule_table": "ready",
+    "governed_item_expansion_direct_add": "ready",
     "governed_manual_store_route_direct_add": "ready",
     "current_batch_official_replacement": "ready",
     "correction_feedback_inbox": "ready"
@@ -29,6 +31,7 @@
     "spreadsheet_token": "QsLYsongYhoIdXtaL2GcB8Rinwe",
     "mapping_sheet_id": "13abc6",
     "manual_store_sheet_id": "vcPamF",
+    "item_expansion_sheet_id": "CKbJZi",
     "metadata_sheet_id": "CPVHDe",
     "publish_log_sheet_id": "jl3rEi",
     "employee_access": "append_via_governed_direct_add",
@@ -58,6 +61,17 @@
       "光明满元气",
       "淘橘子"
     ],
+    "duplicate_policy": "exact_noop",
+    "conflict_policy": "block_and_contact_admin",
+    "write_protocol": "fail_closed_two_phase_with_readback",
+    "change_log_required": true
+  },
+  "item_expansion_direct_add_policy": {
+    "enabled": true,
+    "required_identity_type": "user",
+    "confirmation_token": "CONFIRM_ADD_ITEM_EXPANSION_RULE",
+    "allowed_action": "create_missing_rule_only",
+    "minimum_component_count": 2,
     "duplicate_policy": "exact_noop",
     "conflict_policy": "block_and_contact_admin",
     "write_protocol": "fail_closed_two_phase_with_readback",

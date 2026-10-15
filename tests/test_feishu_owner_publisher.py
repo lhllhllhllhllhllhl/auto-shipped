@@ -10,11 +10,13 @@ from auto_shipped.integrations.feishu import (
     ManagedPendingSheet,
     MappingPublishLogRecord,
     ManualStoreRouteRecord,
+    ItemExpansionComponentRecord,
     OfficialMappingRecord,
     PendingMappingProposal,
     PendingSheetMetadata,
     build_pending_mapping_proposal,
     add_confirmed_mapping_direct,
+    add_confirmed_item_expansion_direct,
     add_confirmed_manual_store_route_direct,
     plan_pending_mapping_publish,
     publish_pending_mappings,
@@ -45,6 +47,7 @@ class FakePublisherGateway:
         self.proposals: list[PendingMappingProposal] = []
         self.official: list[dict[str, str]] = []
         self.store_routes: list[dict[str, str]] = []
+        self.item_expansions: list[dict[str, str]] = []
         self.logs: list[dict[str, str]] = []
 
     def get_current_identity(self) -> FeishuIdentity:
@@ -105,6 +108,34 @@ class FakePublisherGateway:
         if len(matches) != 1:
             raise ValueError("store route not unique")
         matches[0]["status"] = status
+
+    def list_item_expansion_component_records(self) -> list[dict[str, str]]:
+        return [dict(item) for item in self.item_expansions]
+
+    def upsert_item_expansion_component_records(
+        self, records: tuple[ItemExpansionComponentRecord, ...]
+    ) -> None:
+        for record in records:
+            matches = [
+                item
+                for item in self.item_expansions
+                if item["component_id"] == record.component_id
+            ]
+            if matches and matches != [record.to_dict()]:
+                raise ValueError("conflicting item expansion component")
+            if not matches:
+                self.item_expansions.append(record.to_dict())
+
+    def update_item_expansion_rule_status(
+        self, rule_key: str, status: str
+    ) -> None:
+        matches = [
+            item for item in self.item_expansions if item["rule_key"] == rule_key
+        ]
+        if not matches:
+            raise ValueError("item expansion rule not found")
+        for item in matches:
+            item["status"] = status
 
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None:
         matches = [
@@ -200,6 +231,78 @@ def official_for(item: PendingMappingProposal, product_code: str, spec_code: str
 
 
 class FeishuOwnerPublisherTests(unittest.TestCase):
+    def test_direct_item_expansion_is_create_only_versioned_and_logged(self) -> None:
+        gateway = FakePublisherGateway()
+        gateway.identity = FeishuIdentity("ou-employee", display_name="员工")
+        arguments = {
+            "allowed_company_source_pairs": [("company-a", "profile-a")],
+            "company_id": "company-a",
+            "source_profile_id": "profile-a",
+            "identifier_type": "product_name",
+            "source_value": "组合商品一",
+            "source_spec": "8+1",
+            "target_platform": "guanyi",
+            "components": [
+                {"product_code": "P1", "spec_code": "S1", "quantity_multiplier": 1},
+                {"product_code": "P2", "spec_code": "S2", "quantity_multiplier": 1},
+            ],
+            "evidence": "用户确认组成并以后沿用",
+            "confirmation_token": "CONFIRM_ADD_ITEM_EXPANSION_RULE",
+            "timestamp": NOW,
+        }
+
+        result = add_confirmed_item_expansion_direct(
+            gateway, catalog(), **arguments
+        )
+
+        self.assertEqual(result.status, "created")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+        self.assertEqual(len(gateway.item_expansions), 2)
+        self.assertTrue(
+            all(item["status"] == "active" for item in gateway.item_expansions)
+        )
+        self.assertEqual(gateway.logs[0]["action"], "DIRECT_CREATE_ITEM_EXPANSION")
+
+        duplicate = add_confirmed_item_expansion_direct(
+            gateway, catalog(), **arguments
+        )
+        self.assertEqual(duplicate.status, "already_exists")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+
+        conflict_arguments = dict(arguments)
+        conflict_arguments["components"] = [
+            {"product_code": "P1", "spec_code": "S1", "quantity_multiplier": 2},
+            {"product_code": "P2", "spec_code": "S2", "quantity_multiplier": 1},
+        ]
+        conflict = add_confirmed_item_expansion_direct(
+            gateway, catalog(), **conflict_arguments
+        )
+        self.assertEqual(conflict.status, "needs_admin")
+
+    def test_direct_item_expansion_requires_future_reuse_confirmation(self) -> None:
+        gateway = FakePublisherGateway()
+        result = add_confirmed_item_expansion_direct(
+            gateway,
+            catalog(),
+            allowed_company_source_pairs=[("company-a", "profile-a")],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="组合商品一",
+            source_spec="8+1",
+            target_platform="guanyi",
+            components=[
+                {"product_code": "P1", "spec_code": "S1", "quantity_multiplier": 1},
+                {"product_code": "P2", "spec_code": "S2", "quantity_multiplier": 1},
+            ],
+            evidence="用户只确认本次",
+            confirmation_token="",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "needs_confirmation")
+        self.assertEqual(gateway.item_expansions, [])
+
     def test_direct_store_route_add_is_create_only_versioned_and_logged(self) -> None:
         gateway = FakePublisherGateway()
         gateway.identity = FeishuIdentity("ou-employee", display_name="员工")

@@ -14,6 +14,10 @@ from .manual_store_routes import (
     ManualStoreRouteError,
     normalize_manual_store_routes,
 )
+from .item_expansion_registry import (
+    ItemExpansionRegistryError,
+    normalize_item_expansion_rules,
+)
 
 
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
@@ -29,6 +33,7 @@ def build_official_mapping_snapshot(
     catalog: ProductCatalog,
     *,
     manual_store_route_records: Iterable[Mapping[str, Any]] = (),
+    item_expansion_records: Iterable[Mapping[str, Any]] = (),
     synced_at: str | None = None,
 ) -> dict[str, Any]:
     repository_status = clean_identifier(metadata.get("repository_status"))
@@ -145,6 +150,14 @@ def build_official_mapping_snapshot(
         )
     except ManualStoreRouteError as exc:
         raise OfficialMappingSyncError(str(exc)) from exc
+    try:
+        item_expansions = normalize_item_expansion_rules(
+            item_expansion_records,
+            catalog=catalog,
+            repository_revision=revision,
+        )
+    except ItemExpansionRegistryError as exc:
+        raise OfficialMappingSyncError(str(exc)) from exc
     timestamp = synced_at or datetime.now(timezone.utc).isoformat()
     snapshot: dict[str, Any] = {
         "schema_version": "2.0",
@@ -154,6 +167,7 @@ def build_official_mapping_snapshot(
         "synced_at": timestamp,
         "mappings": mappings,
         "manual_store_routes": manual_store_routes,
+        "item_expansions": item_expansions,
     }
     canonical = json.dumps(
         snapshot,
@@ -187,6 +201,9 @@ def validate_official_mapping_snapshot(
     manual_store_routes = document.get("manual_store_routes", [])
     if not isinstance(manual_store_routes, list):
         raise OfficialMappingSyncError("正式映射快照manual_store_routes不是列表。")
+    item_expansions = document.get("item_expansions", [])
+    if not isinstance(item_expansions, list):
+        raise OfficialMappingSyncError("正式映射快照item_expansions不是列表。")
 
     expected_digest = clean_identifier(document.get("snapshot_sha256"))
     canonical_document = dict(document)
@@ -289,6 +306,46 @@ def validate_official_mapping_snapshot(
         raise OfficialMappingSyncError(str(exc)) from exc
     if normalized_routes != manual_store_routes:
         raise OfficialMappingSyncError("正式映射快照手工单店铺关联未规范化。")
+    try:
+        component_rows = []
+        for rule in item_expansions:
+            if not isinstance(rule, Mapping):
+                raise ItemExpansionRegistryError("正式映射快照包含非对象组合规则。")
+            for component in rule.get("components") or []:
+                component_rows.append(
+                    {
+                        "component_id": (
+                            f"{clean_identifier(rule.get('rule_id'))}-"
+                            f"{clean_identifier(component.get('component_index'))}"
+                        ),
+                        "rule_id": rule.get("rule_id"),
+                        "rule_key": rule.get("rule_key"),
+                        "company_id": rule.get("company_id"),
+                        "source_profile_id": rule.get("source_profile_id"),
+                        "identifier_type": rule.get("identifier_type"),
+                        "source_value": rule.get("source_value"),
+                        "source_spec": rule.get("source_spec"),
+                        "target_platform": rule.get("target_platform"),
+                        "component_index": component.get("component_index"),
+                        "product_code": component.get("product_code"),
+                        "spec_code": component.get("spec_code"),
+                        "quantity_multiplier": component.get("quantity_multiplier"),
+                        "status": rule.get("status"),
+                        "rule_version": rule.get("rule_version"),
+                        "confirmed_by": rule.get("confirmed_by"),
+                        "confirmed_at": rule.get("confirmed_at"),
+                        "evidence": rule.get("evidence"),
+                    }
+                )
+        normalized_expansions = normalize_item_expansion_rules(
+            component_rows,
+            catalog=catalog,
+            repository_revision=revision,
+        )
+    except ItemExpansionRegistryError as exc:
+        raise OfficialMappingSyncError(str(exc)) from exc
+    if normalized_expansions != item_expansions:
+        raise OfficialMappingSyncError("正式映射快照组合商品规则未规范化。")
     return document
 
 
