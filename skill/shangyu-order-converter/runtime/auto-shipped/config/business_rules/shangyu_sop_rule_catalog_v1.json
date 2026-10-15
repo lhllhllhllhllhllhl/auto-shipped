@@ -18,7 +18,8 @@
       "allowed_implementation_refs": [
         "guanyi.store_assignment.fixed",
         "guanyi.store_assignment.by_product",
-        "guanyi.store_assignment.by_source_channel"
+        "guanyi.store_assignment.by_source_channel",
+        "guanyi.store_assignment.by_manual_route"
       ]
     },
     "GY-PLATFORM-ORDER-NUMBER": {
@@ -391,6 +392,58 @@
     },
     "taojuzi_kqyd_text_to_guanyi_v1": {
       "route_id": "taojuzi_kqyd_text_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "jzdz_manual_to_guanyi_v1": {
+      "route_id": "jzdz_manual_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "drjy_manual_to_guanyi_v1": {
+      "route_id": "drjy_manual_to_guanyi_v1",
       "required_rules": {
         "conversion": [
           "GY-STORE-ASSIGNMENT",

@@ -242,8 +242,8 @@ class NddAdapterTests(unittest.TestCase):
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:
                 sheet = workbook["Sheet1"]
-                self.assertEqual(sheet.cell(2, 2).value, "NDD2104856428830863362A")
-                self.assertEqual(sheet.cell(3, 2).value, "NDD2104856428830863362A")
+                self.assertEqual(sheet.cell(2, 2).value, "NDD2104856428830863362")
+                self.assertEqual(sheet.cell(3, 2).value, "NDD2104856428830863362")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(3, 6).value, "JTBN1E1-EH")
                 self.assertEqual(sheet.cell(2, 10).value, 1)
@@ -346,7 +346,7 @@ class NddAdapterTests(unittest.TestCase):
             )
             self.assertEqual(
                 {line["平台单号"] for line in built.lines},
-                {"NDD2104856428830863362A"},
+                {"NDD2104856428830863362"},
             )
             self.assertEqual(
                 {line["物流公司"] for line in built.lines},

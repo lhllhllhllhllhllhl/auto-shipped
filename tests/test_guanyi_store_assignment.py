@@ -124,3 +124,82 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
                 rules,
                 source_extensions={"source_channel": "未知平台"},
             )
+
+    def test_manual_store_route_prefers_exact_source_over_shared_fallback(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "manual_store_route_table",
+                "confirmed": True,
+                "fallback_scope_ids": ["manual_all"],
+                "allowed_stores": ["光明满元气", "淘橘子"],
+            }
+        }
+        routes = [
+            {
+                "scope_id": "manual_all",
+                "product_code": "P1",
+                "spec_code": "S1",
+                "store": "淘橘子",
+                "status": "active",
+            },
+            {
+                "scope_id": "jzdz_manual_v1",
+                "product_code": "P1",
+                "spec_code": "S1",
+                "store": "光明满元气",
+                "status": "active",
+            },
+        ]
+
+        self.assertEqual(
+            select_store(
+                [item("P1")],
+                rules,
+                source_profile_id="jzdz_manual_v1",
+                manual_store_routes=routes,
+            ),
+            "光明满元气",
+        )
+        self.assertEqual(
+            select_store(
+                [item("P1")],
+                rules,
+                source_profile_id="drjy_manual_v1",
+                manual_store_routes=routes,
+            ),
+            "淘橘子",
+        )
+
+    def test_manual_store_route_rejects_mixed_store_order(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "manual_store_route_table",
+                "confirmed": True,
+                "fallback_scope_ids": ["manual_all"],
+                "allowed_stores": ["光明满元气", "淘橘子"],
+            }
+        }
+        routes = [
+            {
+                "scope_id": "manual_all",
+                "product_code": "P1",
+                "spec_code": "S1",
+                "store": "光明满元气",
+                "status": "active",
+            },
+            {
+                "scope_id": "manual_all",
+                "product_code": "P2",
+                "spec_code": "S1",
+                "store": "淘橘子",
+                "status": "active",
+            },
+        ]
+
+        with self.assertRaises(GuanyiStoreAssignmentError):
+            select_store(
+                [item("P1"), item("P2")],
+                rules,
+                source_profile_id="jzdz_manual_v1",
+                manual_store_routes=routes,
+            )

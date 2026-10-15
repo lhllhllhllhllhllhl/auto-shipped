@@ -178,7 +178,11 @@
         "自营京东",
         "淘橘子",
         "淘宝文字单",
-        "KQYD企业店"
+        "KQYD企业店",
+        "JZDZ",
+        "DRJY",
+        "橘子定制",
+        "达人寄样"
       ],
       "status": "active",
       "enabled": true,
@@ -197,6 +201,18 @@
         },
         {
           "source_profile_id": "taojuzi_kqyd_text_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        },
+        {
+          "source_profile_id": "jzdz_manual_v1",
+          "source_kind": "text_or_image",
+          "status": "active",
+          "enabled": true
+        },
+        {
+          "source_profile_id": "drjy_manual_v1",
           "source_kind": "text_or_image",
           "status": "active",
           "enabled": true
@@ -232,6 +248,26 @@
           "platform_rules_profile_id": "guanyi_taojuzi_kqyd_text_v1",
           "product_mapping_scope_id": "taojuzi_kqyd_text_v1",
           "runtime_enabled": true
+        },
+        {
+          "workflow_id": "jzdz_manual_guanyi_v1",
+          "source_profile_id": "jzdz_manual_v1",
+          "route_id": "jzdz_manual_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_jzdz_manual_v1",
+          "product_mapping_scope_id": "jzdz_manual_v1",
+          "runtime_enabled": true
+        },
+        {
+          "workflow_id": "drjy_manual_guanyi_v1",
+          "source_profile_id": "drjy_manual_v1",
+          "route_id": "drjy_manual_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_drjy_manual_v1",
+          "product_mapping_scope_id": "drjy_manual_v1",
+          "runtime_enabled": true
         }
       ],
       "capabilities": {
@@ -252,9 +288,10 @@
         "文字订单截图样本：2026-10-08",
         "用户确认自营天猫/京东店铺、单号和袋商品规则：2026-10-08；根的含义待首次确认",
         "用户确认淘宝与KQYD文字单均进入淘橘子并使用分钟弹性序号：2026-10-09",
-        "docs/TEXT_ORDER_INTAKE_V0.1.md"
+        "docs/TEXT_ORDER_INTAKE_V0.1.md",
+        "用户于2026-10-15确认JZDZ、DRJY作为员工可见的独立手工业务来源，底层归属尚舆自营。"
       ],
-      "last_verified_on": "2026-10-09"
+      "last_verified_on": "2026-10-15"
     },
     {
       "company_id": "rongzhida",

@@ -22,6 +22,7 @@ from .owner_publisher import (
     MappingPublishLogRecord,
     OfficialMappingRecord,
 )
+from .manual_store_routes import ManualStoreRouteRecord
 from .correction_feedback import CorrectionFeedbackRecord
 
 
@@ -46,6 +47,7 @@ class LarkCliFeishuSheetGateway:
         official_mapping_sheet_id: str,
         official_metadata_sheet_id: str,
         official_publish_log_sheet_id: str,
+        official_manual_store_sheet_id: str = "",
         feedback_spreadsheet_token: str = "",
         feedback_sheet_id: str = "",
         feedback_sheet_title: str = "",
@@ -77,6 +79,9 @@ class LarkCliFeishuSheetGateway:
             official_publish_log_sheet_id,
             "official_publish_log_sheet_id",
         )
+        self.official_manual_store_sheet_id = str(
+            official_manual_store_sheet_id or ""
+        ).strip()
         self.feedback_spreadsheet_token = str(feedback_spreadsheet_token or "").strip()
         self.feedback_sheet_id = str(feedback_sheet_id or "").strip()
         self.feedback_sheet_title = str(feedback_sheet_title or "").strip()
@@ -103,6 +108,7 @@ class LarkCliFeishuSheetGateway:
             official_mapping_sheet_id=official.get("mapping_sheet_id"),
             official_metadata_sheet_id=official.get("metadata_sheet_id"),
             official_publish_log_sheet_id=official.get("publish_log_sheet_id"),
+            official_manual_store_sheet_id=official.get("manual_store_sheet_id"),
             feedback_spreadsheet_token=feedback.get("spreadsheet_token"),
             feedback_sheet_id=feedback.get("sheet_id"),
             feedback_sheet_title=feedback.get("sheet_title"),
@@ -723,6 +729,114 @@ class LarkCliFeishuSheetGateway:
                 continue
             records.append(dict(zip(expected, padded)))
         return records
+
+    def list_manual_store_route_records(self) -> list[dict[str, str]]:
+        if not self.official_manual_store_sheet_id:
+            return []
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_manual_store_sheet_id,
+            cell_range="A1:K5000",
+        )
+        expected = [
+            "route_id",
+            "route_key",
+            "scope_id",
+            "product_code",
+            "spec_code",
+            "store",
+            "status",
+            "route_version",
+            "confirmed_by",
+            "confirmed_at",
+            "evidence",
+        ]
+        if not rows:
+            raise LarkCliGatewayError("手工单商品店铺Sheet为空。")
+        header = (rows[0][1] + [""] * len(expected))[: len(expected)]
+        if header != expected:
+            raise LarkCliGatewayError("手工单商品店铺Sheet表头与合同不一致。")
+        records: list[dict[str, str]] = []
+        for _, values in rows[1:]:
+            padded = (values + [""] * len(expected))[: len(expected)]
+            if padded[0].strip():
+                records.append(dict(zip(expected, padded)))
+        return records
+
+    def upsert_manual_store_route_record(
+        self,
+        record: ManualStoreRouteRecord,
+    ) -> None:
+        existing = self.list_manual_store_route_records()
+        same_key = [
+            item
+            for item in existing
+            if item.get("route_key", "").strip() == record.route_key
+        ]
+        if same_key:
+            if same_key == [record.to_dict()]:
+                return
+            raise LarkCliGatewayError(
+                f"手工单店铺route_key已存在不同内容，拒绝覆盖：{record.route_key}"
+            )
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_manual_store_sheet_id,
+            cell_range="A2:A5000",
+        )
+        row_number = self._first_empty_row(rows, 2)
+        self._write_row(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_manual_store_sheet_id,
+            row_number=row_number,
+            end_column="K",
+            values=[str(getattr(record, field.name)) for field in fields(record)],
+        )
+        readback = [
+            item
+            for item in self.list_manual_store_route_records()
+            if item.get("route_key") == record.route_key
+        ]
+        if readback != [record.to_dict()]:
+            raise LarkCliGatewayError("手工单商品店铺关联写入后回读不一致。")
+
+    def update_manual_store_route_status(self, route_key: str, status: str) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_manual_store_sheet_id,
+            cell_range="A2:K5000",
+        )
+        matching = [
+            row_number
+            for row_number, values in rows
+            if len(values) >= 2 and values[1].strip() == route_key
+        ]
+        if len(matching) != 1:
+            raise LarkCliGatewayError(
+                f"手工单店铺route_key必须唯一，实际{len(matching)}条：{route_key}"
+            )
+        self._run(
+            "sheets",
+            "+cells-set",
+            "--as",
+            "user",
+            "--spreadsheet-token",
+            self.official_spreadsheet_token,
+            "--sheet-id",
+            self.official_manual_store_sheet_id,
+            "--range",
+            f"G{matching[0]}",
+            "--cells",
+            json.dumps([[{"value": status}]], ensure_ascii=False),
+            "--json",
+        )
+        readback = [
+            item
+            for item in self.list_manual_store_route_records()
+            if item.get("route_key") == route_key
+        ]
+        if len(readback) != 1 or readback[0].get("status") != status:
+            raise LarkCliGatewayError("手工单商品店铺关联状态写入后回读不一致。")
 
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None:
         existing = self.list_official_mapping_records()

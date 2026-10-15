@@ -10,6 +10,7 @@ from auto_shipped.catalog import ProductCatalog, ProductRecord
 from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
     build_mapping_key,
+    build_manual_store_route_key,
     build_official_mapping_snapshot,
     load_official_mapping_snapshot,
     validate_official_mapping_snapshot,
@@ -60,6 +61,27 @@ def record() -> dict[str, str]:
     return values
 
 
+def store_route(*, store: str = "光明满元气") -> dict[str, str]:
+    values = {
+        "route_id": "route-jtw8e1",
+        "scope_id": "manual_all",
+        "product_code": "JTW8E1",
+        "spec_code": "6974768564811",
+        "store": store,
+        "status": "active",
+        "route_version": "1",
+        "confirmed_by": "ou-test",
+        "confirmed_at": "2026-10-15T00:00:00+08:00",
+        "evidence": "用户确认",
+    }
+    values["route_key"] = build_manual_store_route_key(
+        scope_id=values["scope_id"],
+        product_code=values["product_code"],
+        spec_code=values["spec_code"],
+    )
+    return values
+
+
 class FeishuOfficialMappingTests(unittest.TestCase):
     def test_valid_rows_become_confirmed_product_mapping_snapshot(self) -> None:
         snapshot = build_official_mapping_snapshot(
@@ -73,6 +95,32 @@ class FeishuOfficialMappingTests(unittest.TestCase):
         self.assertTrue(snapshot["mappings"][0]["confirmed"])
         self.assertEqual(snapshot["mappings"][0]["product_code"], "JTW8E1")
         self.assertEqual(len(snapshot["snapshot_sha256"]), 64)
+
+    def test_manual_store_routes_share_the_official_versioned_snapshot(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            manual_store_route_records=[store_route()],
+        )
+
+        self.assertEqual(len(snapshot["manual_store_routes"]), 1)
+        self.assertEqual(snapshot["manual_store_routes"][0]["store"], "光明满元气")
+        self.assertEqual(
+            validate_official_mapping_snapshot(snapshot, catalog())[
+                "manual_store_routes"
+            ],
+            snapshot["manual_store_routes"],
+        )
+
+    def test_duplicate_manual_store_route_key_fails_closed(self) -> None:
+        with self.assertRaises(OfficialMappingSyncError):
+            build_official_mapping_snapshot(
+                [record()],
+                {"repository_status": "active", "mapping_revision": "1"},
+                catalog(),
+                manual_store_route_records=[store_route(), store_route()],
+            )
 
     def test_spec_only_row_is_supported_by_the_universal_schema(self) -> None:
         source = record()

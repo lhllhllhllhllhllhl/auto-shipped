@@ -25,6 +25,7 @@ from auto_shipped.integrations.feishu import (
     LarkCliGatewayError,
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
+    add_confirmed_manual_store_route_direct,
     add_confirmed_mapping_direct,
     build_correction_feedback_record,
     build_pending_mapping_proposal,
@@ -505,6 +506,31 @@ def build_parser() -> argparse.ArgumentParser:
     direct_add.add_argument("--output")
     direct_add.add_argument("--confirmation-token", required=True)
 
+    direct_store_route = subparsers.add_parser(
+        "direct-add-manual-store-route",
+        help="用户明确以后沿用后，受控新增一条商品到手工单店铺的关联",
+    )
+    direct_store_route.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    direct_store_route.add_argument("--catalog", required=True)
+    direct_store_route.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    direct_store_route.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    direct_store_route.add_argument("--scope-id", required=True)
+    direct_store_route.add_argument("--product-code", required=True)
+    direct_store_route.add_argument("--spec-code", default="")
+    direct_store_route.add_argument("--store", required=True)
+    direct_store_route.add_argument("--evidence", required=True)
+    direct_store_route.add_argument("--operation-id")
+    direct_store_route.add_argument("--output")
+    direct_store_route.add_argument("--confirmation-token", required=True)
+
     save_mapping = subparsers.add_parser(
         "save-product-mapping",
         help="在用户明确授权后，把已确认商品映射写入覆盖层",
@@ -621,6 +647,7 @@ def build_parser() -> argparse.ArgumentParser:
         plan_publish,
         publish_pending,
         direct_add,
+        direct_store_route,
         save_mapping,
         save_replacement,
     ):
@@ -1068,8 +1095,14 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
             preferred_catalog_paths=tuple(args.preferred_catalog),
         )
         records = gateway.list_official_mapping_records()
+        manual_store_routes = gateway.list_manual_store_route_records()
         metadata = gateway.get_official_repository_metadata()
-        snapshot = build_official_mapping_snapshot(records, metadata, catalog)
+        snapshot = build_official_mapping_snapshot(
+            records,
+            metadata,
+            catalog,
+            manual_store_route_records=manual_store_routes,
+        )
         output = write_official_mapping_snapshot(args.output, snapshot)
     except (
         OSError,
@@ -1096,6 +1129,7 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
                 "status": "synced",
                 "mapping_revision": snapshot["mapping_revision"],
                 "mapping_count": len(snapshot["mappings"]),
+                "manual_store_route_count": len(snapshot["manual_store_routes"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
                 "output": str(output),
             },
@@ -1124,7 +1158,17 @@ def run_sync_feishu_official_mappings_from_payload(
             args.mappings,
             preferred_catalog_paths=tuple(args.preferred_catalog),
         )
-        snapshot = build_official_mapping_snapshot(records, metadata, catalog)
+        manual_store_routes = payload.get("manual_store_routes", [])
+        if not isinstance(manual_store_routes, list):
+            raise OfficialMappingSyncError(
+                "Agent原生飞书载荷manual_store_routes必须是列表。"
+            )
+        snapshot = build_official_mapping_snapshot(
+            records,
+            metadata,
+            catalog,
+            manual_store_route_records=manual_store_routes,
+        )
         output = write_official_mapping_snapshot(args.output, snapshot)
     except (
         OSError,
@@ -1151,6 +1195,7 @@ def run_sync_feishu_official_mappings_from_payload(
                 "provider": "agent_native_feishu",
                 "mapping_revision": snapshot["mapping_revision"],
                 "mapping_count": len(snapshot["mappings"]),
+                "manual_store_route_count": len(snapshot["manual_store_routes"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
                 "output": str(output),
             },
@@ -1189,6 +1234,7 @@ def run_provision_pending_sheet(args: argparse.Namespace) -> int:
                 gateway.list_official_mapping_records(),
                 gateway.get_official_repository_metadata(),
                 catalog,
+                manual_store_route_records=gateway.list_manual_store_route_records(),
             )
             output = write_official_mapping_snapshot(args.output, snapshot)
             payload["snapshot_output"] = str(output)
@@ -1511,6 +1557,14 @@ def run_direct_add_official_mapping(args: argparse.Namespace) -> int:
             confirmation_token=args.confirmation_token,
             operation_id=args.operation_id,
         )
+        if result.status in {"created", "already_exists"} and args.output:
+            snapshot = build_official_mapping_snapshot(
+                gateway.list_official_mapping_records(),
+                gateway.get_official_repository_metadata(),
+                catalog,
+                manual_store_route_records=gateway.list_manual_store_route_records(),
+            )
+            write_official_mapping_snapshot(args.output, snapshot)
     except (
         OSError,
         ValueError,
@@ -1522,6 +1576,56 @@ def run_direct_add_official_mapping(args: argparse.Namespace) -> int:
                 {
                     "status": "failed",
                     "code": "DIRECT_MAPPING_ADD_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"created", "already_exists"} else 2
+
+
+def run_direct_add_manual_store_route(args: argparse.Namespace) -> int:
+    try:
+        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        policy = config.get("manual_store_route_direct_add_policy") or {}
+        if policy.get("enabled") is not True:
+            raise ValueError("飞书映射治理配置未启用受控手工单店铺关联新增。")
+        gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        result = add_confirmed_manual_store_route_direct(
+            gateway,
+            catalog,
+            allowed_scope_ids=tuple(policy.get("allowed_scope_ids") or ()),
+            allowed_stores=tuple(policy.get("allowed_stores") or ()),
+            scope_id=args.scope_id,
+            product_code=args.product_code,
+            spec_code=args.spec_code,
+            store=args.store,
+            evidence=args.evidence,
+            confirmation_token=args.confirmation_token,
+            operation_id=args.operation_id,
+        )
+        if result.status in {"created", "already_exists"} and args.output:
+            snapshot = build_official_mapping_snapshot(
+                gateway.list_official_mapping_records(),
+                gateway.get_official_repository_metadata(),
+                catalog,
+                manual_store_route_records=gateway.list_manual_store_route_records(),
+            )
+            write_official_mapping_snapshot(args.output, snapshot)
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "DIRECT_STORE_ROUTE_ADD_FAILED",
                     "message": str(exc),
                 },
                 ensure_ascii=False,
@@ -1792,6 +1896,8 @@ def main() -> int:
         return run_publish_pending_mappings(args)
     if args.command == "direct-add-official-mapping":
         return run_direct_add_official_mapping(args)
+    if args.command == "direct-add-manual-store-route":
+        return run_direct_add_manual_store_route(args)
     if args.command == "save-product-mapping":
         return run_save_product_mapping(args)
     if args.command == "save-batch-mapping-replacement":

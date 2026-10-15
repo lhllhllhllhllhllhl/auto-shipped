@@ -9,11 +9,13 @@ from auto_shipped.integrations.feishu import (
     FeishuIdentity,
     ManagedPendingSheet,
     MappingPublishLogRecord,
+    ManualStoreRouteRecord,
     OfficialMappingRecord,
     PendingMappingProposal,
     PendingSheetMetadata,
     build_pending_mapping_proposal,
     add_confirmed_mapping_direct,
+    add_confirmed_manual_store_route_direct,
     plan_pending_mapping_publish,
     publish_pending_mappings,
 )
@@ -42,6 +44,7 @@ class FakePublisherGateway:
         )
         self.proposals: list[PendingMappingProposal] = []
         self.official: list[dict[str, str]] = []
+        self.store_routes: list[dict[str, str]] = []
         self.logs: list[dict[str, str]] = []
 
     def get_current_identity(self) -> FeishuIdentity:
@@ -80,6 +83,28 @@ class FakePublisherGateway:
 
     def list_official_mapping_records(self) -> list[dict[str, str]]:
         return [dict(item) for item in self.official]
+
+    def list_manual_store_route_records(self) -> list[dict[str, str]]:
+        return [dict(item) for item in self.store_routes]
+
+    def upsert_manual_store_route_record(
+        self, record: ManualStoreRouteRecord
+    ) -> None:
+        matches = [
+            item
+            for item in self.store_routes
+            if item["route_key"] == record.route_key
+        ]
+        if matches and matches != [record.to_dict()]:
+            raise ValueError("conflicting store route")
+        if not matches:
+            self.store_routes.append(record.to_dict())
+
+    def update_manual_store_route_status(self, route_key: str, status: str) -> None:
+        matches = [item for item in self.store_routes if item["route_key"] == route_key]
+        if len(matches) != 1:
+            raise ValueError("store route not unique")
+        matches[0]["status"] = status
 
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None:
         matches = [
@@ -175,6 +200,80 @@ def official_for(item: PendingMappingProposal, product_code: str, spec_code: str
 
 
 class FeishuOwnerPublisherTests(unittest.TestCase):
+    def test_direct_store_route_add_is_create_only_versioned_and_logged(self) -> None:
+        gateway = FakePublisherGateway()
+        gateway.identity = FeishuIdentity("ou-employee", display_name="员工")
+
+        result = add_confirmed_manual_store_route_direct(
+            gateway,
+            catalog(),
+            allowed_scope_ids=["manual_all", "jzdz_manual_v1"],
+            allowed_stores=["光明满元气", "淘橘子"],
+            scope_id="jzdz_manual_v1",
+            product_code="P1",
+            spec_code="S1",
+            store="光明满元气",
+            evidence="用户确认JZDZ该商品以后沿用光明满元气",
+            confirmation_token="CONFIRM_ADD_MANUAL_STORE_ROUTE",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "created")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+        self.assertEqual(gateway.store_routes[0]["status"], "active")
+        self.assertEqual(gateway.store_routes[0]["scope_id"], "jzdz_manual_v1")
+        self.assertEqual(
+            gateway.logs[0]["action"], "DIRECT_CREATE_MANUAL_STORE_ROUTE"
+        )
+
+        duplicate = add_confirmed_manual_store_route_direct(
+            gateway,
+            catalog(),
+            allowed_scope_ids=["manual_all", "jzdz_manual_v1"],
+            allowed_stores=["光明满元气", "淘橘子"],
+            scope_id="jzdz_manual_v1",
+            product_code="P1",
+            spec_code="S1",
+            store="光明满元气",
+            evidence="再次确认",
+            confirmation_token="CONFIRM_ADD_MANUAL_STORE_ROUTE",
+            timestamp=NOW,
+        )
+        self.assertEqual(duplicate.status, "already_exists")
+
+    def test_direct_store_route_conflict_requires_admin(self) -> None:
+        gateway = FakePublisherGateway()
+        created = add_confirmed_manual_store_route_direct(
+            gateway,
+            catalog(),
+            allowed_scope_ids=["manual_all"],
+            allowed_stores=["光明满元气", "淘橘子"],
+            scope_id="manual_all",
+            product_code="P1",
+            spec_code="S1",
+            store="光明满元气",
+            evidence="确认",
+            confirmation_token="CONFIRM_ADD_MANUAL_STORE_ROUTE",
+            timestamp=NOW,
+        )
+        self.assertEqual(created.status, "created")
+
+        conflict = add_confirmed_manual_store_route_direct(
+            gateway,
+            catalog(),
+            allowed_scope_ids=["manual_all"],
+            allowed_stores=["光明满元气", "淘橘子"],
+            scope_id="manual_all",
+            product_code="P1",
+            spec_code="S1",
+            store="淘橘子",
+            evidence="用户临时否决",
+            confirmation_token="CONFIRM_ADD_MANUAL_STORE_ROUTE",
+            timestamp=NOW,
+        )
+        self.assertEqual(conflict.status, "needs_admin")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+
     def test_direct_add_requires_exact_confirmation_without_writing(self) -> None:
         gateway = FakePublisherGateway()
 

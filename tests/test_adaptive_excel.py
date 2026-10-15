@@ -217,7 +217,7 @@ class AdaptiveExcelTests(unittest.TestCase):
                 workbook.close()
             self.assertEqual(
                 platform_numbers,
-                {"NDD261008001A", "NDD261008002A"},
+                {"NDD261008001", "NDD261008002"},
             )
 
     def test_batch_merge_accepts_adaptive_plans_per_source(self) -> None:

@@ -26,6 +26,12 @@ from .correction_feedback import (
     submit_correction_feedback,
 )
 from .lark_cli_gateway import LarkCliFeishuSheetGateway, LarkCliGatewayError
+from .manual_store_routes import (
+    ManualStoreRouteError,
+    ManualStoreRouteRecord,
+    build_manual_store_route_key,
+    normalize_manual_store_routes,
+)
 from .official_mappings import (
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
@@ -35,6 +41,8 @@ from .official_mappings import (
 )
 from .owner_publisher import (
     DIRECT_ADD_CONFIRMATION_TOKEN,
+    DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN,
+    DirectManualStoreRouteAddResult,
     DirectMappingAddResult,
     MappingPublishItem,
     MappingPublishLogRecord,
@@ -43,6 +51,7 @@ from .owner_publisher import (
     OfficialMappingRecord,
     OwnerMappingPublishError,
     PUBLISH_CONFIRMATION_TOKEN,
+    add_confirmed_manual_store_route_direct,
     add_confirmed_mapping_direct,
     plan_pending_mapping_publish,
     publish_pending_mappings,
@@ -74,6 +83,10 @@ __all__ = [
     "submit_correction_feedback",
     "LarkCliFeishuSheetGateway",
     "LarkCliGatewayError",
+    "ManualStoreRouteError",
+    "ManualStoreRouteRecord",
+    "build_manual_store_route_key",
+    "normalize_manual_store_routes",
     "OfficialMappingSyncError",
     "build_official_mapping_snapshot",
     "load_official_mapping_snapshot",
@@ -81,6 +94,8 @@ __all__ = [
     "write_official_mapping_snapshot",
     "MappingPublishItem",
     "DIRECT_ADD_CONFIRMATION_TOKEN",
+    "DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN",
+    "DirectManualStoreRouteAddResult",
     "DirectMappingAddResult",
     "MappingPublishLogRecord",
     "MappingPublishPlan",
@@ -88,6 +103,7 @@ __all__ = [
     "OfficialMappingRecord",
     "OwnerMappingPublishError",
     "PUBLISH_CONFIRMATION_TOKEN",
+    "add_confirmed_manual_store_route_direct",
     "add_confirmed_mapping_direct",
     "plan_pending_mapping_publish",
     "publish_pending_mappings",

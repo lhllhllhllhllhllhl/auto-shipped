@@ -89,6 +89,55 @@ def _write(path: Path, payload: dict) -> None:
 
 
 class TextOrderIntakeTests(unittest.TestCase):
+    def test_jzdz_and_drjy_are_peer_manual_sources_with_separate_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft(company_id=None)
+            payload["draft_id"] = "jzdz-drjy-peer-sources"
+            payload["routing_mode"] = "registered_manual_channels"
+            payload.pop("order_number_policy")
+            jzdz = payload["orders"][0]
+            jzdz["order_ref"] = "jzdz-1"
+            jzdz["source_channel"] = "JZDZ"
+            jzdz["source_order_no"] = None
+            jzdz["field_provenance"]["source_order_no"] = "missing"
+            drjy = json.loads(json.dumps(jzdz, ensure_ascii=False))
+            drjy["order_ref"] = "drjy-1"
+            drjy["source_channel"] = "DRJY"
+            payload["orders"] = [jzdz, drjy]
+            _write(path, payload)
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 10, 15, 16, 48, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                intake = prepare_text_order_draft(
+                    path,
+                    root / "prepared",
+                    company_registry_path=REGISTRY,
+                    order_number_state_dir=root / "state",
+                )
+
+            self.assertEqual(intake.status, "ready")
+            self.assertEqual(
+                {item["rule_source_profile_id"] for item in intake.routed_groups},
+                {"jzdz_manual_v1", "drjy_manual_v1"},
+            )
+            numbers: dict[str, str] = {}
+            for conversion_input in intake.conversion_inputs:
+                workbook = load_workbook(conversion_input["source"], data_only=False)
+                try:
+                    numbers[conversion_input["rule_source_profile_id"]] = str(
+                        workbook["TextOrders"].cell(2, 2).value
+                    )
+                finally:
+                    workbook.close()
+            self.assertEqual(numbers["jzdz_manual_v1"], "JZDZ261015164801")
+            self.assertEqual(numbers["drjy_manual_v1"], "DRJY261015164801")
+
     def test_registered_manual_channels_route_each_order_and_merge_conversion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -177,7 +226,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
                 taobao_preview["order_number_plan"]["message"],
             )
-            self.assertIn("追加机器人尾缀A", taobao_preview["order_number_plan"]["message"])
+            self.assertIn("不再追加机器人尾缀", taobao_preview["order_number_plan"]["message"])
             self.assertEqual(
                 {item["rule_source_profile_id"] for item in intake.conversion_inputs},
                 {"self_operated_text_v1", "taojuzi_taobao_text_v1"},
@@ -208,10 +257,10 @@ class TextOrderIntakeTests(unittest.TestCase):
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.max_row, 3)
                 self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店")
-                self.assertEqual(sheet.cell(2, 2).value, "3317118816003054668A")
+                self.assertEqual(sheet.cell(2, 2).value, "3317118816003054668")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(3, 1).value, "淘橘子")
-                self.assertEqual(sheet.cell(3, 2).value, "TB20261013110201A")
+                self.assertEqual(sheet.cell(3, 2).value, "TB20261013110201")
                 self.assertEqual(sheet.cell(3, 6).value, "KKAW0009")
             finally:
                 workbook.close()
@@ -292,7 +341,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
                 plan["message"],
             )
-            self.assertIn("追加机器人尾缀A", plan["message"])
+            self.assertIn("不再追加机器人尾缀", plan["message"])
 
     def test_explicit_single_profile_mode_without_company_still_asks_company(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -506,7 +555,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.cell(2, 1).value, "MANYANGCHI旗舰店")
-                self.assertEqual(sheet.cell(2, 2).value, "TMALL-ORDER-001A")
+                self.assertEqual(sheet.cell(2, 2).value, "TMALL-ORDER-001")
                 self.assertEqual(sheet.cell(2, 6).value, "JTTZE1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564835")
                 self.assertEqual(sheet.cell(2, 16).value, "13800138000-3940")
@@ -557,7 +606,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.cell(2, 1).value, "MAN YUAN QI旗舰店")
-                self.assertEqual(sheet.cell(2, 2).value, "3644496001658889A")
+                self.assertEqual(sheet.cell(2, 2).value, "3644496001658889")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564811")
                 self.assertEqual(sheet.cell(2, 16).value, "13800138000-0534")
@@ -604,7 +653,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 (
                     "taojuzi_taobao_text_v1",
                     "淘宝",
-                    "TB20261009154201A",
+                    "TB20261009154201",
                     "搓澡巾",
                     "蓝色",
                     "KKAW0030",
@@ -614,7 +663,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 (
                     "taojuzi_kqyd_text_v1",
                     "KQYD",
-                    "KQYD20261009154201A",
+                    "KQYD20261009154201",
                     "Revo海绵",
                     "绿色",
                     "KKRevo1894",
@@ -741,7 +790,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.cell(2, 1).value, "光明满元气")
-                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008142301A")
+                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008142301")
                 self.assertEqual(sheet.cell(2, 6).value, "GMHN-1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564729")
             finally:

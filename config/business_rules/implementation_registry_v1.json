@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "shangyu_rule_implementations_v1",
-  "version": 4,
+  "version": 5,
   "implementations": {
     "browser.guanyi.prepare_import_form.pending_review": {
       "runtime": "javascript",
@@ -119,6 +119,11 @@
       "test": "tests/test_guanyi_store_assignment.py"
     },
     "guanyi.store_assignment.by_source_channel": {
+      "runtime": "python",
+      "target": "auto_shipped.platforms.guanyi.store_assignment:select_store",
+      "test": "tests/test_guanyi_store_assignment.py"
+    },
+    "guanyi.store_assignment.by_manual_route": {
       "runtime": "python",
       "target": "auto_shipped.platforms.guanyi.store_assignment:select_store",
       "test": "tests/test_guanyi_store_assignment.py"

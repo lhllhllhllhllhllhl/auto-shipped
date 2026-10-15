@@ -633,7 +633,7 @@ def _order_number_plan(
     final_rule = (
         f"最终平台单号由目标平台公共规则追加机器人尾缀{automation_suffix}"
         if automation_suffix
-        else "最终平台单号继续按目标平台公共规则处理"
+        else "最终平台单号保持基础单号，不再追加机器人尾缀"
     )
     if order_no:
         return {

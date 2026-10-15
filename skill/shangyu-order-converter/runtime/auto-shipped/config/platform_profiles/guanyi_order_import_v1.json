@@ -13,10 +13,9 @@
   "example_rows": [2, 3, 4, 5, 6, 7, 8],
   "render_policy": "copy_official_template_remove_examples_and_append_item_rows",
   "automation_identity_policy": {
-    "strategy": "append_suffix",
-    "suffix": "A",
+    "strategy": "preserve_base",
     "confirmed": true,
-    "source": "用户于2026-10-05确认：所有本系统生成的管易平台单号统一追加A，以区别人工订单。"
+    "source": "用户于2026-10-15确认：阶段性机器人尾缀A停止使用；所有新生成的平台单号保持业务规则生成的基础单号，不再追加A。"
   },
   "output": {
     "artifact_id": "custom_order_import",
@@ -133,9 +132,7 @@
     "allowed_values": {
       "物流公司": ["韵达快递", "中通快递（重货）", "京东中通"]
     },
-    "required_text_suffixes": {
-      "平台单号": "A"
-    },
+    "required_text_suffixes": {},
     "nonnegative_numeric_columns": ["支付金额", "价格"],
     "optional_nonnegative_numeric_columns": ["运费"],
     "positive_numeric_columns": ["数量"],

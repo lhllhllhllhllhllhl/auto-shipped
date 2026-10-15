@@ -101,13 +101,20 @@ class CompanyRegistryTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ready", result["issues"])
         self.assertEqual(result["company_count"], 8)
-        self.assertEqual(result["workflow_count"], 7)
+        self.assertEqual(result["workflow_count"], 9)
 
     def test_taojuzi_text_profiles_belong_to_self_operated_company(self) -> None:
         for profile_id in (
             "taojuzi_taobao_text_v1",
             "taojuzi_kqyd_text_v1",
         ):
+            result = resolve_company_by_source_profile(self.registry, profile_id)
+            self.assertEqual(result.status, "resolved")
+            self.assertIsNotNone(result.company)
+            self.assertEqual(result.company.company_id, "self_operated")
+
+    def test_jzdz_and_drjy_are_employee_sources_under_self_operated(self) -> None:
+        for profile_id in ("jzdz_manual_v1", "drjy_manual_v1"):
             result = resolve_company_by_source_profile(self.registry, profile_id)
             self.assertEqual(result.status, "resolved")
             self.assertIsNotNone(result.company)

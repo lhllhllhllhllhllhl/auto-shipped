@@ -9,6 +9,10 @@ from typing import Any, Mapping, Protocol, Sequence
 from auto_shipped.catalog import ProductCatalog, clean_identifier
 
 from .official_mappings import OfficialMappingSyncError, build_official_mapping_snapshot
+from .manual_store_routes import (
+    ManualStoreRouteRecord,
+    build_manual_store_route_key,
+)
 from .pending_mappings import (
     FeishuIdentity,
     ManagedPendingSheet,
@@ -19,6 +23,7 @@ from .pending_mappings import (
 
 PUBLISH_CONFIRMATION_TOKEN = "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS"
 DIRECT_ADD_CONFIRMATION_TOKEN = "CONFIRM_ADD_NEW_OFFICIAL_MAPPING"
+DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN = "CONFIRM_ADD_MANUAL_STORE_ROUTE"
 
 
 class OwnerMappingPublishError(ValueError):
@@ -142,6 +147,20 @@ class DirectMappingAddResult:
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class DirectManualStoreRouteAddResult:
+    status: str
+    operation_id: str
+    route_key: str
+    revision_before: str
+    revision_after: str
+    product_code: str
+    spec_code: str
+    store: str
+    code: str = ""
+    reason: str = ""
+
+
 class OwnerMappingPublisherGateway(Protocol):
     def get_current_identity(self) -> FeishuIdentity: ...
 
@@ -165,6 +184,19 @@ class OwnerMappingPublisherGateway(Protocol):
 
     def list_official_mapping_records(self) -> list[dict[str, str]]: ...
 
+    def list_manual_store_route_records(self) -> list[dict[str, str]]: ...
+
+    def upsert_manual_store_route_record(
+        self,
+        record: ManualStoreRouteRecord,
+    ) -> None: ...
+
+    def update_manual_store_route_status(
+        self,
+        route_key: str,
+        status: str,
+    ) -> None: ...
+
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None: ...
 
     def update_official_mapping_status(self, mapping_key: str, status: str) -> None: ...
@@ -178,6 +210,11 @@ class OwnerMappingPublisherGateway(Protocol):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _manual_store_routes(gateway: OwnerMappingPublisherGateway) -> list[dict[str, str]]:
+    reader = getattr(gateway, "list_manual_store_route_records", None)
+    return list(reader()) if callable(reader) else []
 
 
 def _stable_id(prefix: str, *parts: str) -> str:
@@ -483,6 +520,7 @@ def add_confirmed_mapping_direct(
                 "mapping_revision": revision_after,
             },
             catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
             synced_at=written_at,
         )
     except OfficialMappingSyncError as exc:
@@ -563,6 +601,7 @@ def add_confirmed_mapping_direct(
             verified_records,
             {**verify_metadata, "repository_status": "active"},
             catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
             synced_at=written_at,
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
@@ -592,6 +631,330 @@ def add_confirmed_mapping_direct(
         revision_after=revision_after,
         product_code=target.product_code,
         spec_code=target.spec_code,
+    )
+
+
+def add_confirmed_manual_store_route_direct(
+    gateway: OwnerMappingPublisherGateway,
+    catalog: ProductCatalog,
+    *,
+    allowed_scope_ids: Sequence[str],
+    allowed_stores: Sequence[str],
+    scope_id: str,
+    product_code: str,
+    spec_code: str,
+    store: str,
+    evidence: str,
+    confirmation_token: str,
+    operation_id: str | None = None,
+    timestamp: str | None = None,
+) -> DirectManualStoreRouteAddResult:
+    """Append one confirmed SKU-to-store route without replacing existing data."""
+
+    scope_id = clean_identifier(scope_id)
+    store = clean_identifier(store)
+    evidence = clean_identifier(evidence)
+    if confirmation_token != DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN:
+        return DirectManualStoreRouteAddResult(
+            status="needs_confirmation",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            store=store,
+            code="DIRECT_STORE_ROUTE_CONFIRMATION_REQUIRED",
+            reason="新增手工单商品店铺关联前必须取得用户明确的‘以后沿用’确认。",
+        )
+    identity = gateway.get_current_identity()
+    if identity.identity_type != "user" or not clean_identifier(identity.user_id):
+        return DirectManualStoreRouteAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            store=store,
+            code="DIRECT_STORE_ROUTE_USER_IDENTITY_REQUIRED",
+            reason="必须使用可追溯的飞书用户身份写入正式店铺关联。",
+        )
+    scopes = {clean_identifier(value) for value in allowed_scope_ids if value}
+    if scope_id not in scopes:
+        return DirectManualStoreRouteAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            store=store,
+            code="DIRECT_STORE_ROUTE_SCOPE_NOT_REGISTERED",
+            reason="该手工订单来源尚未登记，不能直接新增店铺关联。",
+        )
+    stores = {clean_identifier(value) for value in allowed_stores if value}
+    if store not in stores:
+        return DirectManualStoreRouteAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            store=store,
+            code="DIRECT_STORE_ROUTE_STORE_NOT_ALLOWED",
+            reason="目标店铺不在已登记允许清单中，请联系管理员维护店铺策略。",
+        )
+    if not evidence:
+        return DirectManualStoreRouteAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            store=store,
+            code="DIRECT_STORE_ROUTE_EVIDENCE_REQUIRED",
+            reason="必须记录用户确认依据。",
+        )
+    target = catalog.resolve_unique_target(product_code, spec_code)
+    if target is None:
+        return DirectManualStoreRouteAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            route_key="",
+            revision_before="",
+            revision_after="",
+            product_code=clean_identifier(product_code),
+            spec_code=clean_identifier(spec_code),
+            store=store,
+            code="DIRECT_STORE_ROUTE_TARGET_NOT_UNIQUE",
+            reason="目标商品代码与规格代码在有效商品目录中不存在或不唯一。",
+        )
+    route_key = build_manual_store_route_key(
+        scope_id=scope_id,
+        product_code=target.product_code,
+        spec_code=target.spec_code,
+    )
+    metadata = gateway.get_official_repository_metadata()
+    revision_before = clean_identifier(metadata.get("mapping_revision"))
+    if clean_identifier(metadata.get("repository_status")) != "active":
+        return DirectManualStoreRouteAddResult(
+            status="blocked",
+            operation_id=operation_id
+            or clean_identifier(metadata.get("publish_operation_id")),
+            route_key=route_key,
+            revision_before=revision_before,
+            revision_after="",
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            store=store,
+            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
+            reason="正式映射库不是active，需管理员先核对并恢复。",
+        )
+    revision_after = _next_revision(revision_before)
+    existing_routes = _manual_store_routes(gateway)
+    existing = [
+        record
+        for record in existing_routes
+        if clean_identifier(record.get("route_key")) == route_key
+    ]
+    if len(existing) > 1:
+        return DirectManualStoreRouteAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            route_key=route_key,
+            revision_before=revision_before,
+            revision_after=revision_before,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            store=store,
+            code="DIRECT_STORE_ROUTE_DUPLICATE_KEY",
+            reason="正式库中同一店铺关联键存在多条记录，请联系管理员治理。",
+        )
+    if existing:
+        current = existing[0]
+        if (
+            clean_identifier(current.get("status")) == "active"
+            and clean_identifier(current.get("store")) == store
+        ):
+            return DirectManualStoreRouteAddResult(
+                status="already_exists",
+                operation_id=operation_id or "",
+                route_key=route_key,
+                revision_before=revision_before,
+                revision_after=revision_before,
+                product_code=target.product_code,
+                spec_code=target.spec_code,
+                store=store,
+                reason="正式库已存在完全相同店铺关联，未重复写入。",
+            )
+        return DirectManualStoreRouteAddResult(
+            status="needs_admin",
+            operation_id=operation_id or "",
+            route_key=route_key,
+            revision_before=revision_before,
+            revision_after=revision_before,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            store=store,
+            code="DIRECT_STORE_ROUTE_CONFLICTS_WITH_OFFICIAL",
+            reason="同一商品和作用域已关联不同店铺或处于异常状态，禁止普通用户覆盖。",
+        )
+
+    written_at = timestamp or _now()
+    stable_operation_id = operation_id or _stable_id(
+        "direct-store-route",
+        revision_before,
+        route_key,
+        store,
+        identity.user_id,
+    )
+    record = ManualStoreRouteRecord(
+        route_id=_stable_id("store-route-record", route_key),
+        route_key=route_key,
+        scope_id=scope_id,
+        product_code=target.product_code,
+        spec_code=target.spec_code,
+        store=store,
+        status="active",
+        route_version=revision_after,
+        confirmed_by=identity.user_id,
+        confirmed_at=written_at,
+        evidence=evidence,
+    )
+    official_records = gateway.list_official_mapping_records()
+    try:
+        build_official_mapping_snapshot(
+            official_records,
+            {
+                **metadata,
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            manual_store_route_records=[*existing_routes, record.to_dict()],
+            synced_at=written_at,
+        )
+    except OfficialMappingSyncError as exc:
+        return DirectManualStoreRouteAddResult(
+            status="blocked",
+            operation_id=stable_operation_id,
+            route_key=route_key,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            store=store,
+            code="DIRECT_STORE_ROUTE_SNAPSHOT_INVALID",
+            reason=str(exc),
+        )
+    try:
+        latest = gateway.get_official_repository_metadata()
+        if (
+            clean_identifier(latest.get("repository_status")) != "active"
+            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        ):
+            return DirectManualStoreRouteAddResult(
+                status="blocked",
+                operation_id=stable_operation_id,
+                route_key=route_key,
+                revision_before=revision_before,
+                revision_after=revision_after,
+                product_code=target.product_code,
+                spec_code=target.spec_code,
+                store=store,
+                code="DIRECT_STORE_ROUTE_REVISION_CHANGED",
+                reason="正式映射库在预检后发生变化，未写入。",
+            )
+        gateway.update_official_repository_metadata(
+            {
+                "repository_status": "publishing",
+                "publish_operation_id": stable_operation_id,
+            }
+        )
+        gateway.upsert_manual_store_route_record(replace(record, status="inactive"))
+        event_id = _stable_id("event", stable_operation_id, route_key)
+        gateway.upsert_mapping_publish_log(
+            MappingPublishLogRecord(
+                event_id=event_id,
+                operation_id=stable_operation_id,
+                action="DIRECT_CREATE_MANUAL_STORE_ROUTE",
+                mapping_key=route_key,
+                old_value="{}",
+                new_value=json.dumps(
+                    {
+                        "scope_id": scope_id,
+                        "product_code": target.product_code,
+                        "spec_code": target.spec_code,
+                        "store": store,
+                        "status": "active",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                source_proposal_id="",
+                submitted_by=identity.user_id,
+                approved_by=identity.user_id,
+                reason=evidence,
+                official_revision_before=revision_before,
+                official_revision_after=revision_after,
+                status="staged",
+                created_at=written_at,
+            )
+        )
+        gateway.update_manual_store_route_status(route_key, "active")
+        gateway.update_official_repository_metadata(
+            {
+                "mapping_revision": revision_after,
+                "last_published_at": written_at,
+                "last_published_by": identity.user_id,
+            }
+        )
+        verified_routes = _manual_store_routes(gateway)
+        verify_metadata = gateway.get_official_repository_metadata()
+        build_official_mapping_snapshot(
+            gateway.list_official_mapping_records(),
+            {**verify_metadata, "repository_status": "active"},
+            catalog,
+            manual_store_route_records=verified_routes,
+            synced_at=written_at,
+        )
+        gateway.update_mapping_publish_log_status(event_id, "published")
+        gateway.update_official_repository_metadata(
+            {"repository_status": "active", "publish_operation_id": ""}
+        )
+    except Exception as exc:
+        return DirectManualStoreRouteAddResult(
+            status="failed_closed",
+            operation_id=stable_operation_id,
+            route_key=route_key,
+            revision_before=revision_before,
+            revision_after=revision_after,
+            product_code=target.product_code,
+            spec_code=target.spec_code,
+            store=store,
+            code="DIRECT_STORE_ROUTE_WRITE_INTERRUPTED",
+            reason=(
+                "写入中断；正式库保持可核验状态，禁止继续转换。请管理员按"
+                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+            ),
+        )
+    return DirectManualStoreRouteAddResult(
+        status="created",
+        operation_id=stable_operation_id,
+        route_key=route_key,
+        revision_before=revision_before,
+        revision_after=revision_after,
+        product_code=target.product_code,
+        spec_code=target.spec_code,
+        store=store,
     )
 
 
@@ -841,6 +1204,7 @@ def plan_pending_mapping_publish(
                 "mapping_revision": revision_after,
             },
             catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
             synced_at=published_at,
         )
     except OfficialMappingSyncError as exc:
@@ -1014,6 +1378,7 @@ def publish_pending_mappings(
                     "repository_status": "active",
                 },
                 catalog,
+                manual_store_route_records=_manual_store_routes(gateway),
                 synced_at=published_at,
             )
             gateway.update_official_repository_metadata(

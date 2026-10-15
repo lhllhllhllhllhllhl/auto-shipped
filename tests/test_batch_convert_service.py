@@ -132,10 +132,10 @@ class BatchConvertServiceTests(unittest.TestCase):
             self.assertEqual(
                 platform_numbers,
                 [
-                    "NDD2104856428830863362A",
-                    "NDD2104856428830863362A",
-                    "NDD2104856428830863363A",
-                    "NDD2104856428830863363A",
+                    "NDD2104856428830863362",
+                    "NDD2104856428830863362",
+                    "NDD2104856428830863363",
+                    "NDD2104856428830863363",
                 ],
             )
 

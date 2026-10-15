@@ -10,9 +10,10 @@
 
 ```text
 正式映射表 QsLYsongYhoIdXtaL2GcB8Rinwe
-  正式映射 13abc6
-  发布日志 jl3rEi
-  库信息   CPVHDe
+  正式映射         13abc6
+  手工单商品店铺   vcPamF
+  发布日志         jl3rEi
+  库信息           CPVHDe
 
 待确认映射表 PH82sw3sBhbiJAtVPIScA96Yn3b
   __个人Sheet模板 eb2307
@@ -24,6 +25,8 @@
 ### 正式映射工作簿
 
 - 是运行时权威数据源。
+- “正式映射”Sheet负责把不同公司/来源的商品编码、名称别名和规格映射到唯一管易商品+规格。
+- “手工单商品店铺”Sheet负责把`来源作用域+管易商品代码+规格代码`关联到管易店铺；它不是另一份商品映射，也不复制来源别名。
 - 普通员工和Agent通过受控命令读取；只有“缺失键的无冲突新增”允许以当前飞书用户身份追加。
 - 已有键的替换、删除、合并、异常状态修复和公司身份配置仍只有所有者/管理员处理。
 - 待确认内容不得直接参与订单转换。
@@ -73,6 +76,21 @@ list_pending_proposals / append_pending_proposal
       "spec_code": "...",
       "status": "active",
       "mapping_version": "...",
+      "confirmed_by": "...",
+      "confirmed_at": "...",
+      "evidence": "..."
+    }
+  ],
+  "manual_store_routes": [
+    {
+      "route_id": "...",
+      "route_key": "...",
+      "scope_id": "manual_all",
+      "product_code": "...",
+      "spec_code": "...",
+      "store": "光明满元气",
+      "status": "active",
+      "route_version": "...",
       "confirmed_by": "...",
       "confirmed_at": "...",
       "evidence": "..."
@@ -227,6 +245,21 @@ python3 <skill-dir>/scripts/feishu_mapping.py add \
 
 命令会验证当前用户身份、公司/来源登记、有效商品目录、正式库版本和重复键；写入后回读映射、日志和新版本，并同步本机正式快照。完全重复返回`already_exists`且不增加版本；同键不同目标返回`needs_admin`且不写入。
 
+JZDZ、DRJY等手工业务来源完成商品映射后，再读取“手工单商品店铺”关系。`scope_id`可使用具体来源配置（如`jzdz_manual_v1`、`drjy_manual_v1`）或通用回退`manual_all`；具体来源优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
+
+```bash
+python3 <skill-dir>/scripts/feishu_mapping.py add-store-route \
+  --scope-id <manual_all|jzdz_manual_v1|drjy_manual_v1> \
+  --product-code <管易商品代码> \
+  --spec-code <管易规格代码；唯一单规格商品可省略> \
+  --store <光明满元气|淘橘子> \
+  --evidence <用户确认依据> \
+  --operation-id <稳定操作ID> \
+  --confirmation-token CONFIRM_ADD_MANUAL_STORE_ROUTE
+```
+
+完全相同关系幂等跳过；同一作用域和SKU已经指向不同店铺、记录状态异常或一单商品落到不同店铺时失败关闭并转管理员，普通用户不能覆盖。
+
 只有冲突、替换或其他例外才提交待确认提案供管理员治理：
 
 ```bash
@@ -266,6 +299,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 - 正式工作簿只允许受控命令写；普通用户只能无冲突新增，所有者处理替换、删除和冲突。
 - 发布器不信任待确认状态，必须重新校验映射、来源、冲突和正式库版本。
 - 所有发布必须写入独立业务变更日志并回读正式映射。
+- 商品映射与手工单店铺关联共享正式库版本、发布状态和日志；任何一类写入中断都会让正式库保持非active，转换失败关闭。
 - 当前批次临时替换是独立本机记录，永远不写正式表或待确认表，也不改变正式版本。
 
 所有者发布命令分为只读计划和确认发布：
@@ -285,7 +319,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
 
 已完成：
 
-- 正式映射、发布日志、库信息三个Sheet已创建并回读校验。
+- 正式映射、手工单商品店铺、发布日志、库信息四个Sheet已创建并回读校验。
 - 待确认个人模板与用户路由Sheet已创建并回读校验。
 - 当前飞书用户的个人Sheet与路由已通过适配器自动创建；相同用户重复执行会复用原Sheet，不会重复创建。
 - 已确认的恬田与SAM两条编码映射已进入正式版本2。
@@ -295,3 +329,4 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
 - 正式版本4已同步为本机快照；恬田、SAM及淘橘子淘宝/KQYD文字单均可独立使用正式库完成转换。
 - Agent原生飞书结果可通过`sync-native`载荷桥进入同一校验器；正式映射不可用时转换不再退化为商品确认问题。
 - 2026-10-15启用受控直接新增：用户确认“以后沿用”的纯新增可直接进入正式表；重复幂等，同键冲突转管理员。用户否决已有正式映射时只允许文件哈希绑定的当前批次替换，并保留独立纠错反馈。
+- 2026-10-15新增“手工单商品店铺”关系表并接入同一正式快照：JZDZ、DRJY在员工视角作为独立来源，底层归属自营；精确来源关系优先于`manual_all`，当前11个已知SKU已写入通用关系并回读校验。

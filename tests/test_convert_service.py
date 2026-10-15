@@ -319,7 +319,7 @@ class ConvertServiceTests(unittest.TestCase):
             rendered = load_workbook(output_xlsx, read_only=False, data_only=True)
             output_sheet = rendered["Sheet1"]
             self.assertEqual(output_sheet.max_row, 2)
-            self.assertEqual(output_sheet["B2"].value, "W1A")
+            self.assertEqual(output_sheet["B2"].value, "W1")
             self.assertEqual(output_sheet["F2"].value, "P1")
             self.assertEqual(output_sheet["P2"].value, "13800138000")
             self.assertEqual(output_sheet["Q2"].value, "13800138000")
