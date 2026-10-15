@@ -251,14 +251,16 @@ def _platform_order_no(
     if not identity.get("confirmed", False):
         raise GuanyiCustomImportError("管易自动化订单标识策略尚未确认")
     identity_strategy = str(identity.get("strategy") or "")
-    if identity_strategy != "append_suffix":
-        raise GuanyiCustomImportError(
-            f"未知管易自动化订单标识策略: {identity_strategy or '未配置'}"
-        )
-    automation_suffix = str(identity.get("suffix") or "")
-    if not automation_suffix:
-        raise GuanyiCustomImportError("管易自动化订单尾缀不能为空")
-    return f"{base_number}{automation_suffix}"
+    if identity_strategy == "preserve_base":
+        return base_number
+    if identity_strategy == "append_suffix":
+        automation_suffix = str(identity.get("suffix") or "")
+        if not automation_suffix:
+            raise GuanyiCustomImportError("管易自动化订单尾缀不能为空")
+        return f"{base_number}{automation_suffix}"
+    raise GuanyiCustomImportError(
+        f"未知管易自动化订单标识策略: {identity_strategy or '未配置'}"
+    )
 
 
 def _product_resolution_key(
@@ -719,6 +721,8 @@ def build_custom_import_lines(
                     resolved_order_items,
                     rules,
                     source_extensions=order.source_extensions,
+                    source_profile_id=order.source.profile_id,
+                    manual_store_routes=catalog.manual_store_routes,
                 )
                 if rules.get("store_assignment_policy")
                 else _rule_value(rules, "store")

@@ -61,7 +61,7 @@
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.platform_order.affixed_preferred_order_identity",
-        "evidence": "恬田来源规则生成TT+订单编号优先值；缺订单编号时回退来源单号，公共管易自动化标识策略再统一追加A。"
+        "evidence": "恬田来源规则生成TT+订单编号优先值；缺订单编号时回退来源单号；2026-10-15起不再追加A。"
       },
       "GY-BUYER-MEMBER": {
         "status": "implemented",

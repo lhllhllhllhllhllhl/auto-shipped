@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .catalog_layers import CatalogLayer, build_effective_catalog
+from .batch_mapping_replacement import validate_batch_mapping_replacement_document
 from .product_candidates import rank_similar_products
 
 
@@ -71,10 +72,15 @@ class ProductCatalog:
         external_mappings: dict[str, dict[str, Any]] | list[dict[str, Any]] | None = None,
         source_policies: dict[str, dict[str, Any]] | None = None,
         package_semantics_registry: dict[str, Any] | None = None,
+        batch_mapping_replacements: list[dict[str, Any]] | None = None,
+        manual_store_routes: list[dict[str, Any]] | None = None,
     ) -> None:
         self.records = records
         self.source_policies = source_policies or {}
         self.package_semantics_registry = package_semantics_registry or {}
+        self.manual_store_routes = tuple(
+            dict(route) for route in (manual_store_routes or [])
+        )
         self._forbidden_shipping_products = {
             (
                 clean_identifier(item.get("product_code")),
@@ -128,6 +134,26 @@ class ProductCatalog:
             key = (source_profile_id, identifier_type, source_value, source_spec)
             self._mappings.setdefault(key, []).append(mapping)
 
+        self._batch_mapping_replacements: dict[
+            tuple[str, str, str, str], list[dict[str, Any]]
+        ] = {}
+        for replacement in batch_mapping_replacements or []:
+            source_profile_id = clean_identifier(
+                replacement.get("source_profile_id") or "*"
+            )
+            identifier_type = clean_identifier(
+                replacement.get("identifier_type") or "product_code"
+            )
+            source_value = self._normalize_source_value(
+                identifier_type,
+                replacement.get("source_value"),
+            )
+            source_spec = normalize_product_text(replacement.get("source_spec"))
+            if not source_value and not source_spec:
+                continue
+            key = (source_profile_id, identifier_type, source_value, source_spec)
+            self._batch_mapping_replacements.setdefault(key, []).append(replacement)
+
     @staticmethod
     def _normalize_mapping_records(
         mappings: dict[str, dict[str, Any]] | list[dict[str, Any]],
@@ -161,6 +187,7 @@ class ProductCatalog:
         preferred_catalog_paths: Iterable[str | Path] = (),
         policy_paths: Iterable[str | Path] = (),
         mapping_overlay_paths: Iterable[str | Path] = (),
+        mapping_replacement_paths: Iterable[str | Path] = (),
     ) -> "ProductCatalog":
         preferred = [Path(value) for value in preferred_catalog_paths]
         layers = [
@@ -208,18 +235,42 @@ class ProductCatalog:
             if overlay.is_file():
                 documents.append(json.loads(overlay.read_text(encoding="utf-8")))
 
+        batch_mapping_replacements: list[dict[str, Any]] = []
+        for replacement_path in mapping_replacement_paths:
+            replacement_file = Path(replacement_path)
+            if not replacement_file.is_file():
+                continue
+            replacement_document = json.loads(
+                replacement_file.read_text(encoding="utf-8")
+            )
+            try:
+                validated_replacements = (
+                    validate_batch_mapping_replacement_document(replacement_document)
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"当前批次映射替换记录格式不正确：{replacement_file}: {exc}"
+                ) from exc
+            batch_mapping_replacements.extend(validated_replacements)
+
         mapping_records: list[dict[str, Any]] = []
+        manual_store_routes: list[dict[str, Any]] = []
         source_policies: dict[str, dict[str, Any]] = {}
         for document in documents:
             source_policies.update(document.get("source_policies") or {})
             mapping_records.extend(
                 cls._normalize_mapping_records(document.get("mappings") or {})
             )
+            manual_store_routes.extend(
+                dict(item) for item in document.get("manual_store_routes") or []
+            )
         return cls(
             records,
             mapping_records,
             source_policies,
             package_semantics_registry,
+            batch_mapping_replacements,
+            manual_store_routes,
         )
 
     @staticmethod
@@ -322,6 +373,131 @@ class ProductCatalog:
                 return mappings
         return []
 
+    def resolve_official_mapping_target(
+        self,
+        *,
+        source_profile_id: str,
+        identifier_type: str,
+        source_value: Any,
+        source_spec: Any = "",
+    ) -> ProductRecord | None:
+        """Return the unique active official target for one exact source key."""
+
+        mappings = [
+            mapping
+            for mapping in self._mapping_candidates(
+                source_profile_id,
+                identifier_type,
+                source_value,
+                source_spec,
+            )
+            if clean_identifier(mapping.get("mapping_authority"))
+            == "feishu_official"
+            and clean_identifier(mapping.get("reuse_scope")) == "future"
+        ]
+        targets = {
+            (target.product_code, target.spec_code): target
+            for mapping in mappings
+            if (
+                target := self.resolve_unique_target(
+                    mapping.get("product_code"), mapping.get("spec_code")
+                )
+            )
+            is not None
+        }
+        return next(iter(targets.values())) if len(targets) == 1 else None
+
+    def _resolve_batch_replacement(
+        self,
+        *,
+        mappings: list[dict[str, Any]],
+        replacements: list[dict[str, Any]],
+        external_sku: str,
+        identifier_type: str,
+        source_fingerprint: str,
+    ) -> ProductResolution | None:
+        fingerprint = clean_identifier(source_fingerprint)
+        applicable = [
+            replacement
+            for replacement in replacements
+            if clean_identifier(replacement.get("scope")) == "current_batch"
+            and clean_identifier(replacement.get("source_fingerprint")) == fingerprint
+        ]
+        # Old records are deliberately ignored for a different source file. This
+        # makes the override expire naturally without mutating or deleting history.
+        if not applicable:
+            return None
+        if not fingerprint:
+            return None
+
+        official_targets = {
+            (product.product_code, product.spec_code): product
+            for mapping in mappings
+            if clean_identifier(mapping.get("mapping_authority"))
+            == "feishu_official"
+            and clean_identifier(mapping.get("reuse_scope")) == "future"
+            and (
+                product := self.resolve_unique_target(
+                    mapping.get("product_code"), mapping.get("spec_code")
+                )
+            )
+            is not None
+        }
+        if len(official_targets) != 1:
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=external_sku,
+                product=None,
+                confirmed=False,
+                reason="当前批次替换只允许替换一个唯一的飞书正式映射",
+                match_method="current_batch_replacement_official_target_invalid",
+                identifier_type=identifier_type,
+            )
+        official_pair = next(iter(official_targets))
+        replacement_targets: dict[tuple[str, str], ProductRecord] = {}
+        for replacement in applicable:
+            expected_pair = (
+                clean_identifier(replacement.get("expected_product_code")),
+                clean_identifier(replacement.get("expected_spec_code")),
+            )
+            if expected_pair != official_pair:
+                return ProductResolution(
+                    status="unconfirmed",
+                    external_sku=external_sku,
+                    product=None,
+                    confirmed=False,
+                    reason="当前批次替换记录中的旧目标已与正式映射不同，请重新确认",
+                    match_method="current_batch_replacement_stale_official_target",
+                    identifier_type=identifier_type,
+                )
+            product = self.resolve_unique_target(
+                replacement.get("replacement_product_code"),
+                replacement.get("replacement_spec_code"),
+            )
+            if product is not None:
+                replacement_targets[(product.product_code, product.spec_code)] = product
+        if len(replacement_targets) != 1:
+            return ProductResolution(
+                status="ambiguous" if replacement_targets else "unmapped",
+                external_sku=external_sku,
+                product=None,
+                confirmed=False,
+                reason="当前批次替换记录存在多个目标，或替换目标已不在有效商品目录中",
+                match_method="current_batch_replacement_target_invalid",
+                identifier_type=identifier_type,
+                candidates=tuple(replacement_targets.values()),
+            )
+        product = next(iter(replacement_targets.values()))
+        return ProductResolution(
+            status="confirmed",
+            external_sku=external_sku,
+            product=product,
+            confirmed=True,
+            reason="用户否决正式映射后确认的当前批次临时替换；未修改正式映射",
+            match_method="current_batch_official_mapping_replacement",
+            identifier_type=identifier_type,
+        )
+
     def _composite_name_mapping_candidates(
         self,
         source_profile_id: str,
@@ -377,7 +553,54 @@ class ProductCatalog:
         identifier_type: str,
         match_method: str,
         source_fingerprint: str = "",
+        source_profile_id: str = "",
     ) -> ProductResolution:
+        replacements: list[dict[str, Any]] = []
+        seen_replacement_ids: set[str] = set()
+        for mapping in mappings:
+            profile = clean_identifier(
+                mapping.get("source_profile_id")
+                or mapping.get("source_profile")
+                or "*"
+            )
+            mapping_identifier_type = clean_identifier(
+                mapping.get("identifier_type") or identifier_type
+            )
+            source_value = self._normalize_source_value(
+                mapping_identifier_type,
+                mapping.get("source_value"),
+            )
+            source_spec = normalize_product_text(mapping.get("source_spec"))
+            replacement_profiles = [clean_identifier(source_profile_id), profile]
+            for replacement_profile in dict.fromkeys(replacement_profiles):
+                if not replacement_profile:
+                    continue
+                for replacement in self._batch_mapping_replacements.get(
+                    (
+                        replacement_profile,
+                        mapping_identifier_type,
+                        source_value,
+                        source_spec,
+                    ),
+                    [],
+                ):
+                    replacement_id = clean_identifier(
+                        replacement.get("replacement_id")
+                    )
+                    if replacement_id in seen_replacement_ids:
+                        continue
+                    seen_replacement_ids.add(replacement_id)
+                    replacements.append(replacement)
+        replacement_resolution = self._resolve_batch_replacement(
+            mappings=mappings,
+            replacements=replacements,
+            external_sku=external_sku,
+            identifier_type=identifier_type,
+            source_fingerprint=source_fingerprint,
+        )
+        if replacement_resolution is not None:
+            return replacement_resolution
+
         resolved: list[tuple[dict[str, Any], ProductRecord]] = []
         for mapping in mappings:
             product = self._unique_pair(
@@ -767,6 +990,7 @@ class ProductCatalog:
                     identifier_type,
                     f"confirmed_source_mapping_{mapping_match_mode(identifier_type, source_spec)}",
                     source_fingerprint,
+                    source_profile_id,
                 )
                 guard_reason = self._mapping_identity_guard_reason(
                     source_profile_id=source_profile_id,
@@ -804,6 +1028,7 @@ class ProductCatalog:
                     identifier_type,
                     "confirmed_source_mapping_spec_only",
                     source_fingerprint,
+                    source_profile_id,
                 )
 
         if key:
@@ -882,6 +1107,7 @@ class ProductCatalog:
                     "product_name",
                     f"confirmed_name_alias_{mapping_match_mode('product_name', source_spec)}",
                     source_fingerprint,
+                    source_profile_id,
                 )
 
             if not normalize_product_text(source_spec):
@@ -896,6 +1122,7 @@ class ProductCatalog:
                         "product_name",
                         "confirmed_name_alias_composite_decomposition",
                         source_fingerprint,
+                        source_profile_id,
                     )
 
             if policy.get("allow_exact_catalog_name", False):

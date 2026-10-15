@@ -28,7 +28,7 @@ def profile() -> dict:
 def valid_line() -> dict:
     return {
         "店铺": "光明满元气",
-        "平台单号": "SRC-001A",
+        "平台单号": "SRC-001",
         "买家会员": "张",
         "支付金额": 0,
         "商品名称": "管易测试商品",
@@ -162,17 +162,14 @@ class GuanyiPreflightTests(unittest.TestCase):
             result = preflight_custom_import(output, profile())
             self.assertEqual(result.status, "ready")
 
-    def test_missing_automation_suffix_blocks_upload_candidate(self) -> None:
+    def test_platform_number_without_legacy_automation_suffix_is_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             line = valid_line()
             line["平台单号"] = "SRC-001"
             output = self.render(Path(tmp), [line])
             result = preflight_custom_import(output, profile())
-            self.assertEqual(result.status, "blocked")
-            self.assertIn(
-                "REQUIRED_TEXT_SUFFIX_MISSING",
-                {issue.code for issue in result.issues},
-            )
+            self.assertEqual(result.status, "ready")
+            self.assertTrue(result.checks["required_text_suffixes_valid"])
 
     def test_inconsistent_order_fields_block_multi_line_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -216,6 +216,7 @@ def convert_order_file(
     company_hint: str | None = None,
     adaptive_plan_path: str | Path | None = None,
     mapping_overlay_paths: tuple[str | Path, ...] = (),
+    mapping_replacement_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
 ) -> ConversionResult:
@@ -733,6 +734,7 @@ def convert_order_file(
             preferred_catalog_paths=preferred_catalog_paths,
             policy_paths=(package_semantics_path,),
             mapping_overlay_paths=mapping_overlay_paths,
+            mapping_replacement_paths=mapping_replacement_paths,
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return _needs_input(

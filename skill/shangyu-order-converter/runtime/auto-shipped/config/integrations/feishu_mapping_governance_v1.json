@@ -12,6 +12,10 @@
     "official_mapping_snapshot": "ready",
     "conversion_fail_closed_gate": "ready",
     "owner_publisher": "ready",
+    "governed_direct_add": "ready",
+    "manual_store_route_table": "ready",
+    "governed_manual_store_route_direct_add": "ready",
+    "current_batch_official_replacement": "ready",
     "correction_feedback_inbox": "ready"
   },
   "identity_policy": {
@@ -24,10 +28,40 @@
     "wiki_url": "https://bcno5qs9unss.feishu.cn/wiki/UBkdw6EYuiuVSCkBy6ac0dMin7f",
     "spreadsheet_token": "QsLYsongYhoIdXtaL2GcB8Rinwe",
     "mapping_sheet_id": "13abc6",
+    "manual_store_sheet_id": "vcPamF",
     "metadata_sheet_id": "CPVHDe",
     "publish_log_sheet_id": "jl3rEi",
-    "employee_access": "read_only",
-    "publisher_access": "owner_only"
+    "employee_access": "append_via_governed_direct_add",
+    "publisher_access": "owner_for_conflict_replacement_delete"
+  },
+  "direct_add_policy": {
+    "enabled": true,
+    "required_identity_type": "user",
+    "confirmation_token": "CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+    "allowed_action": "create_missing_key_only",
+    "duplicate_policy": "exact_noop",
+    "conflict_policy": "block_and_contact_admin",
+    "write_protocol": "fail_closed_two_phase_with_readback",
+    "change_log_required": true
+  },
+  "manual_store_route_direct_add_policy": {
+    "enabled": true,
+    "required_identity_type": "user",
+    "confirmation_token": "CONFIRM_ADD_MANUAL_STORE_ROUTE",
+    "allowed_action": "create_missing_route_only",
+    "allowed_scope_ids": [
+      "manual_all",
+      "jzdz_manual_v1",
+      "drjy_manual_v1"
+    ],
+    "allowed_stores": [
+      "光明满元气",
+      "淘橘子"
+    ],
+    "duplicate_policy": "exact_noop",
+    "conflict_policy": "block_and_contact_admin",
+    "write_protocol": "fail_closed_two_phase_with_readback",
+    "change_log_required": true
   },
   "publisher_policy": {
     "allowed_user_ids": [
@@ -68,6 +102,8 @@
   "safety": {
     "pending_workbook_is_not_a_security_boundary": true,
     "pending_rows_never_become_active_without_owner_publish": true,
+    "direct_add_never_replaces_existing_mapping": true,
+    "current_batch_replacement_never_writes_formal_mapping": true,
     "unknown_user_action": "auto_provision_or_fail_closed",
     "duplicate_owner_sheet_action": "stop_and_require_owner_resolution",
     "write_verification": "read_back_exact_proposal_id",

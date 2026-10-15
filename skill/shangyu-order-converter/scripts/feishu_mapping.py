@@ -24,6 +24,8 @@ COMMANDS = {
     "collect-feedback": "collect-correction-feedback",
     "plan-publish": "plan-pending-mapping-publish",
     "publish": "publish-pending-mappings",
+    "add": "direct-add-official-mapping",
+    "add-store-route": "direct-add-manual-store-route",
 }
 
 
@@ -34,7 +36,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|publish [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|publish|add|add-store-route [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -50,7 +52,14 @@ def main() -> int:
         print('{"status":"invalid","code":"PYTHON_RUNTIME_MISSING"}')
         return 2
     forwarded = list(sys.argv[2:])
-    if sys.argv[1] in {"sync", "sync-native", "plan-publish", "publish"}:
+    if sys.argv[1] in {
+        "sync",
+        "sync-native",
+        "plan-publish",
+        "publish",
+        "add",
+        "add-store-route",
+    }:
         if "--catalog" not in forwarded:
             registry_path = project_root / "config/catalog/current_product_catalog.json"
             try:
@@ -84,6 +93,9 @@ def main() -> int:
                     ["--preferred-catalog", str(preferred_catalog)]
                 )
         if sys.argv[1] in {"sync", "sync-native"} and "--output" not in forwarded:
+            snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
+            forwarded.extend(["--output", str(snapshot)])
+        if sys.argv[1] in {"add", "add-store-route"} and "--output" not in forwarded:
             snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
             forwarded.extend(["--output", str(snapshot)])
     command = [

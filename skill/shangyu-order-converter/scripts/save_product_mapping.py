@@ -78,6 +78,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.reuse_scope == "future":
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "LOCAL_FUTURE_MAPPING_DISABLED",
+                    "message": (
+                        "长期商品映射不得写入本机覆盖层；请在用户确认以后沿用后"
+                        "使用feishu_mapping.py add受控新增正式映射。"
+                    ),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     if args.reuse_scope == "current_batch" and not args.overlay:
         print(
             json.dumps(

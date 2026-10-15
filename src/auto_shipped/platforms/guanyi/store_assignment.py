@@ -17,6 +17,8 @@ def select_store(
     rules: dict[str, Any],
     *,
     source_extensions: dict[str, Any] | None = None,
+    source_profile_id: str = "",
+    manual_store_routes: Iterable[dict[str, Any]] = (),
 ) -> str:
     """Resolve one store for every item; fail closed on gaps or conflicts."""
 
@@ -53,6 +55,62 @@ def select_store(
                 f"来源字段{field}的值“{source_value}”命中多个店铺"
             )
         return next(iter(matched_stores))
+    if strategy == "manual_store_route_table":
+        if policy.get("confirmed") is not True:
+            raise GuanyiStoreAssignmentError("手工单商品店铺关联策略尚未确认")
+        items = tuple(resolved_items)
+        if not items:
+            raise GuanyiStoreAssignmentError("订单没有可用于店铺分配的商品")
+        profile = str(source_profile_id or "").strip()
+        fallback_scopes = tuple(
+            str(value).strip()
+            for value in policy.get("fallback_scope_ids") or ["manual_all"]
+            if str(value).strip()
+        )
+        allowed_stores = {
+            str(value).strip()
+            for value in policy.get("allowed_stores") or []
+            if str(value).strip()
+        }
+        active_routes = [
+            route
+            for route in manual_store_routes
+            if str(route.get("status") or "active").strip() == "active"
+        ]
+        stores: set[str] = set()
+        for item in items:
+            matched_store = ""
+            for scope in (profile, *fallback_scopes):
+                if not scope:
+                    continue
+                matches = {
+                    str(route.get("store") or "").strip()
+                    for route in active_routes
+                    if str(route.get("scope_id") or "").strip() == scope
+                    and str(route.get("product_code") or "").strip()
+                    == item.product_code
+                    and str(route.get("spec_code") or "").strip() == item.spec_code
+                    and str(route.get("store") or "").strip()
+                }
+                if len(matches) > 1:
+                    raise GuanyiStoreAssignmentError(
+                        f"商品代码{item.product_code}、规格代码{item.spec_code}在作用域{scope}命中多个店铺"
+                    )
+                if matches:
+                    matched_store = next(iter(matches))
+                    break
+            if not matched_store:
+                raise GuanyiStoreAssignmentError(
+                    f"商品代码{item.product_code}、规格代码{item.spec_code}没有已确认的手工单店铺关联"
+                )
+            if allowed_stores and matched_store not in allowed_stores:
+                raise GuanyiStoreAssignmentError(
+                    f"店铺“{matched_store}”不在手工单允许店铺清单中"
+                )
+            stores.add(matched_store)
+        if len(stores) != 1:
+            raise GuanyiStoreAssignmentError("同一手工订单的商品被分配到不同店铺")
+        return next(iter(stores))
     if strategy != "all_items_same_store_by_product":
         raise GuanyiStoreAssignmentError(f"未知店铺分配策略: {strategy or '未配置'}")
 

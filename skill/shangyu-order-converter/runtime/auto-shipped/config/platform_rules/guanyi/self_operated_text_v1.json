@@ -21,7 +21,7 @@
   "platform_order_number": {
     "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "自营渠道规则沿用2026-10-08确认；订单编号优先、缺失时回退来源单号并追加A由用户于2026-10-12确认。"
+    "source": "自营渠道规则沿用2026-10-08确认；订单编号优先、缺失时回退来源单号；2026-10-15起全局不再追加A。"
   },
   "store_assignment_policy": {
     "strategy": "source_extension_exact_map",
@@ -89,7 +89,7 @@
     "scope_id": "self_operated_text_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认天猫和京东对应两家自营旗舰店。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.preferred_order_identity", "evidence": "优先使用文字订单编号，缺失时回退来源单号，公共层追加A。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.preferred_order_identity", "evidence": "优先使用文字订单编号，缺失时回退来源单号，不追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "手工订单金额默认规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},

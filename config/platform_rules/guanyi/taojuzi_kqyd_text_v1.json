@@ -33,7 +33,7 @@
   "platform_order_number": {
     "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成KQYD+上海时间整批生成分钟YYYYMMDDHHmm+最少两位弹性序号，管易公共规则再追加A。"
+    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成KQYD+上海时间整批生成分钟YYYYMMDDHHmm+最少两位弹性序号；2026-10-15起不再追加A。"
   },
   "field_output_policy": {
     "product_name": {
@@ -67,7 +67,7 @@
     "scope_id": "taojuzi_kqyd_text_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认KQYD企业店文字单进入淘橘子。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "用户确认KQYD+上海时间整批生成分钟+最少两位弹性序号，公共层追加A。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "用户确认KQYD+上海时间整批生成分钟+最少两位弹性序号，不追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通文字销售订单金额规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},

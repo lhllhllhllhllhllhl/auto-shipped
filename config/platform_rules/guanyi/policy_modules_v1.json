@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "guanyi_policy_modules_v1",
-  "version": 3,
+  "version": 4,
   "design_note": "跨公司的同类管易规则只在此保存一份可执行定义；公司平台规则包只引用模块并保存公司特有规则。",
   "modules": {
     "store.corn_to_guangming_manyuanqi.v1": {
@@ -50,6 +50,23 @@
         "store": "sam",
         "confirmed": true,
         "source": "发货SOP第3、8页确认SAM订单选择sam店铺。"
+      }
+    },
+    "store.manual_linked_routes.v1": {
+      "target_key": "store_assignment_policy",
+      "value": {
+        "strategy": "manual_store_route_table",
+        "confirmed": true,
+        "fallback_scope_ids": [
+          "manual_all"
+        ],
+        "allowed_stores": [
+          "光明满元气",
+          "淘橘子"
+        ],
+        "on_unmatched": "ask_user",
+        "on_multiple_stores": "ask_user",
+        "source": "用户于2026-10-15确认：JZDZ、DRJY手工单先完成商品映射，再按独立SKU—店铺关联表决定店铺；玉米进光明满元气，日用品进淘橘子；混合店铺必须追问。"
       }
     },
     "buyer.normal_zhang.v1": {

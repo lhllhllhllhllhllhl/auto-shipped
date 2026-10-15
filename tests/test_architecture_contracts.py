@@ -73,8 +73,8 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(profile["one_row_per"], "order_item")
         self.assertEqual(profile["order_group_key"], "平台单号")
         identity = profile["automation_identity_policy"]
-        self.assertEqual(identity["strategy"], "append_suffix")
-        self.assertEqual(identity["suffix"], "A")
+        self.assertEqual(identity["strategy"], "preserve_base")
+        self.assertNotIn("suffix", identity)
         self.assertTrue(identity["confirmed"])
 
     def test_product_catalog_is_a_system_resource(self):

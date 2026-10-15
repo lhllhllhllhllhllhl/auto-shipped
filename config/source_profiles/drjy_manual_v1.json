@@ -1,0 +1,30 @@
+{
+  "profile_id": "drjy_manual_v1",
+  "company_id": "self_operated",
+  "source_label": "DRJY达人寄样手工订单",
+  "source_kind": "text_or_image",
+  "order_type": "manual_channel_order",
+  "adapter": "adaptive_excel_parsed",
+  "version": 1,
+  "enabled": true,
+  "detection": {},
+  "text_intake": {
+    "source_channel_markers": [
+      "DRJY",
+      "drjy",
+      "达人寄样"
+    ],
+    "product_identity": "confirmed_mapping_then_manual_store_route",
+    "order_number_policy": {
+      "strategy": "current_datetime_sequence",
+      "prefix": "DRJY",
+      "datetime_format": "%y%m%d%H%M",
+      "sequence_start": 1,
+      "minimum_sequence_width": 2,
+      "timezone": "Asia/Shanghai",
+      "sequence_scope": "single_computer_local_minute_ledger",
+      "confirmed": true
+    },
+    "evidence": "用户于2026-10-15确认DRJY为与公司来源并列展示的手工业务来源；底层归属尚舆自营，缺少订单编号和来源单号时使用DRJY+YYMMDDHHmm+最少两位弹性序号。"
+  }
+}

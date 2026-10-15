@@ -132,6 +132,34 @@
       "approval_status": "approved_for_conversion_test"
     },
     {
+      "route_id": "jzdz_manual_to_guanyi_v1",
+      "source_profile_id": "jzdz_manual_v1",
+      "source_label": "JZDZ橘子定制手工订单",
+      "source_kind": "text_or_image",
+      "order_type": "manual_channel_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_jzdz_manual_v1",
+      "business_rule_scope_id": "jzdz_manual_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "user_confirmed_manual_source_and_store_join",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
+      "route_id": "drjy_manual_to_guanyi_v1",
+      "source_profile_id": "drjy_manual_v1",
+      "source_label": "DRJY达人寄样手工订单",
+      "source_kind": "text_or_image",
+      "order_type": "manual_channel_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_drjy_manual_v1",
+      "business_rule_scope_id": "drjy_manual_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "user_confirmed_manual_source_and_store_join",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
       "route_id": "bailihui_backend_to_guanyi_v1",
       "source_profile_id": "bailihui_dropship_v1",
       "source_label": "百礼汇供应商后台代发订单",
@@ -153,13 +181,6 @@
       "resolution": "ask_user",
       "clarification_code": "ORDER_PURPOSE_UNCLEAR",
       "approval_status": "requires_runtime_clarification"
-    },
-    {
-      "source_profile_id": "manual_channel_orders",
-      "source_label": "淘宝、日货定制、企业店、天猫、京东",
-      "reason": "SOP描述了管易手工建单规则，但当前没有对应原始Excel样本。",
-      "candidate_target_profile_id": "guanyi_order_import_v1",
-      "approval_status": "pending_samples"
     }
   ],
   "deferred_workflows": []

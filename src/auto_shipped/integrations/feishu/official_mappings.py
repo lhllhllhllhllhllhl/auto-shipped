@@ -10,6 +10,10 @@ from typing import Any, Iterable, Mapping
 from auto_shipped.catalog import ProductCatalog, clean_identifier
 
 from .pending_mappings import build_mapping_key
+from .manual_store_routes import (
+    ManualStoreRouteError,
+    normalize_manual_store_routes,
+)
 
 
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
@@ -24,6 +28,7 @@ def build_official_mapping_snapshot(
     metadata: Mapping[str, Any],
     catalog: ProductCatalog,
     *,
+    manual_store_route_records: Iterable[Mapping[str, Any]] = (),
     synced_at: str | None = None,
 ) -> dict[str, Any]:
     repository_status = clean_identifier(metadata.get("repository_status"))
@@ -132,6 +137,14 @@ def build_official_mapping_snapshot(
         mappings.append(mapping)
 
     mappings.sort(key=lambda item: item["mapping_key"])
+    try:
+        manual_store_routes = normalize_manual_store_routes(
+            manual_store_route_records,
+            catalog=catalog,
+            repository_revision=revision,
+        )
+    except ManualStoreRouteError as exc:
+        raise OfficialMappingSyncError(str(exc)) from exc
     timestamp = synced_at or datetime.now(timezone.utc).isoformat()
     snapshot: dict[str, Any] = {
         "schema_version": "2.0",
@@ -140,6 +153,7 @@ def build_official_mapping_snapshot(
         "repository_status": repository_status,
         "synced_at": timestamp,
         "mappings": mappings,
+        "manual_store_routes": manual_store_routes,
     }
     canonical = json.dumps(
         snapshot,
@@ -170,6 +184,9 @@ def validate_official_mapping_snapshot(
     records = document.get("mappings")
     if not isinstance(records, list):
         raise OfficialMappingSyncError("正式映射快照mappings不是列表。")
+    manual_store_routes = document.get("manual_store_routes", [])
+    if not isinstance(manual_store_routes, list):
+        raise OfficialMappingSyncError("正式映射快照manual_store_routes不是列表。")
 
     expected_digest = clean_identifier(document.get("snapshot_sha256"))
     canonical_document = dict(document)
@@ -262,6 +279,16 @@ def validate_official_mapping_snapshot(
                 raise OfficialMappingSyncError(
                     f"正式映射快照记录{mapping_id}版本高于库版本。"
                 )
+    try:
+        normalized_routes = normalize_manual_store_routes(
+            manual_store_routes,
+            catalog=catalog,
+            repository_revision=revision,
+        )
+    except ManualStoreRouteError as exc:
+        raise OfficialMappingSyncError(str(exc)) from exc
+    if normalized_routes != manual_store_routes:
+        raise OfficialMappingSyncError("正式映射快照手工单店铺关联未规范化。")
     return document
 
 

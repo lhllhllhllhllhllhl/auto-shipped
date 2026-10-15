@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auto-shipped.local/contracts/current_batch_mapping_replacement.schema.json",
+  "title": "Current Batch Official Mapping Replacements",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "replacements"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "source": {"const": "current_batch_official_mapping_replacements"},
+    "updated_at": {"type": "string"},
+    "replacements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "replacement_id",
+          "company_id",
+          "source_profile_id",
+          "identifier_type",
+          "source_value",
+          "source_spec",
+          "expected_product_code",
+          "expected_spec_code",
+          "replacement_product_code",
+          "replacement_spec_code",
+          "source_fingerprint",
+          "scope",
+          "confirmed_by",
+          "confirmed_at",
+          "reason"
+        ],
+        "properties": {
+          "replacement_id": {"type": "string", "minLength": 1},
+          "company_id": {"type": "string", "minLength": 1},
+          "source_profile_id": {"type": "string", "minLength": 1},
+          "identifier_type": {
+            "enum": ["product_code", "barcode", "product_name"]
+          },
+          "source_value": {"type": "string"},
+          "source_spec": {"type": "string"},
+          "expected_product_code": {"type": "string", "minLength": 1},
+          "expected_spec_code": {"type": "string"},
+          "replacement_product_code": {"type": "string", "minLength": 1},
+          "replacement_spec_code": {"type": "string"},
+          "source_fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "scope": {"const": "current_batch"},
+          "confirmed_by": {"type": "string", "minLength": 1},
+          "confirmed_at": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

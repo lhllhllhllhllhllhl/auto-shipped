@@ -198,7 +198,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(len(result.lines), 1)
         line = result.lines[0]
         self.assertEqual(line["店铺"], "光明满元气")
-        self.assertEqual(line["平台单号"], "SRC-001A")
+        self.assertEqual(line["平台单号"], "SRC-001")
         self.assertEqual(line["商品代码"], "P1")
         self.assertEqual(line["规格代码"], "S1")
         self.assertEqual(line["商品名称"], "管易测试商品")
@@ -233,7 +233,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             self.profile,
         )
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.lines[0]["平台单号"], "ORDER-001A")
+        self.assertEqual(result.lines[0]["平台单号"], "ORDER-001")
 
     def test_code_only_multi_spec_candidate_asks_scope_before_persistence(self) -> None:
         catalog = ProductCatalog(
@@ -399,7 +399,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             {item.code for item in blocked.clarifications},
         )
 
-    def test_platform_order_number_supports_company_prefix_and_agent_suffix(self) -> None:
+    def test_platform_order_number_supports_company_prefix_without_global_suffix(self) -> None:
         rules = confirmed_rules()
         rules["platform_order_number"] = {
             "strategy": "preferred_order_identity_with_affixes",
@@ -414,7 +414,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             self.profile,
         )
         self.assertEqual(result.status, "ready")
-        self.assertEqual(result.lines[0]["平台单号"], "TTSRC-001A")
+        self.assertEqual(result.lines[0]["平台单号"], "TTSRC-001")
 
     def test_logistics_defaults_to_yunda_below_heavy_threshold(self) -> None:
         order = parsed_order()
@@ -853,7 +853,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             headers = [cell.value for cell in sheet[1] if cell.value is not None]
             self.assertEqual(headers, self.profile["columns"])
             self.assertEqual(sheet.max_row, 2)
-            self.assertEqual(sheet["B2"].value, "SRC-001A")
+            self.assertEqual(sheet["B2"].value, "SRC-001")
             self.assertEqual(sheet["F2"].value, "P1")
             self.assertEqual(sheet["G2"].value, "4548404200030")
             self.assertEqual(sheet["B2"].number_format, "@")

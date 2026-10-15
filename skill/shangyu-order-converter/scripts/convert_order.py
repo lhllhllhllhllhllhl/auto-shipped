@@ -88,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="可重复提供的已确认商品映射覆盖层JSON",
     )
     parser.add_argument(
+        "--mapping-replacement",
+        action="append",
+        default=[],
+        help="可重复提供的当前批次正式映射临时替换记录JSON",
+    )
+    parser.add_argument(
         "--source-profile",
         help="用户已明确确认来源公司时提供来源配置ID",
     )
@@ -207,6 +213,18 @@ def main() -> int:
             continue
         seen_overlays.add(key)
         command.extend(["--mapping-overlay", key])
+    replacement_candidates = [
+        *args.mapping_replacement,
+        str(STATE_ROOT / "config" / "current-batch-mapping-replacements.json"),
+    ]
+    seen_replacements: set[str] = set()
+    for value in replacement_candidates:
+        replacement = Path(value).expanduser().resolve()
+        key = str(replacement)
+        if key in seen_replacements or not replacement.is_file():
+            continue
+        seen_replacements.add(key)
+        command.extend(["--mapping-replacement", key])
     if args.source_profile:
         command.extend(["--source-profile", args.source_profile])
     if args.template:
