@@ -187,7 +187,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(policy["value"], "张")
         self.assertTrue(policy["confirmed"])
 
-    def test_sam_buyer_member_and_bundle_rules_are_explicit(self):
+    def test_sam_buyer_member_is_explicit_and_bundle_facts_are_centralized(self):
         rules = load_guanyi_rules("sam_order_v1.json")
         self.assertEqual(
             rules["field_output_policy"]["product_name"]["strategy"],
@@ -204,19 +204,10 @@ class ArchitectureContractTests(unittest.TestCase):
 
         expansion = rules["item_expansion_policy"]
         self.assertEqual(expansion["strategy"], "confirmed_source_item_expansions")
-        bundle = expansion["rules"][0]
-        self.assertEqual(bundle["match"]["source_product_code"], "276388650")
-        self.assertEqual(bundle["match"]["source_spec"], "光9-JTBN1T1-EH")
         self.assertEqual(
-            [
-                (item["product_code"], item["spec_code"], item["quantity_multiplier"])
-                for item in bundle["components"]
-            ],
-            [
-                ("JTBN1E1-EH", "6974768564842", 1),
-                ("GMBN1", "6974768564804", 1),
-            ],
+            expansion["registry_source"], "feishu_official_item_expansions"
         )
+        self.assertEqual(expansion["rules"], [])
         self.assertEqual(rules["defaults"]["unit_price"]["value"], 0)
         self.assertEqual(rules["defaults"]["payment_amount"]["value"], 0)
         self.assertEqual(rules["defaults"]["freight"]["value"], "")

@@ -447,6 +447,7 @@ def build_custom_import_lines(
     business_date: date | None = None,
     business_datetime: datetime | None = None,
     buyer_member_sequence_state_dir: str | Path | None = None,
+    source_company_id: str = "",
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
 ) -> GuanyiBuildResult:
@@ -459,19 +460,52 @@ def build_custom_import_lines(
     for order in orders:
         order_lines: list[ResolvedLineItem] = []
         for item in order.items:
-            expansion = expand_source_item(item, catalog, rules)
+            expansion = expand_source_item(
+                item,
+                catalog,
+                rules,
+                company_id=source_company_id,
+                source_profile_id=order.source.profile_id,
+                source_fingerprint=order.source.file_fingerprint,
+                registered_rules=catalog.item_expansion_rules,
+            )
             if expansion.failed:
-                result.clarifications.append(
-                    ClarificationRequest(
-                        code=expansion.error_code,
-                        scope="batch",
-                        source_ref=f"商品:{_product_source_label(item)}",
-                        field="组合商品展开",
-                        question="当前组合商品无法安全展开，请先修正规则或商品主档。",
-                        reason=expansion.reason,
-                        answer_type="text",
+                if not official_mapping_ready:
+                    if not official_mapping_clarification_added:
+                        result.clarifications.append(
+                            ClarificationRequest(
+                                code="FEISHU_OFFICIAL_MAPPING_UNAVAILABLE",
+                                scope="batch",
+                                field="飞书正式商品映射",
+                                question=(
+                                    "无法读取并验证飞书正式商品映射和组合商品规则。"
+                                    "请先完成飞书授权或正式快照同步后重试。"
+                                ),
+                                reason=(
+                                    official_mapping_error
+                                    or "正式映射快照不存在、读取失败或未通过完整性校验。"
+                                ),
+                                answer_type="text",
+                                next_action="sync_feishu_official_mappings",
+                            )
+                        )
+                        official_mapping_clarification_added = True
+                else:
+                    result.clarifications.append(
+                        ClarificationRequest(
+                            code=expansion.error_code,
+                            scope="batch",
+                            source_ref=f"商品:{_product_source_label(item)}",
+                            field="组合商品展开",
+                            question=(
+                                "当前组合商品没有唯一、已确认的展开方式。请确认目标商品、"
+                                "规格和数量倍数，并说明仅本次使用还是以后沿用。"
+                            ),
+                            reason=expansion.reason,
+                            answer_type="text",
+                            next_action="use_once_or_add_item_expansion_if_reusable",
+                        )
                     )
-                )
                 continue
             if expansion.applied:
                 order_lines.extend(expansion.lines)
@@ -485,7 +519,8 @@ def build_custom_import_lines(
                             scope="batch",
                             field="飞书正式商品映射",
                             question=(
-                                "无法读取并验证飞书正式商品映射。请先完成飞书授权或正式映射同步后重试。"
+                                "无法读取并验证飞书正式商品映射和组合商品规则。"
+                                "请先完成飞书授权或正式快照同步后重试。"
                             ),
                             reason=(
                                 official_mapping_error

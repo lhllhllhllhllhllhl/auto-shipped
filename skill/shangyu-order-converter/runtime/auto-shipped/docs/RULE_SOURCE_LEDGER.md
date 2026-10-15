@@ -46,6 +46,7 @@
 | `SRC-SAMPLE-ADDR-001` | `7份快递地址-玉米发货-7单(1).xlsx` | `43aba4cc3f41437b23427e5d1ff2de93ccf4e278e52e84993593f057076e09f4` | `Sheet1!A1:H8` | 地址清单来源结构、备注、商品和订单号缺口 | 高，含收件信息 | 原件在本机Downloads，未建立可迁移安全归档 |
 | `SRC-SAMPLE-INBOUND-001` | `玉米入仓订单20260920(1).xlsx` | `f1af0744108997a9a5bd9fe8ac6842cede2b59e46e9926a6731a416a080a72c5` | `Sheet1!B2:H8`、`Sheet1 (2)!B2:H8` | 采购或入仓资料识别与用途追问 | 高，含联系人信息 | 原件在本机Downloads，未建立可迁移安全归档 |
 | `SRC-SAMPLE-SAM-001` | `【跟团号848-848】09.29国企背书上海校餐接盘侠【光明】出品保证吃的安心进-订单-0929093009(1).xlsx` | `60bd6114b7dff49633cc5d8c5f1198418b519ca96bdab9c8a47067c6a970e997` | `仓库订单!A1:V2` | SAM来源识别、来源单号、跟团号、商品、规格和收件字段定位 | 高，含收件信息 | 用户于2026-10-01确认属于SAM；原件在本机Downloads，未建立可迁移安全归档 |
+| `SRC-SAMPLE-SAM-BUNDLE-002` | `【跟团号842-845】09.22国企背书上海校餐接盘侠【光明】出品保证吃的安心进-订单-0922093023.xlsx` | `c2d8d5d872e86703cfdf5545cd420a0f7256cccd04ced340c38ed93757280941` | `仓库订单`表头及4笔商品行；不记录收件数据 | SAM花糯、黄糯8+1来源编码与规格，以及普通花糯8根行 | 高，含收件信息 | 用户于2026-10-15确认花糯、黄糯8+1拆分并以后沿用；原件在本机Downloads，仅登记结构与哈希 |
 | `SRC-SAMPLE-SAM-MANUAL-001` | `sam260929PM14.xlsx` | `812c3b320995a40d4c5c5646d3f6fb9a1482e23f2dc9713bbb0e9861c0c5c1fb` | `Sheet1!A1:AW3` | SAM人工管易成品；证明8+1组合需展开为8根装与单根装两行，并保留同一平台单号 | 高，含收件信息 | 原件在本机Downloads；仅登记结构与哈希，不复制收件信息 |
 | `SRC-SAMPLE-SAM-SHOWA-001` | `【跟团号1977-1977】09.30光明玉米-订单-0930093006.xlsx` | `a2233e062bf24cc531db83fefa7d64faa3b8c890ffeb3917b3c7bc0f6f77979a` | `仓库订单!A1:V2` | SAM SHOWA手套来源品名、来源规格、来源编码及跟团号 | 高，含收件信息 | 原件在本机Downloads；仅登记结构与哈希，不复制收件信息 |
 | `SRC-SAMPLE-SAM-SHOWA-MANUAL-001` | `sam260930PM14.xlsx` | `7305ca54939a0534ce93a055941c60856cf0277369b34b44114c143148cf6d66` | `Sheet1!A1:AW2` | SAM SHOWA手套人工成品；证明商品显示名称使用来源品名与来源规格拼接 | 高，含收件信息 | 原件在本机Downloads；仅登记结构与哈希，不复制收件信息 |
@@ -144,6 +145,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-FEISHU-WORKBOOK-BINDING-001` | 2026-10-01 | 用户提供的“正式映射表”和“待确认映射表”已绑定到固定工作簿token与Sheet ID；正式库初始版本1包含已确认的恬田映射 | 商品映射治理 | 工作簿由用户提供，结构与内容已通过飞书API逐范围回读验证；正式版本1已独立支撑转换回归，详见`docs/FEISHU_MAPPING_GOVERNANCE.md` |
 | `DEC-USER-SAM-BUYER-MEMBER-002` | 2026-10-02 | SAM买家会员使用`sam`+商品类型缩写+当日`YYMMDD`+`_`+跟团号；玉米缩写`YM`，尚和手套缩写`SH`，其他类型同理但必须先登记缩写 | SAM买家会员 | 已确认并实现 |
 | `DEC-USER-SAM-BUNDLE-001` | 2026-10-02 | 云仓没有8+1/9根组合库存；SAM来源编码`276388650`、规格`光9-JTBN1T1-EH`需按同一来源数量拆为8根装与单根装两行 | SAM组合商品 | 已确认并实现独立展开规则；证据为`SRC-SAMPLE-SAM-001`与`SRC-SAMPLE-SAM-MANUAL-001` |
+| `DEC-USER-SAM-BUNDLE-002` | 2026-10-15 | SAM花糯`276388650 / 光9-JTTZT1`拆为`JTTZE1 / 6974768564835`和`GMCN-1 / 6974768564798`；黄糯`YHGMMYQXNYM31631159 / 光-QJTW8-F9-EH`拆为`JTW8E1 / 6974768564811`和`GMHN-1 / 6974768564729`，均按来源数量等倍展开并以后沿用 | SAM组合商品 | 已确认并写入飞书中央“组合商品规则”Sheet；证据为`SRC-SAMPLE-SAM-BUNDLE-002` |
+| `DEC-USER-ONE-TO-MANY-CONFIRMATION-001` | 2026-10-15 | 全局遇到一条来源商品对应多个目标商品时，Agent可以提出组成候选，但必须由用户确认目标商品、规格、数量倍数和复用范围；仅本次绑定文件SHA-256，以后沿用写入飞书中央组合规则，不能写成普通一对一映射 | 组合商品治理 | 已确认并实现受控新增、幂等、冲突阻断、版本日志与正式快照；未登记组合继续阻断 |
 | `DEC-USER-SAM-ZERO-AMOUNT-001` | 2026-10-02 | SAM价格和支付金额不能为空，均填写`0` | SAM金额字段 | 已确认；运费由后续`DEC-USER-SAM-FREIGHT-BLANK-001`确认留空 |
 | `DEC-USER-SAM-DEFAULT-TEXT-001` | 2026-10-02 | SAM支付方式与订单类型可以留空，也可以使用系统候选值；系统选择显式填写`网银在线`和`销售订单` | SAM平台默认字段 | 已确认并实现；选择显式值以避免依赖管易页面默认行为 |
 | `DEC-USER-SAM-FREIGHT-BLANK-001` | 2026-10-02 | SAM运费跟随人工成品留空，不填写0 | SAM金额字段 | 已确认并实现；直接证据为`SRC-SAMPLE-SAM-MANUAL-001!Sheet1!R2:R3` |
@@ -207,7 +210,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-ORDER-TYPE` | 订单类型 | `SRC-SOP-PDF-001` p.12 | `DEC-BLH-ROUTE-001`、`DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写销售订单；其他来源仍按各自规则包确认 |
 | `GY-ORDER-FLAGS` | 赠品、手机、货到付款和分销标记 | `SRC-GY-TEMPLATE-001` | 当前模板说明 | 寄样订单是否属于赠品未确认 |
 | `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；文字来源先用公司级包装语义解析，未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
-| `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-USER-SAM-BUNDLE-001` | 当前已确认SAM白糯8+1；其他组合商品必须逐项登记组成和数量倍数 |
+| `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002` | `DEC-USER-SAM-BUNDLE-001`、`DEC-USER-SAM-BUNDLE-002`、`DEC-USER-ONE-TO-MANY-CONFIRMATION-001` | 当前已确认SAM白糯、花糯、黄糯8+1；其他组合商品只能提出候选，用户确认目标SKU、数量倍数和复用范围后才可登记 |
 | `GY-RECIPIENT-COMPLETENESS` | 收件信息完整性 | `SRC-SOP-PDF-001` p.5、p.8、p.10 | `SRC-SAMPLE-TT-001`、`SRC-SAMPLE-XHS-001`、`SRC-SAMPLE-ADDR-001` | 组合地址解析仍需边界测试 |
 | `GY-JD-ZTO-CONTACT-SUFFIX` | 自营京东中通联系电话尾码 | `SRC-SAMPLE-TEXT-ORDER-001` | `DEC-USER-JD-ZTO-CONTACT-SUFFIX-001` | 已确认并实现；仅对已确认尚舆自营、京东渠道且物流为京东中通的订单生效，冲突时fail-close |
 | `GY-LOGISTICS-SELECTION` | 物流选择 | `SRC-SOP-PDF-001` p.3、p.10 | `DEC-XV-LOGISTICS-001`、`DEC-XV-LOGISTICS-PRIORITY-001`、`DEC-USER-LOGISTICS-INTERIM-001`、各玉米样本 | 恬田当前包装规则已确认并实现；通用重量公式作为后续可替换策略 |
@@ -236,7 +239,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | 小红书寄样 | `SRC-SAMPLE-XHS-001` | 样本结构、3个商品、组合收件信息 | 固定数量规则、平台单号、店铺适用范围和目标路由确认 |
 | 地址清单 | `SRC-SAMPLE-ADDR-001` | 地址和备注结构 | 商品、数量、订单号和目标路由 |
 | 玉米入仓 | `SRC-SAMPLE-INBOUND-001`、`DEC-INBOUND-001` | 先追问用途，不直接发货 | 如果用户确认发货，需要补充逐单资料 |
-| SAM | `SRC-SOP-PDF-001` p.8、p.9、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`及SAM确认决策 | 表格转管易；有跟团号会员按原格式，无跟团号按`sam+类型+分钟+_序号`；白糯8+1展开；店铺`sam`；平台单号使用订单编号优先身份并追加`A`；价格与支付金额为0、运费留空 | 核心样本规则已完整；无跟团号逻辑已实现，尚和手套及其他商品类型继续作为扩展回归 |
+| SAM | `SRC-SOP-PDF-001` p.8、p.9、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002`及SAM确认决策 | 表格转管易；有跟团号会员按原格式，无跟团号按`sam+类型+分钟+_序号`；白糯、花糯、黄糯8+1展开；店铺`sam`；平台单号使用订单编号优先身份且不追加公共尾缀；价格与支付金额为0、运费留空 | 核心样本规则已完整；无跟团号逻辑已实现，尚和手套及其他商品类型继续作为扩展回归 |
 | 尚舆自营天猫/京东文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-JD-ZTO-CONTACT-SUFFIX-001` | 用户确认公司后按渠道选旗舰店；复制平台单号并追加`A`；袋匹配8棒家庭装；自营`京东中通`原样写入物流，并把姓名后的四位码追加到联系电话和联系手机 | 自营根尚未登记，首次出现时追问；新商品、新单位或未知渠道追问；京东中通四位码缺失或冲突时追问 |
 | 荣之达文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-RZD-TEXT-001`、`DEC-USER-RZD-MINUTE-001`、`DEC-USER-PACKAGE-SEMANTICS-002` | `RZD`可识别荣之达；根匹配彩袋单棒装并按根数写数量；玉米进入光明满元气；整批固定生成分钟与弹性序号生成基础单号；本机记录处理同一分钟第二批和重跑复用 | 袋等未登记表达追问；多电脑并发不在当前保证范围 |
 | NDD | `SRC-SOP-PDF-001` p.10、`SRC-SAMPLE-NDD-001`、`SRC-SAMPLE-NDD-MANUAL-001`、`DEC-USER-NDD-STANDARD-TEMPLATE-001` | 最终标准模板、福利套餐四展开、NDD单号、物流、备注和管易路由均已实现 | 新套餐或套餐组成变化时追问 |

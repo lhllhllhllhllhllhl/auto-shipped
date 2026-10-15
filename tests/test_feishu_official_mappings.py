@@ -9,6 +9,7 @@ from pathlib import Path
 from auto_shipped.catalog import ProductCatalog, ProductRecord
 from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
+    build_item_expansion_rule_key,
     build_mapping_key,
     build_manual_store_route_key,
     build_official_mapping_snapshot,
@@ -28,7 +29,15 @@ def catalog() -> ProductCatalog:
                 spec_name="10根装",
                 weight_grams=None,
                 default_warehouse="上海尚舆商贸有限公司",
-            )
+            ),
+            ProductRecord(
+                product_code="GMBN1",
+                product_name="光明白糯玉米单根装",
+                spec_code="6974768564804",
+                spec_name="单根装",
+                weight_grams=None,
+                default_warehouse="上海尚舆商贸有限公司",
+            ),
         ]
     )
 
@@ -82,7 +91,67 @@ def store_route(*, store: str = "光明满元气") -> dict[str, str]:
     return values
 
 
+def item_expansion_rows() -> list[dict[str, str]]:
+    rule_key = build_item_expansion_rule_key(
+        company_id="tiantian",
+        source_profile_id="tiantian_warehouse_v2",
+        identifier_type="product_code",
+        source_value="BUNDLE-1",
+        source_spec="",
+        target_platform="guanyi",
+    )
+    common = {
+        "rule_id": "tiantian-bundle-1",
+        "rule_key": rule_key,
+        "company_id": "tiantian",
+        "source_profile_id": "tiantian_warehouse_v2",
+        "identifier_type": "product_code",
+        "source_value": "BUNDLE-1",
+        "source_spec": "",
+        "target_platform": "guanyi",
+        "status": "active",
+        "rule_version": "1",
+        "confirmed_by": "ou-test",
+        "confirmed_at": "2026-10-15T00:00:00+08:00",
+        "evidence": "用户确认",
+    }
+    return [
+        {
+            **common,
+            "component_id": "component-1",
+            "component_index": "1",
+            "product_code": "JTW8E1",
+            "spec_code": "6974768564811",
+            "quantity_multiplier": "1",
+        },
+        {
+            **common,
+            "component_id": "component-2",
+            "component_index": "2",
+            "product_code": "GMBN1",
+            "spec_code": "6974768564804",
+            "quantity_multiplier": "1",
+        },
+    ]
+
+
 class FeishuOfficialMappingTests(unittest.TestCase):
+    def test_item_expansions_share_the_official_versioned_snapshot(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            item_expansion_records=item_expansion_rows(),
+        )
+
+        self.assertEqual(len(snapshot["item_expansions"]), 1)
+        self.assertEqual(
+            snapshot["item_expansions"][0]["components"][1]["product_code"],
+            "GMBN1",
+        )
+        validated = validate_official_mapping_snapshot(snapshot, catalog())
+        self.assertEqual(validated["item_expansions"], snapshot["item_expansions"])
+
     def test_valid_rows_become_confirmed_product_mapping_snapshot(self) -> None:
         snapshot = build_official_mapping_snapshot(
             [record()],

@@ -74,12 +74,16 @@ class ProductCatalog:
         package_semantics_registry: dict[str, Any] | None = None,
         batch_mapping_replacements: list[dict[str, Any]] | None = None,
         manual_store_routes: list[dict[str, Any]] | None = None,
+        item_expansion_rules: list[dict[str, Any]] | None = None,
     ) -> None:
         self.records = records
         self.source_policies = source_policies or {}
         self.package_semantics_registry = package_semantics_registry or {}
         self.manual_store_routes = tuple(
             dict(route) for route in (manual_store_routes or [])
+        )
+        self.item_expansion_rules = tuple(
+            dict(rule) for rule in (item_expansion_rules or [])
         )
         self._forbidden_shipping_products = {
             (
@@ -255,6 +259,7 @@ class ProductCatalog:
 
         mapping_records: list[dict[str, Any]] = []
         manual_store_routes: list[dict[str, Any]] = []
+        item_expansion_rules: list[dict[str, Any]] = []
         source_policies: dict[str, dict[str, Any]] = {}
         for document in documents:
             source_policies.update(document.get("source_policies") or {})
@@ -264,6 +269,9 @@ class ProductCatalog:
             manual_store_routes.extend(
                 dict(item) for item in document.get("manual_store_routes") or []
             )
+            item_expansion_rules.extend(
+                dict(item) for item in document.get("item_expansions") or []
+            )
         return cls(
             records,
             mapping_records,
@@ -271,6 +279,7 @@ class ProductCatalog:
             package_semantics_registry,
             batch_mapping_replacements,
             manual_store_routes,
+            item_expansion_rules,
         )
 
     @staticmethod

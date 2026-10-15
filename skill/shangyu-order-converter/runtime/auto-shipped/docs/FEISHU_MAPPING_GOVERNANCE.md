@@ -12,6 +12,7 @@
 正式映射表 QsLYsongYhoIdXtaL2GcB8Rinwe
   正式映射         13abc6
   手工单商品店铺   vcPamF
+  组合商品规则     CKbJZi
   发布日志         jl3rEi
   库信息           CPVHDe
 
@@ -27,6 +28,7 @@
 - 是运行时权威数据源。
 - “正式映射”Sheet负责把不同公司/来源的商品编码、名称别名和规格映射到唯一管易商品+规格。
 - “手工单商品店铺”Sheet负责把`来源作用域+管易商品代码+规格代码`关联到管易店铺；它不是另一份商品映射，也不复制来源别名。
+- “组合商品规则”Sheet负责把一个来源商品身份关联到两个或以上管易商品+规格及数量倍数；它不允许伪装成多条一对一映射。
 - 普通员工和Agent通过受控命令读取；只有“缺失键的无冲突新增”允许以当前飞书用户身份追加。
 - 已有键的替换、删除、合并、异常状态修复和公司身份配置仍只有所有者/管理员处理。
 - 待确认内容不得直接参与订单转换。
@@ -94,6 +96,24 @@ list_pending_proposals / append_pending_proposal
       "confirmed_by": "...",
       "confirmed_at": "...",
       "evidence": "..."
+    }
+  ],
+  "item_expansions": [
+    {
+      "rule_id": "...",
+      "rule_key": "...",
+      "company_id": "sam",
+      "source_profile_id": "sam_order_v1",
+      "identifier_type": "product_code",
+      "source_value": "...",
+      "source_spec": "...",
+      "target_platform": "guanyi",
+      "status": "active",
+      "rule_version": "...",
+      "components": [
+        {"component_index": 1, "product_code": "...", "spec_code": "...", "quantity_multiplier": 1},
+        {"component_index": 2, "product_code": "...", "spec_code": "...", "quantity_multiplier": 1}
+      ]
     }
   ]
 }
@@ -245,6 +265,41 @@ python3 <skill-dir>/scripts/feishu_mapping.py add \
 
 命令会验证当前用户身份、公司/来源登记、有效商品目录、正式库版本和重复键；写入后回读映射、日志和新版本，并同步本机正式快照。完全重复返回`already_exists`且不增加版本；同键不同目标返回`needs_admin`且不写入。
 
+一个来源商品需要展开成多个管易商品时，长期规则使用独立入口：
+
+```bash
+python3 <skill-dir>/scripts/feishu_mapping.py add-expansion \
+  --company-id <company_id> \
+  --source-profile <source_profile_id> \
+  --identifier-type <product_code|barcode|product_name> \
+  --source-value <来源值> \
+  --source-spec <来源规格> \
+  --components-json '[{"product_code":"目标1","spec_code":"规格1","quantity_multiplier":1},{"product_code":"目标2","spec_code":"规格2","quantity_multiplier":1}]' \
+  --evidence <用户确认组成并以后沿用的依据> \
+  --operation-id <稳定操作ID> \
+  --confirmation-token CONFIRM_ADD_ITEM_EXPANSION_RULE
+```
+
+该入口至少要求两个不重复目标，逐项校验有效商品目录；完全重复幂等，同一来源键已有不同组成时转管理员，禁止普通用户覆盖。写入过程与普通正式映射共用`mapping_revision`、`publishing`失败关闭状态、发布日志和回读快照。
+
+用户只确认当前批次时不得写飞书正式表。使用：
+
+```bash
+python3 <skill-dir>/scripts/save_item_expansion.py \
+  --company-id <company_id> \
+  --source-profile <source_profile_id> \
+  --identifier-type <product_code|barcode|product_name> \
+  --source-value <来源值> \
+  --source-spec <来源规格> \
+  --source-fingerprint sha256:<64位文件哈希> \
+  --components-json '<同上>' \
+  --evidence <用户确认仅本批使用> \
+  --output <本批输出目录/item-expansion.json> \
+  --confirmation-token CONFIRM_USE_ITEM_EXPANSION_FOR_CURRENT_BATCH
+```
+
+转换重跑时只把该文件作为本批`--mapping-overlay`传入；来源文件指纹不同即不命中。
+
 JZDZ、DRJY等手工业务来源完成商品映射后，再读取“手工单商品店铺”关系。`scope_id`可使用具体来源配置（如`jzdz_manual_v1`、`drjy_manual_v1`）或通用回退`manual_all`；具体来源优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
 
 ```bash
@@ -280,13 +335,13 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 
 用户否决一个已存在的正式映射时，正式表保持不变。当前批次如需继续，先同步正式快照，再运行`save_batch_mapping_replacement.py`；该记录保存在本机私有状态目录，绑定来源文件SHA-256，同时保存“预期旧正式目标”和“本批替换目标”。运行时只有文件哈希与旧目标都仍一致才使用替换；其他文件会忽略该记录。替换后应把非隐私纠错提交反馈箱，并明确提示用户联系管理员处理长期修正。
 
-`sync`只读取正式映射，不读取待确认提案。它会核验库状态、库版本、`mapping_key`、重复键、管易商品/规格唯一性，再以原子替换方式写入状态目录；校验失败时不会覆盖上一次有效快照。Skill日常转换入口只自动叠加该正式快照，不再自动叠加本机旧映射或环境变量共享映射。
+`sync`读取正式映射、手工单商品店铺和组合商品规则，不读取待确认提案。它会核验库状态、库版本、所有关系键、重复键、组合行连续性及管易商品/规格唯一性，再以原子替换方式写入状态目录；校验失败时不会覆盖上一次有效快照。Skill日常转换入口只自动叠加该正式快照，不再自动叠加本机旧映射或环境变量共享映射。
 
 映射表始终使用同一结构：`source_value`存来源商品标识，`source_spec`存来源规格，至少填写一个；没有规格时`source_spec`留空。通常两者共同组成精确键。SAM这类规格编码稳定、但父商品编码配对尚未确认的来源，可在相同结构中让`source_value`留空、只填写`source_spec`；该能力必须由来源策略`allow_spec_only_mapping=true`显式开启。完整组合优先于规格单独映射，来源已经给出规格时禁止退回无规格映射。
 
 匹配优先级不是“看到同名代码就自动选规格”，而是：来源完整组合正式映射 → 来源无规格的正式长期映射 → 公司内正式名称别名 → 唯一精确管易名称 → 相似名称候选。来源无规格但目标商品多规格时，第二步只有带正式长期复用证据的记录可以通过；其他情况停在候选确认。
 
-统一转换入口会在每次运行前自动调用备用`sync`，除非Agent显式提供本次由`sync-native`生成的`--official-mapping-snapshot`。正式读取或验证失败时，普通商品返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`；只有正式库成功读取且确实无匹配时，才允许返回商品映射问题。已确认组合展开规则不依赖一对一正式映射，可继续按自身规则校验。
+统一转换入口会在每次运行前自动调用备用`sync`，除非Agent显式提供本次由`sync-native`生成的`--official-mapping-snapshot`。正式读取或验证失败时，整批返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`；只有正式库成功读取且确实无匹配时，才允许返回普通商品或组合商品确认问题。组合展开不依赖一对一映射行，但长期组成与一对一映射共用同一受校验正式快照。
 
 ## 6. 风险边界
 
@@ -319,7 +374,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
 
 已完成：
 
-- 正式映射、手工单商品店铺、发布日志、库信息四个Sheet已创建并回读校验。
+- 正式映射、手工单商品店铺、组合商品规则、发布日志、库信息五个Sheet已创建并回读校验。
 - 待确认个人模板与用户路由Sheet已创建并回读校验。
 - 当前飞书用户的个人Sheet与路由已通过适配器自动创建；相同用户重复执行会复用原Sheet，不会重复创建。
 - 已确认的恬田与SAM两条编码映射已进入正式版本2。
@@ -330,3 +385,4 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
 - Agent原生飞书结果可通过`sync-native`载荷桥进入同一校验器；正式映射不可用时转换不再退化为商品确认问题。
 - 2026-10-15启用受控直接新增：用户确认“以后沿用”的纯新增可直接进入正式表；重复幂等，同键冲突转管理员。用户否决已有正式映射时只允许文件哈希绑定的当前批次替换，并保留独立纠错反馈。
 - 2026-10-15新增“手工单商品店铺”关系表并接入同一正式快照：JZDZ、DRJY在员工视角作为独立来源，底层归属自营；精确来源关系优先于`manual_all`，当前11个已知SKU已写入通用关系并回读校验。
+- 2026-10-15新增“组合商品规则”关系表并接入同一正式快照：SAM白糯、花糯、黄糯8+1共3条规则、6条组件已写入并回读；正式库版本升至8，来源规则包不再复制这些组成事实。

@@ -541,7 +541,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
             rules,
             self.profile,
             business_date=date(2026, 9, 29),
-            official_mapping_ready=False,
+            official_mapping_ready=True,
         )
 
         self.assertEqual(result.status, "ready")
@@ -598,7 +598,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
-                official_mapping_ready=False,
+                official_mapping_ready=True,
             )
             repeated = build_custom_import_lines(
                 [order],
@@ -614,7 +614,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
-                official_mapping_ready=False,
+                official_mapping_ready=True,
             )
         self.assertEqual(generated.status, "ready")
         self.assertTrue(
@@ -629,6 +629,173 @@ class GuanyiCustomImportTests(unittest.TestCase):
                 for line in repeated.lines
             )
         )
+
+    def test_all_confirmed_sam_eight_plus_one_rules_expand_deterministically(self) -> None:
+        sam_rules = json.loads(
+            (
+                PROJECT_ROOT
+                / "config"
+                / "platform_rules"
+                / "guanyi"
+                / "sam_order_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "JTBN1E1-EH",
+                    "白糯8棒家庭装",
+                    "6974768564842",
+                    "8袋/箱",
+                    1210,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "GMBN1",
+                    "白糯彩袋单棒装",
+                    "6974768564804",
+                    "50根/箱",
+                    180,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "JTTZE1",
+                    "花糯8棒家庭装",
+                    "6974768564835",
+                    "8袋/箱",
+                    1210,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "GMCN-1",
+                    "花糯彩袋单棒装",
+                    "6974768564798",
+                    "50根/箱",
+                    180,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "JTW8E1",
+                    "黄糯8棒家庭装",
+                    "6974768564811",
+                    "8袋/箱",
+                    1210,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "GMHN-1",
+                    "黄糯彩袋单棒装",
+                    "6974768564729",
+                    "50根/箱",
+                    180,
+                    "上海尚舆商贸有限公司",
+                ),
+            ],
+            [],
+        )
+        cases = [
+            (
+                "276388650",
+                "光9-JTBN1T1-EH",
+                [
+                    ("JTBN1E1-EH", "6974768564842", 1),
+                    ("GMBN1", "6974768564804", 1),
+                ],
+            ),
+            (
+                "276388650",
+                "光9-JTTZT1",
+                [
+                    ("JTTZE1", "6974768564835", 1),
+                    ("GMCN-1", "6974768564798", 1),
+                ],
+            ),
+            (
+                "YHGMMYQXNYM31631159",
+                "光-QJTW8-F9-EH",
+                [
+                    ("JTW8E1", "6974768564811", 1),
+                    ("GMHN-1", "6974768564729", 1),
+                ],
+            ),
+        ]
+        catalog.item_expansion_rules = tuple(
+            {
+                "rule_id": f"sam-central-bundle-{index}",
+                "company_id": "sam",
+                "source_profile_id": "sam_order_v1",
+                "identifier_type": "product_code",
+                "source_value": source_code,
+                "source_spec": source_spec,
+                "target_platform": "guanyi",
+                "confirmed": True,
+                "reuse_scope": "future",
+                "components": [
+                    {
+                        "component_index": component_index,
+                        "product_code": product_code,
+                        "spec_code": spec_code,
+                        "quantity_multiplier": multiplier,
+                    }
+                    for component_index, (
+                        product_code,
+                        spec_code,
+                        multiplier,
+                    ) in enumerate(expected, start=1)
+                ],
+            }
+            for index, (source_code, source_spec, expected) in enumerate(
+                cases, start=1
+            )
+        )
+
+        for source_code, source_spec, expected in cases:
+            with self.subTest(source_code=source_code, source_spec=source_spec):
+                order = parsed_order()
+                order.source = ParsedSource(
+                    profile_id="sam_order_v1",
+                    source_label="SAM群接龙订单",
+                    order_type=order.source.order_type,
+                    source_order_no=order.source.source_order_no,
+                    file_name=order.source.file_name,
+                    file_fingerprint=order.source.file_fingerprint,
+                    sheet_name=order.source.sheet_name,
+                    row_numbers=order.source.row_numbers,
+                )
+                order.items = [
+                    ParsedItem(
+                        source_product_code=source_code,
+                        source_product_name="光明满元气鲜糯玉米（加送1根）",
+                        source_spec=source_spec,
+                        source_display_spec="8根+1根",
+                        quantity=1,
+                        source_line_no=2,
+                    )
+                ]
+                rules = confirmed_rules()
+                rules.pop("store_assignment_policy")
+                rules["defaults"]["store"] = {"value": "sam", "confirmed": True}
+                rules["item_expansion_policy"] = sam_rules["item_expansion_policy"]
+
+                result = build_custom_import_lines(
+                    [order],
+                    catalog,
+                    rules,
+                    self.profile,
+                    business_date=date(2026, 10, 15),
+                    source_company_id="sam",
+                    official_mapping_ready=True,
+                )
+
+                self.assertEqual(
+                    result.status,
+                    "ready",
+                    [item.to_dict() for item in result.clarifications],
+                )
+                self.assertEqual(
+                    [(line["商品代码"], line["规格代码"], line["数量"]) for line in result.lines],
+                    expected,
+                )
 
     def test_missing_official_mapping_blocks_before_product_question(self) -> None:
         result = build_custom_import_lines(

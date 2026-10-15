@@ -136,6 +136,31 @@ class LarkCliGatewayTests(unittest.TestCase):
             with self.assertRaises(LarkCliGatewayError):
                 LarkCliFeishuSheetGateway.from_config(path)
 
+    def test_enabled_item_expansion_table_requires_stable_sheet_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "adapter_status": {"item_expansion_rule_table": "ready"},
+                        "official_repository": {
+                            "spreadsheet_token": "official",
+                            "mapping_sheet_id": "mapping",
+                            "metadata_sheet_id": "meta",
+                            "publish_log_sheet_id": "log",
+                        },
+                        "pending_repository": {
+                            "spreadsheet_token": "pending",
+                            "route_sheet_id": "route",
+                            "template_sheet_id": "template",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(LarkCliGatewayError):
+                LarkCliFeishuSheetGateway.from_config(path)
+
     def test_annotated_row_prefixes_recover_when_response_has_extra_blank_index(self) -> None:
         def runner(command: Sequence[str]) -> dict[str, Any]:
             if "+csv-get" not in command:

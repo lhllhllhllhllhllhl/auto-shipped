@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
-from auto_shipped.catalog import ProductCatalog, ProductRecord, clean_identifier
+from auto_shipped.catalog import (
+    ProductCatalog,
+    ProductRecord,
+    clean_identifier,
+    normalize_product_text,
+)
 from auto_shipped.domain import ParsedItem
 
 
@@ -43,28 +49,114 @@ def _matches_source_item(item: ParsedItem, match: dict[str, Any]) -> bool:
     return bool(checks) and all(checks)
 
 
+def _matches_registered_rule(
+    item: ParsedItem,
+    rule: dict[str, Any],
+    *,
+    company_id: str,
+    source_profile_id: str,
+    source_fingerprint: str,
+) -> bool:
+    if clean_identifier(rule.get("company_id")) != clean_identifier(company_id):
+        return False
+    if clean_identifier(rule.get("source_profile_id")) != clean_identifier(
+        source_profile_id
+    ):
+        return False
+    if clean_identifier(rule.get("target_platform")) != "guanyi":
+        return False
+    reuse_scope = clean_identifier(rule.get("reuse_scope")) or "future"
+    if reuse_scope == "current_batch":
+        if clean_identifier(rule.get("source_fingerprint")) != clean_identifier(
+            source_fingerprint
+        ):
+            return False
+    elif reuse_scope != "future":
+        return False
+    identifier_type = clean_identifier(rule.get("identifier_type"))
+    expected_value = clean_identifier(rule.get("source_value"))
+    if identifier_type == "product_name":
+        value_matches = normalize_product_text(item.source_product_name) == (
+            normalize_product_text(expected_value)
+        )
+    elif identifier_type in {"product_code", "barcode"}:
+        value_matches = clean_identifier(item.source_product_code) == expected_value
+    else:
+        return False
+    expected_spec = normalize_product_text(rule.get("source_spec"))
+    actual_spec = normalize_product_text(item.source_spec)
+    return value_matches and actual_spec == expected_spec
+
+
+def _registered_rule_to_local(rule: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "rule_id": clean_identifier(rule.get("rule_id")),
+        "components": list(rule.get("components") or []),
+        "confirmed": rule.get("confirmed") is True,
+    }
+
+
+def _looks_like_unregistered_expansion(item: ParsedItem) -> bool:
+    text = " ".join(
+        filter(
+            None,
+            (
+                clean_identifier(item.source_product_name),
+                clean_identifier(item.source_spec),
+                clean_identifier(item.source_display_spec),
+            ),
+        )
+    )
+    return bool(
+        re.search(r"\d+\s*[根棒袋盒份套]?\s*\+\s*\d+", text)
+        or any(marker in text for marker in ("组合商品", "配套商品", "加赠", "加送"))
+    )
+
+
 def expand_source_item(
     item: ParsedItem,
     catalog: ProductCatalog,
     rules: dict[str, Any],
+    *,
+    company_id: str = "",
+    source_profile_id: str = "",
+    source_fingerprint: str = "",
+    registered_rules: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
 ) -> ItemExpansionResult:
     """Apply a confirmed one-to-many source-item expansion before normal mapping."""
 
     policy = rules.get("item_expansion_policy") or {}
-    if not policy:
-        return ItemExpansionResult()
     strategy = str(policy.get("strategy") or "")
-    if strategy != "confirmed_source_item_expansions":
+    if policy and strategy != "confirmed_source_item_expansions":
         return ItemExpansionResult(
             error_code="GUANYI_ITEM_EXPANSION_POLICY_INVALID",
             reason=f"未知组合商品展开策略: {strategy or '未配置'}",
         )
 
+    registered_matched = [
+        rule
+        for rule in registered_rules
+        if _matches_registered_rule(
+            item,
+            rule,
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            source_fingerprint=source_fingerprint,
+        )
+    ]
+    if len(registered_matched) > 1:
+        return ItemExpansionResult(
+            applied=True,
+            error_code="GUANYI_ITEM_EXPANSION_AMBIGUOUS",
+            reason="同一来源商品命中多个正式组合商品规则",
+        )
     matched = [
         rule
         for rule in policy.get("rules") or []
         if _matches_source_item(item, rule.get("match") or {})
     ]
+    if registered_matched:
+        matched = [_registered_rule_to_local(registered_matched[0])]
     if not matched:
         if str(policy.get("on_unmatched") or "standard_product_mapping") != (
             "standard_product_mapping"
@@ -72,6 +164,15 @@ def expand_source_item(
             return ItemExpansionResult(
                 error_code="GUANYI_ITEM_EXPANSION_POLICY_INVALID",
                 reason="组合商品未命中时只允许回到标准商品映射",
+            )
+        if _looks_like_unregistered_expansion(item):
+            return ItemExpansionResult(
+                applied=True,
+                error_code="GUANYI_ITEM_EXPANSION_UNCONFIRMED",
+                reason=(
+                    "来源商品包含组合/加赠迹象，但正式组合商品规则中没有精确记录；"
+                    "需要确认目标商品、规格和数量倍数。"
+                ),
             )
         return ItemExpansionResult()
     if len(matched) != 1:

@@ -30,6 +30,11 @@ from .white_label_library import (
     WhiteLabelLibraryError,
     load_white_label_library,
 )
+from .item_expansion_overlays import (
+    CURRENT_BATCH_ITEM_EXPANSION_CONFIRMATION,
+    BatchItemExpansionError,
+    save_batch_item_expansion,
+)
 
 __all__ = [
     "PERSIST_MAPPING_CONFIRMATION",
@@ -54,4 +59,7 @@ __all__ = [
     "WhiteLabelLibrary",
     "WhiteLabelLibraryError",
     "load_white_label_library",
+    "CURRENT_BATCH_ITEM_EXPANSION_CONFIRMATION",
+    "BatchItemExpansionError",
+    "save_batch_item_expansion",
 ]
