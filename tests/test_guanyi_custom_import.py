@@ -306,6 +306,72 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅本次使用", decision.confirmation_question)
         self.assertIn("以后遇到相同来源时沿用", decision.confirmation_question)
 
+    def test_current_batch_mapping_emits_nonblocking_reuse_candidate(self) -> None:
+        order = parsed_order()
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "测试商品", "S1", "唯一规格", 100, "上海仓")],
+            [
+                {
+                    "source_profile_id": "tiantian_warehouse_v2",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                    "reuse_scope": "current_batch",
+                    "mapping_authority": "user_batch_confirmation",
+                    "source_fingerprint": order.source.file_fingerprint,
+                }
+            ],
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+            source_company_id="tiantian",
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(len(result.mapping_reuse_candidates), 1)
+        candidate = result.mapping_reuse_candidates[0]
+        self.assertEqual(candidate.source_value, "EXT-1")
+        self.assertEqual(candidate.product_code, "P1")
+        self.assertEqual(candidate.spec_code, "S1")
+        self.assertEqual(candidate.future_scope_options, ("source",))
+
+    def test_formal_mapping_does_not_emit_reuse_candidate(self) -> None:
+        order = parsed_order()
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "测试商品", "S1", "唯一规格", 100, "上海仓")],
+            [
+                {
+                    "source_profile_id": "tiantian_warehouse_v2",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+            source_company_id="tiantian",
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.mapping_reuse_candidates, [])
+
     def test_name_candidate_offers_source_or_global_future_scope(self) -> None:
         catalog = ProductCatalog(
             [ProductRecord("P1", "蓝色硬款搓澡巾", "S1", "硬款", 100, "上海仓")],

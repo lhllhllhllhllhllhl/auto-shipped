@@ -24,7 +24,10 @@ from auto_shipped.domain import (
     ClarificationRequest,
     DecisionBundle,
     DecisionItem,
+    MappingReuseBundle,
+    MappingReuseCandidate,
     deduplicate_clarifications,
+    deduplicate_mapping_reuse_candidates,
 )
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
@@ -83,6 +86,7 @@ class ConversionResult:
     upload_manifest: str | None = None
     clarifications: list[ClarificationRequest] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
+    mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -97,6 +101,11 @@ class ConversionResult:
             "upload_manifest": self.upload_manifest,
             "clarifications": [item.to_dict() for item in self.clarifications],
             "decision_bundle": DecisionBundle(self.decisions).to_dict(),
+            "mapping_reuse_bundle": MappingReuseBundle(
+                deduplicate_mapping_reuse_candidates(self.mapping_reuse_candidates)
+                if self.status == "ready"
+                else []
+            ).to_dict(),
             "errors": self.errors,
         }
 
@@ -892,6 +901,7 @@ def convert_order_file(
             outputs=[str(rendered)],
             upload_manifest=None,
             decisions=built.decisions,
+            mapping_reuse_candidates=built.mapping_reuse_candidates,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
         report_path.write_text(
@@ -912,6 +922,7 @@ def convert_order_file(
         output_row_count=len(built.lines),
         outputs=[str(rendered)],
         upload_manifest=str(manifest_path),
+        mapping_reuse_candidates=built.mapping_reuse_candidates,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"
     report_path.write_text(

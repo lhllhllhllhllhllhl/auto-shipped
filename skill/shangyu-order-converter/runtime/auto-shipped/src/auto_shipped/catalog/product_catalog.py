@@ -63,6 +63,8 @@ class ProductResolution:
     package_rule_id: str = ""
     quantity_strategy: str = "same_as_source"
     sticks_per_target_unit: int | None = None
+    mapping_authority: str = ""
+    reuse_scope: str = ""
 
 
 class ProductCatalog:
@@ -783,6 +785,20 @@ class ProductCatalog:
             )
         confirmed = all(bool(mapping.get("confirmed")) for mapping, _ in resolved)
         reasons = [str(mapping.get("reason") or "") for mapping, _ in resolved]
+        mapping_authority = (
+            "feishu_official"
+            if future_reusable
+            else "user_batch_confirmation"
+            if current_batch_confirmed
+            else ""
+        )
+        reuse_scope = (
+            "future"
+            if future_reusable
+            else "current_batch"
+            if current_batch_confirmed
+            else ""
+        )
         return ProductResolution(
             status="confirmed" if confirmed else "unconfirmed",
             external_sku=external_sku,
@@ -791,6 +807,8 @@ class ProductCatalog:
             reason=next((reason for reason in reasons if reason), ""),
             match_method=match_method,
             identifier_type=identifier_type,
+            mapping_authority=mapping_authority,
+            reuse_scope=reuse_scope,
         )
 
     def _mapping_identity_guard_reason(

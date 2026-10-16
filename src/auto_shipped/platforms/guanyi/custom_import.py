@@ -14,6 +14,7 @@ from auto_shipped.catalog import ProductCatalog, WhiteLabelLibrary
 from auto_shipped.domain import (
     ClarificationRequest,
     DecisionItem,
+    MappingReuseCandidate,
     ParsedOrder,
     deduplicate_clarifications,
     deduplicate_decisions,
@@ -48,6 +49,9 @@ class GuanyiBuildResult:
     lines: list[dict[str, Any]] = field(default_factory=list)
     clarifications: list[ClarificationRequest] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
+    mapping_reuse_candidates: list[MappingReuseCandidate] = field(
+        default_factory=list
+    )
 
     @property
     def status(self) -> str:
@@ -674,6 +678,35 @@ def build_custom_import_lines(
                     )
                 )
             if resolution.product and resolution.status == "confirmed":
+                if (
+                    resolution.mapping_authority == "user_batch_confirmation"
+                    and resolution.reuse_scope == "current_batch"
+                ):
+                    identifier_type = resolution.identifier_type or "product_code"
+                    source_value = (
+                        item.source_product_name
+                        if identifier_type == "product_name"
+                        else item.source_product_code
+                    )
+                    result.mapping_reuse_candidates.append(
+                        MappingReuseCandidate(
+                            source_profile_id=order.source.profile_id,
+                            company_id=source_company_id,
+                            identifier_type=identifier_type,
+                            source_value=str(source_value or "").strip(),
+                            source_spec=str(item.source_spec or "").strip(),
+                            source_fingerprint=order.source.file_fingerprint,
+                            product_code=resolution.product.product_code,
+                            spec_code=resolution.product.spec_code,
+                            product_name=resolution.product.product_name,
+                            spec_name=resolution.product.spec_name,
+                            future_scope_options=(
+                                ("source", "global")
+                                if identifier_type == "product_name"
+                                else ("source",)
+                            ),
+                        )
+                    )
                 forbidden_reason = catalog.shipping_forbidden_reason(resolution.product)
                 if forbidden_reason:
                     result.clarifications.append(

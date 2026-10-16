@@ -10,7 +10,14 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from auto_shipped.domain import DecisionBundle, DecisionItem, deduplicate_decisions
+from auto_shipped.domain import (
+    DecisionBundle,
+    DecisionItem,
+    MappingReuseBundle,
+    MappingReuseCandidate,
+    deduplicate_decisions,
+    deduplicate_mapping_reuse_candidates,
+)
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
     preflight_custom_import,
@@ -68,6 +75,7 @@ class BatchConversionResult:
     upload_manifest: str | None = None
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
+    mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -83,6 +91,11 @@ class BatchConversionResult:
             "upload_manifest": self.upload_manifest,
             "clarifications": self.clarifications,
             "decision_bundle": DecisionBundle(self.decisions).to_dict(),
+            "mapping_reuse_bundle": MappingReuseBundle(
+                deduplicate_mapping_reuse_candidates(self.mapping_reuse_candidates)
+                if self.status == "ready"
+                else []
+            ).to_dict(),
             "errors": self.errors,
         }
 
@@ -299,6 +312,9 @@ def convert_order_batch(
             result.order_count += conversion.parsed_order_count
             result.item_row_count += conversion.output_row_count
             result.decisions.extend(conversion.decisions)
+            result.mapping_reuse_candidates.extend(
+                conversion.mapping_reuse_candidates
+            )
             if conversion.status == "needs_input":
                 result.clarifications.extend(
                     _with_source_file(source.name, summary.clarifications)
@@ -384,6 +400,9 @@ def convert_order_batch(
             )
             return result
         result.decisions = deduplicate_decisions(result.decisions)
+        result.mapping_reuse_candidates = deduplicate_mapping_reuse_candidates(
+            result.mapping_reuse_candidates
+        )
 
         route_keys = {
             (item.target_platform, item.target_profile_id) for item in result.sources

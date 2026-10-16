@@ -25,6 +25,11 @@
     "status": {"enum": ["draft", "confirmed"]},
     "source_file": {"type": "string"},
     "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "order_source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "可选的稳定订单事实指纹；文字来源重生成同内容XLSX时保持不变，缺省回退source_sha256。"
+    },
     "company_id": {"type": "string", "minLength": 1},
     "rule_source_profile_id": {"type": "string", "minLength": 1},
     "sheet_name": {"type": "string", "minLength": 1},

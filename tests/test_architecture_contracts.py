@@ -150,6 +150,16 @@ class ArchitectureContractTests(unittest.TestCase):
         ]["items"]["enum"]
         self.assertEqual(set(future_scopes), {"source", "global"})
 
+    def test_mapping_reuse_bundle_is_non_blocking_and_never_authorizes_writes(self):
+        schema = load_json("contracts/mapping_reuse_bundle.schema.json")
+        safety = schema["properties"]["safety"]["properties"]
+        self.assertTrue(safety["non_blocking_after_delivery"]["const"])
+        self.assertFalse(safety["bundle_authorizes_persistence"]["const"])
+        self.assertFalse(safety["bundle_authorizes_upload"]["const"])
+        self.assertTrue(
+            safety["persistence_requires_explicit_future_choice"]["const"]
+        )
+
     def test_product_decision_contract_keeps_target_hint_separate_from_source(self):
         schema = load_json("contracts/product_mapping_decision.schema.json")
         safety = schema["properties"]["safety"]["properties"]
@@ -171,6 +181,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("sources", schema["required"])
         self.assertIn("upload_manifest", schema["required"])
         self.assertIn("decision_bundle", schema["required"])
+        self.assertIn("mapping_reuse_bundle", schema["required"])
         self.assertFalse(schema["additionalProperties"])
 
     def test_approved_route_has_business_rule_coverage_scope(self):
