@@ -1,5 +1,6 @@
 from .models import CanonicalOrder, Issue, OrderItem, Recipient, SourceRef
 from .clarification import ClarificationRequest, deduplicate_clarifications
+from .decision import DecisionBundle, DecisionItem, deduplicate_decisions
 from .parsed_order import (
     ParsedAmounts,
     ParsedItem,
@@ -18,6 +19,8 @@ from .order_identity import (
 __all__ = [
     "CanonicalOrder",
     "ClarificationRequest",
+    "DecisionBundle",
+    "DecisionItem",
     "Issue",
     "OrderItem",
     "OrderIdentityError",
@@ -31,6 +34,7 @@ __all__ = [
     "ResolvedOrderIdentity",
     "SourceRef",
     "deduplicate_clarifications",
+    "deduplicate_decisions",
     "resolve_order_identity",
     "resolve_parsed_source_identity",
 ]

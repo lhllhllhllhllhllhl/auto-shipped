@@ -10,6 +10,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+from auto_shipped.domain import DecisionBundle, DecisionItem, deduplicate_decisions
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
     preflight_custom_import,
@@ -32,6 +33,7 @@ class BatchSourceSummary:
     output_row_count: int = 0
     schema_warnings: list[dict[str, Any]] = field(default_factory=list)
     clarifications: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -48,6 +50,7 @@ class BatchSourceSummary:
             "output_row_count": self.output_row_count,
             "schema_warnings": self.schema_warnings,
             "clarifications": self.clarifications,
+            "decisions": self.decisions,
             "errors": self.errors,
         }
 
@@ -64,6 +67,7 @@ class BatchConversionResult:
     outputs: list[str] = field(default_factory=list)
     upload_manifest: str | None = None
     clarifications: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[DecisionItem] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -78,6 +82,7 @@ class BatchConversionResult:
             "outputs": self.outputs,
             "upload_manifest": self.upload_manifest,
             "clarifications": self.clarifications,
+            "decision_bundle": DecisionBundle(self.decisions).to_dict(),
             "errors": self.errors,
         }
 
@@ -138,6 +143,7 @@ def _summarize_conversion(
         parsed_order_count=result.parsed_order_count,
         output_row_count=result.output_row_count,
         clarifications=[item.to_dict() for item in result.clarifications],
+        decisions=[item.to_dict() for item in result.decisions],
         errors=list(result.errors),
         schema_warnings=warnings,
     )
@@ -292,22 +298,44 @@ def convert_order_batch(
             result.sources.append(summary)
             result.order_count += conversion.parsed_order_count
             result.item_row_count += conversion.output_row_count
+            result.decisions.extend(conversion.decisions)
             if conversion.status == "needs_input":
                 result.clarifications.extend(
                     _with_source_file(source.name, summary.clarifications)
                 )
                 continue
-            if conversion.status != "ready":
+            if conversion.status not in {"ready", "preview_ready"}:
                 result.errors.extend(_with_source_file(source.name, summary.errors))
                 continue
 
             workbook_path = _find_rendered_workbook(conversion.outputs)
-            if workbook_path is None or not conversion.upload_manifest:
+            if workbook_path is None:
                 result.errors.append(
                     {
                         "source_file": source.name,
                         "code": "BATCH_STAGED_ARTIFACT_MISSING",
-                        "message": "单文件转换通过，但暂存Excel或预检清单缺失。",
+                        "message": "单文件转换通过，但暂存Excel缺失。",
+                    }
+                )
+                continue
+            if conversion.status == "preview_ready":
+                if conversion.upload_manifest is not None or not conversion.decisions:
+                    result.errors.append(
+                        {
+                            "source_file": source.name,
+                            "code": "BATCH_PREVIEW_SAFETY_INVALID",
+                            "message": "待确认预览错误地携带上传清单，或缺少决策记录。",
+                        }
+                    )
+                    continue
+                staged_workbooks.append((index, workbook_path))
+                continue
+            if not conversion.upload_manifest:
+                result.errors.append(
+                    {
+                        "source_file": source.name,
+                        "code": "BATCH_STAGED_ARTIFACT_MISSING",
+                        "message": "正式暂存结果缺少上传预检清单。",
                     }
                 )
                 continue
@@ -355,6 +383,7 @@ def convert_order_batch(
                 }
             )
             return result
+        result.decisions = deduplicate_decisions(result.decisions)
 
         route_keys = {
             (item.target_platform, item.target_profile_id) for item in result.sources
@@ -436,9 +465,18 @@ def convert_order_batch(
 
         output_root = Path(output_dir).expanduser().resolve()
         output_stem = _safe_stem(batch_name)
-        output_path = output_root / f"{output_stem}_管易自定义订单导入.xlsx"
+        is_preview = bool(result.decisions)
+        output_path = output_root / (
+            f"{output_stem}_待确认预览.xlsx"
+            if is_preview
+            else f"{output_stem}_管易自定义订单导入.xlsx"
+        )
         manifest_path = output_root / f"{output_stem}_上传预检.json"
-        report_path = output_root / f"{output_stem}_处理报告.json"
+        report_path = output_root / (
+            f"{output_stem}_待确认决策.json"
+            if is_preview
+            else f"{output_stem}_处理报告.json"
+        )
         try:
             rendered = render_custom_import(
                 guanyi_template_path,
@@ -451,7 +489,8 @@ def convert_order_batch(
                 rendered.unlink(missing_ok=True)
                 result.errors.extend(issue.to_dict() for issue in preflight.issues)
                 return result
-            preflight.write_manifest(manifest_path)
+            if not is_preview:
+                preflight.write_manifest(manifest_path)
         except (GuanyiCustomImportError, OSError, KeyError, ValueError) as exc:
             output_path.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)
@@ -463,10 +502,10 @@ def convert_order_batch(
             )
             return result
 
-        result.status = "ready"
+        result.status = "preview_ready" if is_preview else "ready"
         result.order_count = preflight.order_count
         result.item_row_count = preflight.item_row_count
-        result.upload_manifest = str(manifest_path)
+        result.upload_manifest = None if is_preview else str(manifest_path)
         result.outputs = [str(rendered)]
         report_path.write_text(
             json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2) + "\n",

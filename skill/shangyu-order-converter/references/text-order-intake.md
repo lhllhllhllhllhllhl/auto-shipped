@@ -1,6 +1,6 @@
 # 文字与截图订单入口
 
-当员工直接发送聊天文字、截图或复制的地址单，而不是Excel时，使用两阶段入口：Agent提取候选字段，确定性脚本校验和落地。文字识别不能绕过公司、商品、物流或平台规则。
+当员工直接发送聊天文字、截图或复制的地址单，而不是Excel时，使用“提取→确定性校验→最终预览集中确认”的入口。普通核对不再单独打断一次；文字识别仍不能绕过公司、商品、物流或平台规则。
 
 ## Agent提取
 
@@ -21,21 +21,24 @@
 先运行：
 
 ```bash
-python3 <skill-dir>/scripts/text_order.py validate --draft <草稿.json>
+python3 <skill-dir>/scripts/text_order.py validate \
+  --draft <草稿.json> \
+  --defer-confirmation
 ```
 
 命令只返回脱敏预览和集中追问。没有公司级证据时必须问公司；平台名称不能代替公司来源。脱敏预览中的`order_number_plan`按“订单编号 > 来源单号 > 已登记自动生成规则”说明本单将如何编号。两种单号都缺失但来源配置已有确认过的日期/分钟序号规则时，只向用户展示将采用的规则，不再要求用户补充单号或重新选择；没有已登记生成规则时才追问，且不得由Agent临时决定。
 
-全部字段明确后，向用户展示脱敏预览，至少包含订单数、平台/渠道、商品、规格、数量和指定物流。只有用户明确确认后，才把`confirmation.token`设为`CONFIRM_TEXT_ORDER_DRAFT`。
+全部字段明确后先继续生成最终待确认预览，不在这里单独索要一次确认。路由不唯一、关键字段缺失、字段来源为`inferred`或存在`uncertainties`时仍立即追问，不能延后。
 
 ## 生成转换输入
 
-用户确认后运行：
+字段足够形成安全预览后运行：
 
 ```bash
 python3 <skill-dir>/scripts/text_order.py prepare \
-  --draft <已确认草稿.json> \
-  --output-dir <本次临时目录>
+  --draft <草稿.json> \
+  --output-dir <本次临时目录> \
+  --defer-confirmation
 ```
 
 普通单一来源命令生成一个标准化来源Excel和一个与该Excel哈希绑定的一次性自适应计划。混合手工订单会按路由组生成多组文件，并在JSON结果的`conversion_inputs`中明确给出每组的`company_id`、`rule_source_profile_id`、`source`和`adaptive_plan`，Agent必须使用这些配对，不能自行猜测。它们都不是管易成品。随后把标准化Excel和计划交给统一转换入口：
@@ -48,6 +51,6 @@ python3 <skill-dir>/scripts/convert_orders.py \
   --output-dir <本次输出目录>
 ```
 
-统一转换入口仍会执行飞书正式商品映射、公司路由、平台规则、物流规则和管易预检。未知商品或规则继续追问；不得因为用户已经确认文字识别结果就跳过业务规则确认。
+延后确认生成的自适应计划带`source_confirmation.status=pending`。统一转换入口仍会执行飞书正式商品映射、公司路由、平台规则和物流规则，并只生成`preview_ready`预览，不生成上传 manifest。用户在最终决策中确认文字提取后，把草稿`confirmation.token`设为`CONFIRM_TEXT_ORDER_DRAFT`，不用`--defer-confirmation`重新准备和转换。未知商品或规则继续按同一个决策包集中处理；真正无法形成唯一预览的情况才中途追问。
 
 多条文字订单默认合并成一个管易Excel。混合手工订单把`conversion_inputs`中的全部`source`与对应提示一次性交给统一批次入口。若用户同时提供文字单和原始Excel，可先把文字单准备为标准化来源Excel，再与其他来源一起交给统一批次入口。

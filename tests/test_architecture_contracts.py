@@ -132,14 +132,29 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("question", schema["required"])
         self.assertIn("reason", schema["required"])
 
-    def test_batch_conversion_contract_is_fail_closed(self):
+    def test_decision_bundle_cannot_authorize_upload_or_implicit_reuse(self):
+        schema = load_json("contracts/decision_bundle.schema.json")
+        safety = schema["properties"]["safety"]["properties"]
+        self.assertFalse(safety["decision_bundle_authorizes_upload"]["const"])
+        self.assertTrue(
+            safety["persistence_requires_explicit_future_choice"]["const"]
+        )
+        options = (
+            schema["properties"]["items"]["items"]["properties"][
+                "persistence_options"
+            ]["items"]["enum"]
+        )
+        self.assertEqual(set(options), {"current_batch", "future"})
+
+    def test_batch_conversion_contract_separates_preview_from_upload_ready(self):
         schema = load_json("contracts/batch_conversion_result.schema.json")
         self.assertEqual(
             set(schema["properties"]["status"]["enum"]),
-            {"ready", "needs_input", "blocked"},
+            {"ready", "preview_ready", "needs_input", "blocked"},
         )
         self.assertIn("sources", schema["required"])
         self.assertIn("upload_manifest", schema["required"])
+        self.assertIn("decision_bundle", schema["required"])
         self.assertFalse(schema["additionalProperties"])
 
     def test_approved_route_has_business_rule_coverage_scope(self):

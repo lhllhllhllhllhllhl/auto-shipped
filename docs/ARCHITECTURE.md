@@ -160,6 +160,17 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 
 请求合同位于 `contracts/clarification_request.schema.json`。
 
+### 3.3.1 决策收敛与待确认预览
+
+真正缺少事实、存在多个候选或规则冲突时继续返回`ClarificationRequest`并中途停止。若目标商品在有效目录中只有一个可解释候选，或文字/截图只缺最终人工核对，则转换器记录`DecisionItem`并生成`preview_ready`待确认Excel：
+
+- 待确认Excel不生成上传预检manifest，浏览器模块不能接收。
+- `decision_bundle`按稳定编号集中说明暂用值、判断依据及“仅本次/以后沿用”选项。
+- 未明确选择`future`一律按不持久化处理；现有正式映射发生冲突时只允许本批临时处理并转管理员。
+- 用户确认后由既有临时覆盖或飞书受控新增模块落地，再重新确定性转换；只有`ready`结果才生成manifest。
+
+该模块只收敛决策，不改变公司、商品、店铺和物流规则的权威来源。合同位于`contracts/decision_bundle.schema.json`。
+
 ### 3.4 路由解析
 
 输入：`source_profile_id + order_type`。
@@ -357,7 +368,7 @@ ParsedOrder
 - 不同文件之间没有相同的平台单号。
 - 每个暂存 Excel 的 SHA-256 与自身预检 manifest 一致。
 
-任一文件需要追问时，整批返回 `needs_input`，不生成部分 Excel；任一文件失败、哈希异常或跨文件单号冲突时，整批返回 `blocked`。成功批次只交付一个合并 Excel、一个对应 manifest 和一个不含收件信息的批次报告。批次合并不会改变单文件的来源判断、商品映射或业务规则。
+若没有阻断问题、但至少一个文件包含待确认决策，批次层可以合并为一个`preview_ready`预览；它集中所有决策且不生成manifest。任一文件需要追问时，整批返回 `needs_input`，不生成部分 Excel；任一文件失败、哈希异常或跨文件单号冲突时，整批返回 `blocked`。只有全部`ready`的成功批次才交付合并 Excel、manifest 和不含收件信息的批次报告。批次合并不会改变单文件的来源判断、商品映射或业务规则。
 
 ### 3.10 Agent 内的浏览器执行边界
 

@@ -343,6 +343,118 @@ class TextOrderIntakeTests(unittest.TestCase):
             )
             self.assertIn("不再追加机器人尾缀", plan["message"])
 
+    def test_deferred_text_confirmation_reaches_final_preview_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft(company_id="ndd")
+            payload["confirmation"]["token"] = None
+            payload["orders"][0]["source_channel"] = "NDD文字单"
+            payload["orders"][0]["source_order_no"] = "2104856428830863362"
+            payload["orders"][0]["recipient"]["address"] = (
+                "上海市 上海市 浦东新区 测试路1号"
+            )
+            payload["orders"][0]["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_product_name": "光明 福利套餐四",
+                    "source_spec": "黄糯8根装+白糯8根装",
+                    "quantity": 1,
+                    "unit": "份",
+                }
+            ]
+            _write(path, payload)
+
+            intake = prepare_text_order_draft(
+                path,
+                root / "prepared",
+                company_registry_path=REGISTRY,
+                defer_confirmation=True,
+            )
+            self.assertEqual(intake.status, "ready")
+            self.assertTrue(intake.confirmation_deferred)
+            plan = load_adaptive_plan(intake.outputs[1])
+            self.assertEqual(plan["source_confirmation"]["status"], "pending")
+
+            conversion = convert_order_file(
+                intake.outputs[0],
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "converted",
+                company_hint="ndd",
+                adaptive_plan_path=intake.outputs[1],
+            )
+
+            self.assertEqual(conversion.status, "preview_ready")
+            self.assertIsNone(conversion.upload_manifest)
+            self.assertEqual(
+                {item.code for item in conversion.decisions},
+                {"CONFIRM_TEXT_ORDER_EXTRACTION"},
+            )
+            self.assertTrue(Path(conversion.outputs[0]).name.endswith("待确认预览.xlsx"))
+
+    def test_deferred_text_batches_merge_into_one_preview_without_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            conversion_inputs: list[dict[str, str]] = []
+            for index, order_no in enumerate(
+                ("2104856428830863362", "2104856428830863363"),
+                start=1,
+            ):
+                path = root / f"draft-{index}.json"
+                payload = _draft(company_id="ndd")
+                payload["draft_id"] = f"deferred-ndd-{index}"
+                payload["confirmation"]["token"] = None
+                payload["orders"][0]["source_channel"] = "NDD文字单"
+                payload["orders"][0]["source_order_no"] = order_no
+                payload["orders"][0]["recipient"]["address"] = (
+                    "上海市 上海市 浦东新区 测试路1号"
+                )
+                payload["orders"][0]["items"] = [
+                    {
+                        "source_product_code": "",
+                        "source_product_name": "光明 福利套餐四",
+                        "source_spec": "黄糯8根装+白糯8根装",
+                        "quantity": 1,
+                        "unit": "份",
+                    }
+                ]
+                _write(path, payload)
+                intake = prepare_text_order_draft(
+                    path,
+                    root / f"prepared-{index}",
+                    company_registry_path=REGISTRY,
+                    defer_confirmation=True,
+                )
+                conversion_inputs.extend(intake.conversion_inputs)
+
+            batch = convert_order_batch(
+                [item["source"] for item in conversion_inputs],
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "converted",
+                source_profile_hints={
+                    Path(item["source"]).name: item["rule_source_profile_id"]
+                    for item in conversion_inputs
+                },
+                company_hints={
+                    Path(item["source"]).name: item["company_id"]
+                    for item in conversion_inputs
+                },
+                adaptive_plan_hints={
+                    Path(item["source"]).name: item["adaptive_plan"]
+                    for item in conversion_inputs
+                },
+                batch_name="待确认文字订单",
+            )
+
+            self.assertEqual(batch.status, "preview_ready", batch.to_public_dict())
+            self.assertIsNone(batch.upload_manifest)
+            self.assertEqual(len(batch.decisions), 2)
+            self.assertTrue(Path(batch.outputs[0]).name.endswith("待确认预览.xlsx"))
+            self.assertEqual(
+                batch.to_public_dict()["decision_bundle"]["status"],
+                "awaiting_user_confirmation",
+            )
+
     def test_explicit_single_profile_mode_without_company_still_asks_company(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "draft.json"
