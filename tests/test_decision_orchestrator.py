@@ -29,6 +29,7 @@ class DecisionOrchestratorTests(unittest.TestCase):
         )
         self.assertEqual(state.status, "needs_input")
         self.assertFalse(state.may_create_upload_manifest)
+        self.assertEqual(state.decisions, ())
 
     def test_unique_provisional_decision_is_preview_only(self) -> None:
         state = converge_decisions(

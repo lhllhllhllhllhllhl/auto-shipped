@@ -306,6 +306,57 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅本次使用", decision.confirmation_question)
         self.assertIn("以后遇到相同来源时沿用", decision.confirmation_question)
 
+    def test_single_low_confidence_fuzzy_candidate_blocks_instead_of_previewing(
+        self,
+    ) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "J-579",
+                    "和匠日本进口搓澡巾手套去鸡皮去角质搓泥双面两用沐浴花洗澡巾",
+                    "J-579",
+                    "双面两用",
+                    100,
+                    "上海仓",
+                )
+            ],
+            source_policies={
+                "tiantian_warehouse_v2": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="",
+            source_product_name="搓澡巾",
+            source_spec="超硬深蓝色",
+            quantity=1,
+            source_line_no=2,
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "needs_input")
+        self.assertEqual(result.lines, [])
+        self.assertEqual(result.decisions, [])
+        request = next(
+            item
+            for item in result.clarifications
+            if item.code == "CONFIRM_LOW_CONFIDENCE_GUANYI_PRODUCT_CANDIDATE"
+        )
+        self.assertIn("J-579", request.question)
+        self.assertIn("超硬深蓝色", request.question)
+        self.assertIn("仅供查找，未作为默认值", request.question)
+        self.assertIn("关键语义属性", request.reason)
+
     def test_current_batch_mapping_emits_nonblocking_reuse_candidate(self) -> None:
         order = parsed_order()
         catalog = ProductCatalog(
@@ -402,6 +453,14 @@ class GuanyiCustomImportTests(unittest.TestCase):
         decision = result.decisions[0]
         self.assertEqual(decision.future_scope_options, ("source", "global"))
         self.assertIn("以后所有来源沿用", decision.confirmation_question)
+        self.assertEqual(
+            decision.proposed_value["confidence_tier"],
+            "preview_safe",
+        )
+        self.assertEqual(
+            decision.proposed_value["candidate_evidence"][0]["confidence_tier"],
+            "preview_safe",
+        )
 
     def test_white_label_library_adds_one_order_level_system_remark(self) -> None:
         order = parsed_order()
