@@ -13,6 +13,7 @@
     "upload_manifest",
     "clarifications",
     "decision_bundle",
+    "mapping_reuse_bundle",
     "errors"
   ],
   "properties": {
@@ -60,6 +61,7 @@
     "upload_manifest": { "type": ["string", "null"] },
     "clarifications": { "type": "array", "items": { "type": "object" } },
     "decision_bundle": {"$ref": "decision_bundle.schema.json"},
+    "mapping_reuse_bundle": {"$ref": "mapping_reuse_bundle.schema.json"},
     "errors": { "type": "array", "items": { "type": "object" } }
   },
   "additionalProperties": false

@@ -104,6 +104,58 @@ def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _logical_order_source_sha256(materialized: dict[str, Any]) -> str:
+    """Hash normalized order facts, independent of generated XLSX ZIP metadata."""
+
+    orders: list[dict[str, Any]] = []
+    for order in materialized["orders"]:
+        recipient = order["recipient"]
+        orders.append(
+            {
+                "order_no": order["order_no"],
+                "source_order_no": order["source_order_no"],
+                "source_channel": order["source_channel"],
+                "recipient": {
+                    "name": recipient["name"],
+                    "contact": recipient["contact"],
+                    "province": recipient["province"],
+                    "city": recipient["city"],
+                    "district": recipient["district"],
+                    "address": recipient["address"],
+                },
+                "items": [
+                    {
+                        "source_product_code": item["source_product_code"],
+                        "source_product_name": item["source_product_name"],
+                        "source_spec": item["source_spec"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"],
+                    }
+                    for item in order["items"]
+                ],
+                "source_carrier": order["source_carrier"],
+                "source_note": order["source_note"],
+                "ordered_at": order["ordered_at"],
+                "source_extensions": order["source_extensions"],
+            }
+        )
+    payload = {
+        "company_id": materialized["company_id"],
+        "rule_source_profile_id": materialized["rule_source_profile_id"],
+        "orders": orders,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=lambda value: value.isoformat()
+        if hasattr(value, "isoformat")
+        else str(value),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _load_draft(path: str | Path) -> tuple[Path, dict[str, Any]]:
     draft_path = Path(path).expanduser().resolve()
     try:
@@ -1128,6 +1180,7 @@ def _validate_single_text_order_draft(
         "rule_source_profile_id": rule_profile,
         "source": source,
         "order_number_policy": order_number_policy,
+        "masked_preview": masked_preview,
         "orders": materialized_orders,
     }
 
@@ -1352,6 +1405,7 @@ def _prepare_single_text_order_materialized(
 
     structure = inspect_excel_structure(workbook_path)
     sheet_structure = structure["sheets"][0]
+    order_source_sha256 = _logical_order_source_sha256(materialized)
     columns = {
         str(column["header"]): str(column["column"])
         for column in sheet_structure["columns"]
@@ -1400,10 +1454,11 @@ def _prepare_single_text_order_materialized(
     plan = {
         "schema_version": "1.0",
         "plan_type": "adaptive_excel_source",
-        "plan_id": f"text-{hashlib.sha256((structure['source_sha256'] + materialized['draft_id']).encode('utf-8')).hexdigest()[:20]}",
+        "plan_id": f"text-{hashlib.sha256((order_source_sha256 + materialized['draft_id']).encode('utf-8')).hexdigest()[:20]}",
         "status": "confirmed",
         "source_file": workbook_path.name,
         "source_sha256": structure["source_sha256"],
+        "order_source_sha256": order_source_sha256,
         "company_id": materialized["company_id"],
         "rule_source_profile_id": materialized["rule_source_profile_id"],
         "sheet_name": "TextOrders",
@@ -1419,6 +1474,7 @@ def _prepare_single_text_order_materialized(
             "draft_id": materialized["draft_id"],
             "source_sha256": _text(materialized["source"].get("sha256")),
             "order_count": len(materialized["orders"]),
+            "masked_order_preview": materialized.get("masked_preview", []),
         },
     }
     plan_path.write_text(

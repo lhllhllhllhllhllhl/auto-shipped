@@ -25,6 +25,11 @@
     "status": {"enum": ["draft", "confirmed"]},
     "source_file": {"type": "string"},
     "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "order_source_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "可选的稳定订单事实指纹；文字来源重生成同内容XLSX时保持不变，缺省回退source_sha256。"
+    },
     "company_id": {"type": "string", "minLength": 1},
     "rule_source_profile_id": {"type": "string", "minLength": 1},
     "sheet_name": {"type": "string", "minLength": 1},
@@ -92,7 +97,65 @@
         "status": {"enum": ["pending", "confirmed"]},
         "draft_id": {"type": "string", "minLength": 1},
         "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "order_count": {"type": "integer", "minimum": 1}
+        "order_count": {"type": "integer", "minimum": 1},
+        "masked_order_preview": {
+          "type": "array",
+          "description": "只供预览Excel交付后的批次级核对使用，不含完整收件信息。",
+          "items": {
+            "type": "object",
+            "required": [
+              "order_ref", "source_channel", "order_no", "source_order_no",
+              "order_number_plan", "recipient", "items", "source_carrier"
+            ],
+            "properties": {
+              "order_ref": {"type": "string", "minLength": 1},
+              "source_channel": {"type": "string"},
+              "order_no": {"enum": ["present", "missing"]},
+              "source_order_no": {"enum": ["present", "missing"]},
+              "order_number_plan": {
+                "type": "object",
+                "required": ["identity_priority", "selected_source", "message"],
+                "properties": {
+                  "identity_priority": {"type": "string", "minLength": 1},
+                  "selected_source": {
+                    "enum": [
+                      "order_no", "source_order_no",
+                      "registered_generation_rule", "missing"
+                    ]
+                  },
+                  "message": {"type": "string", "minLength": 1}
+                },
+                "additionalProperties": false
+              },
+              "recipient": {
+                "type": "object",
+                "required": ["name", "contact", "address"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "contact": {"type": "string"},
+                  "address": {"type": "string"}
+                },
+                "additionalProperties": false
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["product", "spec", "quantity", "unit"],
+                  "properties": {
+                    "product": {"type": "string"},
+                    "spec": {"type": "string"},
+                    "quantity": {"type": "number", "exclusiveMinimum": 0},
+                    "unit": {"type": "string"}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "source_carrier": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "additionalProperties": false
     }

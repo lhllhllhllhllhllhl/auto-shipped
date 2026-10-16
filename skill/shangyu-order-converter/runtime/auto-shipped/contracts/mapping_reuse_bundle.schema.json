@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/mapping-reuse-bundle-v1.json",
+  "title": "Shangyu Mapping Reuse Follow-up Bundle",
+  "description": "成品交付后列出本批临时商品映射的复用选择；不阻断交付，不构成持久化或上传授权。",
+  "type": "object",
+  "required": ["schema_version", "status", "items", "question", "reply_examples", "safety"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["followup_available", "not_required"]},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "number", "schema_version", "candidate_id", "source_profile_id",
+          "company_id", "identifier_type", "source_value", "source_spec",
+          "source_fingerprint", "product_code", "spec_code", "product_name",
+          "spec_name", "future_scope_options", "reason"
+        ],
+        "properties": {
+          "number": {"type": "integer", "minimum": 1},
+          "schema_version": {"const": "1.0"},
+          "candidate_id": {"type": "string", "pattern": "^M-[0-9a-f]{12}$"},
+          "source_profile_id": {"type": "string", "minLength": 1},
+          "company_id": {"type": "string"},
+          "identifier_type": {"enum": ["product_code", "barcode", "product_name"]},
+          "source_value": {"type": "string"},
+          "source_spec": {"type": "string"},
+          "source_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "product_code": {"type": "string", "minLength": 1},
+          "spec_code": {"type": "string"},
+          "product_name": {"type": "string"},
+          "spec_name": {"type": "string"},
+          "future_scope_options": {
+            "type": "array",
+            "items": {"enum": ["source", "global"]},
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "question": {"type": "string"},
+    "reply_examples": {"type": "array", "items": {"type": "string"}},
+    "safety": {
+      "type": "object",
+      "required": [
+        "non_blocking_after_delivery", "bundle_authorizes_persistence",
+        "bundle_authorizes_upload", "persistence_requires_explicit_future_choice"
+      ],
+      "properties": {
+        "non_blocking_after_delivery": {"const": true},
+        "bundle_authorizes_persistence": {"const": false},
+        "bundle_authorizes_upload": {"const": false},
+        "persistence_requires_explicit_future_choice": {"const": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

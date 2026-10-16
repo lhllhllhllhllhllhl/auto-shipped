@@ -51,6 +51,8 @@ python3 <skill-dir>/scripts/convert_orders.py \
   --output-dir <本次输出目录>
 ```
 
-延后确认生成的自适应计划带`source_confirmation.status=pending`。统一转换入口仍会执行飞书正式商品映射、公司路由、平台规则和物流规则，并只生成`preview_ready`预览，不生成上传 manifest。用户在最终决策中确认文字提取后，把草稿`confirmation.token`设为`CONFIRM_TEXT_ORDER_DRAFT`，不用`--defer-confirmation`重新准备和转换。未知商品或规则继续按同一个决策包集中处理；真正无法形成唯一预览的情况才中途追问。
+延后确认生成的自适应计划带`source_confirmation.status=pending`，并携带只含掩码的`masked_order_preview`。统一转换入口仍会执行飞书正式商品映射、公司路由、平台规则和物流规则，并先生成完整的`preview_ready`预览，不生成上传 manifest。Agent必须先交付该预览Excel，再在同一回复中集中列出脱敏提取核对和唯一商品候选；不要先发收件信息问题，也不要在预览Excel已存在时漏交文件。收件人、电话和地址只做一次批次级脱敏核对：无误时用户回复一次即可，有误时只指出对应订单；不得逐字段或多轮重复确认。普通聊天文字与截图/OCR都适用，因为两者都经过Agent语义提取；已知固定模板Excel不进入本入口。用户在最终决策中确认文字提取后，把草稿`confirmation.token`设为`CONFIRM_TEXT_ORDER_DRAFT`，不用`--defer-confirmation`重新准备和转换。未知商品或规则继续按同一个决策包集中处理；真正无法形成唯一预览的情况才中途追问。
+
+如果用户确认候选正确但没有说明长期复用，先用本批临时映射重跑并交付`ready`成品。此时必须读取结果中的`mapping_reuse_bundle`，在成品之后追加一个非阻断小节，询问哪些继续仅本次、哪些以后沿用；用户不回复就保持仅本次。这个小节不能延迟成品交付，也不构成写飞书或上传管易的授权。文字标准化Excel仍用物理SHA校验计划防篡改，但临时映射绑定计划中的`order_source_sha256`订单事实指纹，因此相同内容重生成Excel时不会反复失效，订单内容改变时会自动失效。
 
 多条文字订单默认合并成一个管易Excel。混合手工订单把`conversion_inputs`中的全部`source`与对应提示一次性交给统一批次入口。若用户同时提供文字单和原始Excel，可先把文字单准备为标准化来源Excel，再与其他来源一起交给统一批次入口。

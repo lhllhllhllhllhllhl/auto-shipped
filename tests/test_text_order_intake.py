@@ -375,6 +375,17 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertTrue(intake.confirmation_deferred)
             plan = load_adaptive_plan(intake.outputs[1])
             self.assertEqual(plan["source_confirmation"]["status"], "pending")
+            masked_orders = plan["source_confirmation"]["masked_order_preview"]
+            self.assertEqual(len(masked_orders), 1)
+            self.assertEqual(
+                masked_orders[0]["recipient"]["name"],
+                payload["orders"][0]["recipient"]["name"][:1] + "**",
+            )
+            self.assertIn("****", masked_orders[0]["recipient"]["contact"])
+            self.assertNotIn(
+                payload["orders"][0]["recipient"]["contact"],
+                json.dumps(masked_orders, ensure_ascii=False),
+            )
 
             conversion = convert_order_file(
                 intake.outputs[0],
@@ -390,6 +401,13 @@ class TextOrderIntakeTests(unittest.TestCase):
                 {item.code for item in conversion.decisions},
                 {"CONFIRM_TEXT_ORDER_EXTRACTION"},
             )
+            extraction = conversion.decisions[0]
+            self.assertEqual(
+                extraction.proposed_value["masked_order_preview"],
+                masked_orders,
+            )
+            self.assertIn("预览Excel已经生成", extraction.reason)
+            self.assertIn("请先查看已交付的预览Excel", extraction.confirmation_question)
             self.assertTrue(Path(conversion.outputs[0]).name.endswith("待确认预览.xlsx"))
 
     def test_deferred_text_batches_merge_into_one_preview_without_manifest(self) -> None:
@@ -545,6 +563,122 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(len(parsed.orders[0].items), 2)
             self.assertEqual([item.unit for item in parsed.orders[0].items], ["根", "袋"])
             self.assertEqual(parsed.orders[0].source_extensions["source_channel"], "天猫")
+            self.assertEqual(
+                parsed.orders[0].source.file_fingerprint,
+                f"sha256:{plan['order_source_sha256']}",
+            )
+
+    def test_text_order_logical_fingerprint_survives_xlsx_regeneration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft()
+            _write(path, payload)
+
+            first = prepare_text_order_draft(
+                path,
+                root / "first",
+                company_registry_path=REGISTRY,
+            )
+            second = prepare_text_order_draft(
+                path,
+                root / "second",
+                company_registry_path=REGISTRY,
+            )
+            first_plan = load_adaptive_plan(first.outputs[1])
+            second_plan = load_adaptive_plan(second.outputs[1])
+
+            self.assertEqual(
+                first_plan["order_source_sha256"],
+                second_plan["order_source_sha256"],
+            )
+
+            payload["orders"][0]["items"][0]["source_product_name"] = "已修正商品甲"
+            _write(path, payload)
+            changed = prepare_text_order_draft(
+                path,
+                root / "changed",
+                company_registry_path=REGISTRY,
+            )
+            changed_plan = load_adaptive_plan(changed.outputs[1])
+            self.assertNotEqual(
+                first_plan["order_source_sha256"],
+                changed_plan["order_source_sha256"],
+            )
+
+    def test_regenerated_text_order_reuses_batch_mapping_and_reports_followup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft(company_id="self_operated")
+            payload["rule_source_profile_id"] = "taojuzi_taobao_text_v1"
+            payload["orders"][0]["source_channel"] = "淘宝"
+            payload["orders"][0]["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_product_name": "本批橘色清洁巾",
+                    "source_spec": "橘色",
+                    "quantity": 1,
+                    "unit": "条",
+                }
+            ]
+            _write(path, payload)
+
+            first = prepare_text_order_draft(
+                path,
+                root / "first",
+                company_registry_path=REGISTRY,
+            )
+            first_plan = load_adaptive_plan(first.outputs[1])
+            fingerprint = f"sha256:{first_plan['order_source_sha256']}"
+            overlay = root / "batch-overlay.json"
+            overlay.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "2.0",
+                        "mappings": [
+                            {
+                                "source_profile_id": "taojuzi_taobao_text_v1",
+                                "identifier_type": "product_name",
+                                "source_value": "本批橘色清洁巾",
+                                "source_spec": "橘色",
+                                "product_code": "KKAW0009",
+                                "spec_code": "4548404200009",
+                                "confirmed": True,
+                                "reuse_scope": "current_batch",
+                                "mapping_authority": "user_batch_confirmation",
+                                "source_fingerprint": fingerprint,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            regenerated = prepare_text_order_draft(
+                path,
+                root / "regenerated",
+                company_registry_path=REGISTRY,
+            )
+            conversion = convert_order_file(
+                regenerated.outputs[0],
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "converted",
+                company_hint="self_operated",
+                adaptive_plan_path=regenerated.outputs[1],
+                mapping_overlay_paths=(overlay,),
+            )
+
+            self.assertEqual(conversion.status, "ready", conversion.to_public_dict())
+            bundle = conversion.to_public_dict()["mapping_reuse_bundle"]
+            self.assertEqual(bundle["status"], "followup_available")
+            self.assertEqual(len(bundle["items"]), 1)
+            self.assertEqual(bundle["items"][0]["product_code"], "KKAW0009")
+            self.assertEqual(
+                bundle["items"][0]["future_scope_options"],
+                ("source", "global"),
+            )
 
     def test_confirmed_date_sequence_supplies_missing_source_number(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -794,6 +794,8 @@ class ProductCatalogTests(unittest.TestCase):
 
         self.assertEqual(current.status, "confirmed")
         self.assertEqual(current.product.spec_code, "S1")
+        self.assertEqual(current.mapping_authority, "user_batch_confirmation")
+        self.assertEqual(current.reuse_scope, "current_batch")
         self.assertEqual(another.status, "unconfirmed")
         self.assertEqual(
             another.match_method,

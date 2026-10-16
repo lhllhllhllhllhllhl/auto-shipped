@@ -24,7 +24,10 @@ from auto_shipped.domain import (
     ClarificationRequest,
     DecisionBundle,
     DecisionItem,
+    MappingReuseBundle,
+    MappingReuseCandidate,
     deduplicate_clarifications,
+    deduplicate_mapping_reuse_candidates,
 )
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
@@ -83,6 +86,7 @@ class ConversionResult:
     upload_manifest: str | None = None
     clarifications: list[ClarificationRequest] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
+    mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -97,6 +101,11 @@ class ConversionResult:
             "upload_manifest": self.upload_manifest,
             "clarifications": [item.to_dict() for item in self.clarifications],
             "decision_bundle": DecisionBundle(self.decisions).to_dict(),
+            "mapping_reuse_bundle": MappingReuseBundle(
+                deduplicate_mapping_reuse_candidates(self.mapping_reuse_candidates)
+                if self.status == "ready"
+                else []
+            ).to_dict(),
             "errors": self.errors,
         }
 
@@ -808,11 +817,18 @@ def convert_order_file(
                     "order_count": source_confirmation.get("order_count"),
                     "company_id": company.company_id,
                     "source_profile_id": detection.source_profile_id,
+                    "masked_order_preview": source_confirmation.get(
+                        "masked_order_preview", []
+                    ),
                 },
-                reason="文字或截图中的订单字段由Agent提取，尚未经过用户最终核对。",
+                reason=(
+                    "预览Excel已经生成；文字或截图中的收件字段由Agent提取，"
+                    "需要在文件交付后做一次批次级脱敏核对。"
+                ),
                 confirmation_question=(
-                    "系统已按脱敏摘要中的订单、渠道、商品、数量、收件信息和单号规则"
-                    "生成预览。请确认本批提取结果是否正确；该项只确认本批，不写入正式映射。"
+                    "请先查看已交付的预览Excel，再按脱敏摘要一次核对本批收件人、"
+                    "电话和地址。无误时回复“本批收件信息无误”即可；有误时只需指出"
+                    "对应订单。该项只确认本批，不写入正式映射。"
                 ),
                 persistence_options=("current_batch",),
                 next_action="confirm_text_draft_then_rerun_conversion",
@@ -892,6 +908,7 @@ def convert_order_file(
             outputs=[str(rendered)],
             upload_manifest=None,
             decisions=built.decisions,
+            mapping_reuse_candidates=built.mapping_reuse_candidates,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
         report_path.write_text(
@@ -912,6 +929,7 @@ def convert_order_file(
         output_row_count=len(built.lines),
         outputs=[str(rendered)],
         upload_manifest=str(manifest_path),
+        mapping_reuse_candidates=built.mapping_reuse_candidates,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"
     report_path.write_text(
