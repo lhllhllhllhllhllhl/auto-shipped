@@ -13,6 +13,176 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductCatalogTests(unittest.TestCase):
+    def test_global_exact_name_alias_is_reused_across_sources(self) -> None:
+        product = ProductRecord(
+            product_code="KKAW0030",
+            product_name="标准名称",
+            spec_code="4548404200030",
+            spec_name="蓝色硬款",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        catalog = ProductCatalog(
+            [product],
+            [
+                {
+                    "company_id": "*",
+                    "source_profile_id": "*",
+                    "identifier_type": "product_name",
+                    "source_value": "蓝色搓澡巾",
+                    "source_spec": "硬款",
+                    "product_code": "KKAW0030",
+                    "spec_code": "4548404200030",
+                    "mapping_authority": "feishu_official",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                }
+            ],
+            {"kqyd": {"source_identifier_type": "product_name"}},
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="kqyd",
+            source_product_name="蓝色搓澡巾",
+            source_spec="硬款",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.product, product)
+
+    def test_source_specific_alias_overrides_global_alias(self) -> None:
+        global_product = ProductRecord(
+            product_code="GLOBAL",
+            product_name="全局商品",
+            spec_code="G1",
+            spec_name="蓝色",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        source_product = ProductRecord(
+            product_code="SOURCE",
+            product_name="来源例外商品",
+            spec_code="S1",
+            spec_name="蓝色",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        common = {
+            "identifier_type": "product_name",
+            "source_value": "来源别名",
+            "source_spec": "蓝色",
+            "mapping_authority": "feishu_official",
+            "reuse_scope": "future",
+            "confirmed": True,
+        }
+        catalog = ProductCatalog(
+            [global_product, source_product],
+            [
+                {
+                    **common,
+                    "company_id": "*",
+                    "source_profile_id": "*",
+                    "product_code": "GLOBAL",
+                    "spec_code": "G1",
+                },
+                {
+                    **common,
+                    "company_id": "company-a",
+                    "source_profile_id": "profile-a",
+                    "product_code": "SOURCE",
+                    "spec_code": "S1",
+                },
+            ],
+            {"profile-a": {"source_identifier_type": "product_name"}},
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="profile-a",
+            source_product_name="来源别名",
+            source_spec="蓝色",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.product, source_product)
+
+    def test_cross_source_exact_alias_is_candidate_until_promoted(self) -> None:
+        product = ProductRecord(
+            product_code="KKAW0030",
+            product_name="标准名称",
+            spec_code="4548404200030",
+            spec_name="蓝色硬款",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        catalog = ProductCatalog(
+            [product],
+            [
+                {
+                    "company_id": "self_operated",
+                    "source_profile_id": "taobao",
+                    "identifier_type": "product_name",
+                    "source_value": "蓝色搓澡巾",
+                    "source_spec": "硬款",
+                    "product_code": "KKAW0030",
+                    "spec_code": "4548404200030",
+                    "mapping_authority": "feishu_official",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                }
+            ],
+            {"kqyd": {"source_identifier_type": "product_name"}},
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="kqyd",
+            source_product_name="蓝色搓澡巾",
+            source_spec="硬款",
+        )
+
+        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.match_method, "cross_source_exact_alias_candidate")
+        self.assertEqual(result.product, product)
+
+    def test_cross_source_exact_alias_accepts_only_exact_split_or_joined_phrase(self) -> None:
+        product = ProductRecord(
+            product_code="KKAW0030",
+            product_name="标准名称",
+            spec_code="4548404200030",
+            spec_name="蓝色硬款",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        catalog = ProductCatalog(
+            [product],
+            [
+                {
+                    "company_id": "self_operated",
+                    "source_profile_id": "taobao",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "蓝色硬款",
+                    "product_code": "KKAW0030",
+                    "spec_code": "4548404200030",
+                    "mapping_authority": "feishu_official",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                }
+            ],
+            {"kqyd": {"source_identifier_type": "product_name"}},
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="kqyd",
+            source_product_name="蓝色硬款搓澡巾",
+            source_spec="",
+        )
+
+        self.assertEqual(result.match_method, "cross_source_exact_alias_candidate")
+        self.assertEqual(result.product, product)
     def test_preferred_catalog_overrides_and_enriches_guanyi_pair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

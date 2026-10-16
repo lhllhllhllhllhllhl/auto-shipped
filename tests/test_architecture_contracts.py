@@ -145,6 +145,22 @@ class ArchitectureContractTests(unittest.TestCase):
             ]["items"]["enum"]
         )
         self.assertEqual(set(options), {"current_batch", "future"})
+        future_scopes = schema["properties"]["items"]["items"]["properties"][
+            "future_scope_options"
+        ]["items"]["enum"]
+        self.assertEqual(set(future_scopes), {"source", "global"})
+
+    def test_product_decision_contract_keeps_target_hint_separate_from_source(self):
+        schema = load_json("contracts/product_mapping_decision.schema.json")
+        safety = schema["properties"]["safety"]["properties"]
+        self.assertTrue(safety["source_identity_copied_from_decision_bundle"]["const"])
+        self.assertTrue(safety["user_target_hint_never_rewrites_source"]["const"])
+
+    def test_official_mapping_schema_restricts_global_aliases_to_names(self):
+        schema = load_json("contracts/official_product_mapping.schema.json")
+        global_rule = schema["allOf"][0]["then"]["properties"]
+        self.assertEqual(global_rule["source_profile_id"]["const"], "*")
+        self.assertEqual(global_rule["identifier_type"]["const"], "product_name")
 
     def test_batch_conversion_contract_separates_preview_from_upload_ready(self):
         schema = load_json("contracts/batch_conversion_result.schema.json")
@@ -407,6 +423,9 @@ class ArchitectureContractTests(unittest.TestCase):
         proposal_schema = load_json(
             "contracts/pending_product_mapping_proposal.schema.json"
         )
+        official_schema = load_json(
+            "contracts/official_product_mapping.schema.json"
+        )
 
         self.assertEqual(
             config["status"],
@@ -441,6 +460,12 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(config["pending_repository"]["route_sheet_id"], "U8k7Mz")
         self.assertEqual(config["pending_repository"]["template_sheet_id"], "eb2307")
         self.assertEqual(config["provider_priority"][0], "agent_native_feishu")
+        self.assertEqual(
+            config["direct_add_policy"]["global_scope_policy"][
+                "allowed_identifier_types"
+            ],
+            ["product_name"],
+        )
         self.assertTrue(config["identity_policy"]["reject_shared_bot_identity"])
         self.assertTrue(
             config["safety"]["pending_workbook_is_not_a_security_boundary"]
@@ -453,6 +478,7 @@ class ArchitectureContractTests(unittest.TestCase):
             proposal_schema["properties"]["schema_version"]["const"],
             "1.0",
         )
+        self.assertEqual(official_schema["properties"]["target_platform"]["const"], "guanyi")
 
 
 if __name__ == "__main__":

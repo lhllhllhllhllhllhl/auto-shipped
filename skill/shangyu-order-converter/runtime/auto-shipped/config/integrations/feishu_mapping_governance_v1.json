@@ -44,6 +44,19 @@
     "allowed_action": "create_missing_key_only",
     "duplicate_policy": "exact_noop",
     "conflict_policy": "block_and_contact_admin",
+    "mapping_scopes": [
+      "source",
+      "global"
+    ],
+    "global_scope_policy": {
+      "company_id": "*",
+      "source_profile_id": "*",
+      "allowed_identifier_types": [
+        "product_name"
+      ],
+      "exact_alias_only": true,
+      "source_specific_mapping_precedence": true
+    },
     "write_protocol": "fail_closed_two_phase_with_readback",
     "change_log_required": true
   },

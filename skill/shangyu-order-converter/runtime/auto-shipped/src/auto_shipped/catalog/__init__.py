@@ -35,6 +35,7 @@ from .item_expansion_overlays import (
     BatchItemExpansionError,
     save_batch_item_expansion,
 )
+from .target_hints import TargetHintResolution, resolve_target_hint
 
 __all__ = [
     "PERSIST_MAPPING_CONFIRMATION",
@@ -62,4 +63,6 @@ __all__ = [
     "CURRENT_BATCH_ITEM_EXPANSION_CONFIRMATION",
     "BatchItemExpansionError",
     "save_batch_item_expansion",
+    "TargetHintResolution",
+    "resolve_target_hint",
 ]

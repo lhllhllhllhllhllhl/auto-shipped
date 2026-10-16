@@ -171,6 +171,8 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 
 该模块只收敛决策，不改变公司、商品、店铺和物流规则的权威来源。合同位于`contracts/decision_bundle.schema.json`。
 
+用户否决商品候选并提供新代码、条码、名称或规格时，不允许Agent回写来源订单字段。`product_mapping_decision`模块把用户回答绑定到原`decision_id`，从原决策包复制并哈希来源身份，再把用户原话交给目标线索解析器。解析器先查规格代码、商品代码、条码、商品名和规格名；精确结果不唯一时追问，相似结果只能继续作为候选。合同位于`contracts/product_mapping_decision.schema.json`。
+
 ### 3.4 路由解析
 
 输入：`source_profile_id + order_type`。

@@ -99,6 +99,7 @@ class ProductCatalog:
         self._by_product_code: dict[str, list[ProductRecord]] = {}
         self._by_spec_code: dict[str, list[ProductRecord]] = {}
         self._by_product_name: dict[str, list[ProductRecord]] = {}
+        self._by_spec_name: dict[str, list[ProductRecord]] = {}
         for record in records:
             if record.product_code:
                 self._by_product_code.setdefault(record.product_code, []).append(record)
@@ -107,6 +108,9 @@ class ProductCatalog:
             normalized_name = normalize_product_text(record.product_name)
             if normalized_name:
                 self._by_product_name.setdefault(normalized_name, []).append(record)
+            normalized_spec_name = normalize_product_text(record.spec_name)
+            if normalized_spec_name:
+                self._by_spec_name.setdefault(normalized_spec_name, []).append(record)
 
         self._records_by_priority = [
             tuple(
@@ -381,6 +385,90 @@ class ProductCatalog:
             if mappings:
                 return mappings
         return []
+
+    def _cross_source_exact_alias_resolution(
+        self,
+        *,
+        source_profile_id: str,
+        source_product_name: Any,
+        source_spec: Any = "",
+    ) -> ProductResolution | None:
+        """Return a read-only candidate learned from another source's exact alias.
+
+        Source-scoped mappings remain authoritative only for their own source.
+        An identical normalized product-name/spec pair from another source may
+        suggest a target, but cannot become confirmed until the user promotes
+        it to a global alias or confirms it for the current batch/source.
+        """
+
+        normalized_name = normalize_product_text(source_product_name)
+        normalized_spec = normalize_product_text(source_spec)
+        if not normalized_name:
+            return None
+        current_forms = (
+            {normalized_name + normalized_spec, normalized_spec + normalized_name}
+            if normalized_spec
+            else {normalized_name}
+        )
+        current_profile = clean_identifier(source_profile_id)
+        targets: dict[tuple[str, str], ProductRecord] = {}
+        for mapping in self.mapping_records:
+            if clean_identifier(mapping.get("identifier_type")) != "product_name":
+                continue
+            mapping_profile = clean_identifier(
+                mapping.get("source_profile_id")
+                or mapping.get("source_profile")
+                or "*"
+            )
+            if mapping_profile in {current_profile, "*"}:
+                continue
+            if clean_identifier(mapping.get("mapping_authority")) != "feishu_official":
+                continue
+            if clean_identifier(mapping.get("reuse_scope")) != "future":
+                continue
+            mapping_name = self._normalize_source_value(
+                "product_name", mapping.get("source_value")
+            )
+            mapping_spec = normalize_product_text(mapping.get("source_spec"))
+            mapping_forms = (
+                {mapping_name + mapping_spec, mapping_spec + mapping_name}
+                if mapping_spec
+                else {mapping_name}
+            )
+            if not current_forms.intersection(mapping_forms):
+                continue
+            target = self.resolve_unique_target(
+                mapping.get("product_code"), mapping.get("spec_code")
+            )
+            if target is not None:
+                targets[(target.product_code, target.spec_code)] = target
+        if len(targets) == 1:
+            product = next(iter(targets.values()))
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=clean_identifier(source_product_name),
+                product=product,
+                confirmed=False,
+                reason=(
+                    "其他来源的飞书正式映射中存在完全相同的商品名称和规格；"
+                    "本次仅作为跨来源候选，需确认仅本次、当前来源或所有来源沿用"
+                ),
+                match_method="cross_source_exact_alias_candidate",
+                identifier_type="product_name",
+                candidates=(product,),
+            )
+        if targets:
+            return ProductResolution(
+                status="ambiguous",
+                external_sku=clean_identifier(source_product_name),
+                product=None,
+                confirmed=False,
+                reason="其他来源的同名正式别名指向多个管易商品，必须由用户选择",
+                match_method="cross_source_exact_alias_candidates",
+                identifier_type="product_name",
+                candidates=tuple(targets.values()),
+            )
+        return None
 
     def resolve_official_mapping_target(
         self,
@@ -1118,6 +1206,14 @@ class ProductCatalog:
                     source_fingerprint,
                     source_profile_id,
                 )
+
+            cross_source_alias = self._cross_source_exact_alias_resolution(
+                source_profile_id=source_profile_id,
+                source_product_name=name,
+                source_spec=source_spec,
+            )
+            if cross_source_alias is not None:
+                return cross_source_alias
 
             if not normalize_product_text(source_spec):
                 composite_mappings = self._composite_name_mapping_candidates(

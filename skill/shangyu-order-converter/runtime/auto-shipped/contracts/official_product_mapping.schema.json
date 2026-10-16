@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/official-product-mapping-v1.json",
+  "title": "Shangyu Official Product Mapping",
+  "description": "飞书正式映射表单行合同。company_id与source_profile_id同时为*时表示全局商品名称别名。",
+  "type": "object",
+  "required": [
+    "mapping_id", "mapping_key", "company_id", "source_profile_id",
+    "identifier_type", "source_value", "source_spec", "target_platform",
+    "product_code", "spec_code", "status", "mapping_version",
+    "confirmed_by", "confirmed_at", "evidence"
+  ],
+  "properties": {
+    "mapping_id": {"type": "string", "minLength": 1},
+    "mapping_key": {"type": "string", "pattern": "^mapping-[0-9a-f]{24}$"},
+    "company_id": {"type": "string", "minLength": 1},
+    "source_profile_id": {"type": "string", "minLength": 1},
+    "identifier_type": {"enum": ["product_code", "barcode", "product_name"]},
+    "source_value": {"type": "string"},
+    "source_spec": {"type": "string"},
+    "target_platform": {"const": "guanyi"},
+    "product_code": {"type": "string", "minLength": 1},
+    "spec_code": {"type": "string"},
+    "status": {"enum": ["active", "inactive"]},
+    "mapping_version": {"type": "string", "minLength": 1},
+    "confirmed_by": {"type": "string"},
+    "confirmed_at": {"type": "string"},
+    "evidence": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"company_id": {"const": "*"}}, "required": ["company_id"]},
+      "then": {
+        "properties": {
+          "source_profile_id": {"const": "*"},
+          "identifier_type": {"const": "product_name"},
+          "source_value": {"type": "string", "minLength": 1}
+        }
+      },
+      "else": {
+        "not": {"properties": {"source_profile_id": {"const": "*"}}, "required": ["source_profile_id"]}
+      }
+    }
+  ],
+  "additionalProperties": false
+}

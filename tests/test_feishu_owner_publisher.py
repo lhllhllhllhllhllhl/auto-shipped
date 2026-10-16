@@ -231,6 +231,57 @@ def official_for(item: PendingMappingProposal, product_code: str, spec_code: str
 
 
 class FeishuOwnerPublisherTests(unittest.TestCase):
+    def test_direct_add_global_name_alias_uses_wildcard_scope(self) -> None:
+        gateway = FakePublisherGateway()
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_name",
+            source_value="全局商品别名",
+            source_spec="蓝色",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认所有来源以后沿用",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+            mapping_scope="global",
+        )
+
+        self.assertEqual(result.status, "created")
+        self.assertEqual(gateway.official[0]["company_id"], "*")
+        self.assertEqual(gateway.official[0]["source_profile_id"], "*")
+
+    def test_direct_add_global_code_is_rejected(self) -> None:
+        gateway = FakePublisherGateway()
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_code",
+            source_value="SRC-1",
+            source_spec="",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+            mapping_scope="global",
+        )
+
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(result.code, "DIRECT_MAPPING_SCOPE_INVALID")
+
     def test_direct_item_expansion_is_create_only_versioned_and_logged(self) -> None:
         gateway = FakePublisherGateway()
         gateway.identity = FeishuIdentity("ou-employee", display_name="员工")

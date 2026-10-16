@@ -28,6 +28,7 @@ class DecisionItem:
         "current_batch",
         "future",
     )
+    future_scope_options: tuple[str, ...] = ()
     next_action: str | None = None
     decision_id: str = ""
     schema_version: str = "1.0"
