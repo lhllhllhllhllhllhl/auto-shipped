@@ -55,6 +55,61 @@ export function isAuthenticatedAppUrl(url) {
 }
 
 
+export async function hasAuthenticatedAppEvidence(page) {
+  const frames = typeof page.frames === "function" ? page.frames() : [page];
+  for (const frame of frames) {
+    const text = await frame
+      .locator("body")
+      .innerText()
+      .catch(() => "");
+    if (
+      text.includes("菜单") &&
+      ["首页", "我的工单", "售后服务"].some((marker) => text.includes(marker))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+export async function confirmStableAuthenticatedPage(page, stabilityMs = 5_000) {
+  if (!isAuthenticatedAppUrl(page.url())) return false;
+
+  const evidenceDeadline = Date.now() + 10_000;
+  while (Date.now() < evidenceDeadline) {
+    if (!isAuthenticatedAppUrl(page.url())) return false;
+    if (await hasAuthenticatedAppEvidence(page)) break;
+    await page.waitForTimeout(250);
+  }
+  if (!(await hasAuthenticatedAppEvidence(page))) return false;
+
+  await page
+    .waitForURL(
+      (url) => !isAuthenticatedAppUrl(String(url)),
+      { timeout: stabilityMs },
+    )
+    .catch(() => null);
+  return isAuthenticatedAppUrl(page.url());
+}
+
+
+export async function retainSingleStartupPage(context) {
+  const existingPages = context.pages();
+  const page =
+    existingPages.find((candidate) => isAuthenticatedAppUrl(candidate.url())) ||
+    existingPages.find((candidate) => isLoginUrl(candidate.url())) ||
+    existingPages[0] ||
+    (await context.newPage());
+
+  for (const candidate of existingPages) {
+    if (candidate === page) continue;
+    await candidate.close({ runBeforeUnload: false }).catch(() => null);
+  }
+  return page;
+}
+
+
 export async function launchSession() {
   await fs.access(CHROME_EXECUTABLE);
   await fs.mkdir(PROFILE_DIR, { recursive: true, mode: 0o700 });
@@ -69,7 +124,6 @@ export async function launchSession() {
     args: [
       "--no-first-run",
       "--no-default-browser-check",
-      "--restore-last-session",
       `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
       "--window-position=0,0",
     ],
@@ -77,8 +131,7 @@ export async function launchSession() {
   context.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
   context.setDefaultNavigationTimeout(30_000);
 
-  const existingPages = context.pages();
-  const page = existingPages[0] || (await context.newPage());
+  const page = await retainSingleStartupPage(context);
   for (const candidate of context.pages()) {
     registerPageGeometry(context, candidate);
   }
@@ -106,6 +159,9 @@ export async function openApp(page) {
       "管易安全防火墙阻断了当前网络出口；请让 guanyierp.com 走直连后重试。",
       { url: page.url() },
     );
+  }
+  if (isAuthenticatedAppUrl(page.url())) {
+    await confirmStableAuthenticatedPage(page);
   }
   if (!isLoginUrl(page.url())) {
     await page.waitForFunction(
@@ -267,7 +323,10 @@ export async function waitForAuthenticatedPage(
   let verificationReported = false;
   while (Date.now() < deadline) {
     for (const candidate of context.pages()) {
-      if (isAuthenticatedAppUrl(candidate.url())) {
+      if (
+        isAuthenticatedAppUrl(candidate.url()) &&
+        (await confirmStableAuthenticatedPage(candidate))
+      ) {
         await candidate.bringToFront();
         await candidate.waitForLoadState("domcontentloaded").catch(() => null);
         return candidate;
@@ -281,7 +340,10 @@ export async function waitForAuthenticatedPage(
         await onVerificationRequired?.(candidate);
       }
     }
-    if (isAuthenticatedAppUrl(page.url())) {
+    if (
+      isAuthenticatedAppUrl(page.url()) &&
+      (await confirmStableAuthenticatedPage(page))
+    ) {
       return page;
     }
     await page.waitForTimeout(250);

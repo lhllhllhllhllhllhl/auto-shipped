@@ -6,7 +6,10 @@ import { createInterface } from "node:readline/promises";
 
 import { KEYCHAIN_SERVICE } from "./config.mjs";
 import {
+  currentMacCredentialAccount,
   credentialProviderName,
+  deleteMacCredentialAccount,
+  replacedMacCredentialAccount,
   storedCredentialStatus,
 } from "./credentials.mjs";
 
@@ -46,6 +49,7 @@ async function setCredential() {
     return 2;
   }
 
+  const previousAccount = await currentMacCredentialAccount().catch(() => null);
   process.stdout.write("接下来由 macOS 钥匙串安全提示输入密码；输入内容不会显示。\n");
   const child = spawn(
     "security",
@@ -64,6 +68,18 @@ async function setCredential() {
   if (exitCode !== 0) {
     printJson({ status: "failed", code: "KEYCHAIN_WRITE_FAILED" });
     return 1;
+  }
+  const replaced = replacedMacCredentialAccount(previousAccount, username);
+  if (replaced) {
+    try {
+      await deleteMacCredentialAccount(replaced);
+    } catch {
+      printJson({
+        status: "failed",
+        code: "KEYCHAIN_REPLACED_ACCOUNT_CLEANUP_FAILED",
+      });
+      return 1;
+    }
   }
   printJson({ status: "configured", provider, service: KEYCHAIN_SERVICE });
   return 0;

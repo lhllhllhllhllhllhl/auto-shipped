@@ -37,6 +37,7 @@ COMMANDS = {
     "inspect-file-selection": "inspect-file-selection",
     "select-import-file": "select-import-file",
     "submit-import": "submit-import",
+    "execute-import": "execute-import",
     "reconcile-operation": "reconcile-operation",
     "resolve-no-task": "resolve-no-task",
     "verify-manifest": "verify-manifest",
@@ -71,7 +72,7 @@ def main() -> int:
             "管易浏览器依赖尚未安装，请先运行 bootstrap_runtime.py。",
         )
 
-    if args.command == "submit-import":
+    if args.command in {"submit-import", "execute-import"}:
         audit = subprocess.run(
             [
                 sys.executable,
@@ -94,7 +95,7 @@ def main() -> int:
             )
 
     environment = os.environ.copy()
-    if args.command == "submit-import":
+    if args.command in {"submit-import", "execute-import"}:
         environment["GUANYI_UPLOAD_RULES_READY"] = "1"
     environment.setdefault(
         "GUANYI_RUNTIME_ROOT",
