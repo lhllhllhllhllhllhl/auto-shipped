@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from copy import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -13,8 +13,10 @@ from openpyxl import load_workbook
 from auto_shipped.catalog import ProductCatalog, WhiteLabelLibrary
 from auto_shipped.domain import (
     ClarificationRequest,
+    DecisionItem,
     ParsedOrder,
     deduplicate_clarifications,
+    deduplicate_decisions,
     resolve_parsed_source_identity,
 )
 from auto_shipped.platforms.guanyi.order_policies import (
@@ -45,10 +47,13 @@ class GuanyiCustomImportError(ValueError):
 class GuanyiBuildResult:
     lines: list[dict[str, Any]] = field(default_factory=list)
     clarifications: list[ClarificationRequest] = field(default_factory=list)
+    decisions: list[DecisionItem] = field(default_factory=list)
 
     @property
     def status(self) -> str:
-        return "needs_input" if self.clarifications else "ready"
+        if self.clarifications:
+            return "needs_input"
+        return "preview_ready" if self.decisions else "ready"
 
 
 def _rule_value(rules: dict[str, Any], key: str) -> Any:
@@ -574,7 +579,7 @@ def build_custom_import_lines(
                         next_action="record_package_semantics_proposal_if_reusable",
                     )
                 )
-            elif resolution.candidates:
+            elif len(resolution.candidates) > 1:
                 result.clarifications.append(
                     ClarificationRequest(
                         code="CONFIRM_GUANYI_PRODUCT_CANDIDATE",
@@ -591,23 +596,55 @@ def build_custom_import_lines(
                         next_action="use_once_or_submit_mapping_if_reusable",
                     )
                 )
-            elif resolution.status == "unconfirmed" and resolution.product:
-                result.clarifications.append(
-                    ClarificationRequest(
+            elif resolution.status == "unconfirmed" and (
+                resolution.product or len(resolution.candidates) == 1
+            ):
+                proposed_product = resolution.product or resolution.candidates[0]
+                future_allowed = resolution.match_method != "source_mapping_identity_guard"
+                persistence_options = (
+                    ("current_batch", "future")
+                    if future_allowed
+                    else ("current_batch",)
+                )
+                scope_prompt = (
+                    "如果判断正确，请选择仅本次使用，还是以后遇到相同来源时沿用。"
+                    if future_allowed
+                    else "该来源已有正式映射但身份信息不一致，只能先按本批次确认；长期修改请联系管理员。"
+                )
+                result.decisions.append(
+                    DecisionItem(
                         code="CONFIRM_GUANYI_PRODUCT_MAPPING",
-                        scope="batch",
                         source_ref=source_ref,
                         field="商品代码/规格代码",
-                        question=(
-                            f"请确认：来源商品“{source_label}”是否对应管易商品代码"
-                            f"“{resolution.product.product_code}”、规格代码"
-                            f"“{resolution.product.spec_code}”？"
-                            "同时请说明仅本次使用，还是以后都沿用。"
+                        proposed_value={
+                            "source_profile_id": order.source.profile_id,
+                            "company_id": source_company_id,
+                            "source_identifier_type": resolution.identifier_type,
+                            "source_product_code": item.source_product_code,
+                            "source_product_name": item.source_product_name,
+                            "source_spec": item.source_spec,
+                            "source_fingerprint": order.source.file_fingerprint,
+                            "product_code": proposed_product.product_code,
+                            "spec_code": proposed_product.spec_code,
+                            "product_name": proposed_product.product_name,
+                            "spec_name": proposed_product.spec_name,
+                            "match_method": resolution.match_method,
+                        },
+                        confirmation_question=(
+                            f"系统暂按“{source_label}”→管易商品代码"
+                            f"“{proposed_product.product_code}”、规格代码"
+                            f"“{proposed_product.spec_code}”生成预览。{scope_prompt}"
                         ),
                         reason=resolution.reason or "当前商品映射被标记为待确认。",
-                        answer_type="confirmation",
+                        persistence_options=persistence_options,
                         next_action="use_once_or_submit_mapping_if_reusable",
                     )
+                )
+                resolution = replace(
+                    resolution,
+                    status="confirmed",
+                    product=proposed_product,
+                    confirmed=False,
                 )
             elif resolution.status != "confirmed":
                 result.clarifications.append(
@@ -625,7 +662,7 @@ def build_custom_import_lines(
                         next_action="use_once_or_submit_mapping_if_reusable",
                     )
                 )
-            elif resolution.product:
+            if resolution.product and resolution.status == "confirmed":
                 forbidden_reason = catalog.shipping_forbidden_reason(resolution.product)
                 if forbidden_reason:
                     result.clarifications.append(
@@ -684,6 +721,7 @@ def build_custom_import_lines(
         resolved_lines_by_order[id(order)] = order_lines
 
     result.clarifications = deduplicate_clarifications(result.clarifications)
+    result.decisions = deduplicate_decisions(result.decisions)
     if result.clarifications:
         return result
 

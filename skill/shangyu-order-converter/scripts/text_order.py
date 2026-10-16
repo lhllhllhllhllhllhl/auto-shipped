@@ -19,10 +19,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     validate = subparsers.add_parser("validate")
     validate.add_argument("--draft", required=True)
+    validate.add_argument("--defer-confirmation", action="store_true")
     validate.add_argument("--project-root")
     prepare = subparsers.add_parser("prepare")
     prepare.add_argument("--draft", required=True)
     prepare.add_argument("--output-dir", required=True)
+    prepare.add_argument("--defer-confirmation", action="store_true")
     prepare.add_argument("--order-number-state-dir")
     prepare.add_argument("--project-root")
     return parser
@@ -66,6 +68,8 @@ def main() -> int:
                     str(Path(args.order_number_state_dir).expanduser().resolve()),
                 ]
             )
+    if args.defer_confirmation:
+        command.append("--defer-confirmation")
     environment = os.environ.copy()
     source_root = str(project_root / "src")
     existing = environment.get("PYTHONPATH")

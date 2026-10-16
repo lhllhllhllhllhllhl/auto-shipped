@@ -224,6 +224,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_text.add_argument("--draft", required=True)
     validate_text.add_argument(
+        "--defer-confirmation",
+        action="store_true",
+        help="不单独阻断草稿核对；把核对并入最终预览决策。",
+    )
+    validate_text.add_argument(
         "--registry",
         default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
     )
@@ -234,6 +239,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_text.add_argument("--draft", required=True)
     prepare_text.add_argument("--output-dir", required=True)
+    prepare_text.add_argument(
+        "--defer-confirmation",
+        action="store_true",
+        help="生成带pending来源确认标记的转换输入，只能用于最终预览。",
+    )
     prepare_text.add_argument(
         "--order-number-state-dir",
         help="可选的平台单号本机占号目录；默认使用Skill跨平台状态目录",
@@ -814,7 +824,7 @@ def run_convert(args: argparse.Namespace) -> int:
         official_mapping_error=official_mapping_error,
     )
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
-    if result.status == "ready":
+    if result.status in {"ready", "preview_ready"}:
         return 0
     if result.status == "needs_input":
         return 2
@@ -885,7 +895,7 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         official_mapping_error=official_mapping_error,
     )
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
-    if result.status == "ready":
+    if result.status in {"ready", "preview_ready"}:
         return 0
     if result.status == "needs_input":
         return 2
@@ -952,7 +962,7 @@ def run_validate_text_order_draft(args: argparse.Namespace) -> int:
         result, _ = validate_text_order_draft(
             args.draft,
             company_registry_path=args.registry,
-            require_confirmation=True,
+            require_confirmation=not args.defer_confirmation,
         )
     except (OSError, ValueError, json.JSONDecodeError, TextOrderDraftError) as exc:
         print(
@@ -978,6 +988,7 @@ def run_prepare_text_order_draft(args: argparse.Namespace) -> int:
             args.output_dir,
             company_registry_path=args.registry,
             order_number_state_dir=args.order_number_state_dir,
+            defer_confirmation=args.defer_confirmation,
         )
     except (OSError, ValueError, json.JSONDecodeError, TextOrderDraftError) as exc:
         print(

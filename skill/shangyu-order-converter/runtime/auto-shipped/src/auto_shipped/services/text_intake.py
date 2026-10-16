@@ -79,6 +79,7 @@ class TextOrderIntakeResult:
     order_number_allocations: list[dict[str, Any]] = field(default_factory=list)
     routed_groups: list[dict[str, Any]] = field(default_factory=list)
     conversion_inputs: list[dict[str, str]] = field(default_factory=list)
+    confirmation_deferred: bool = False
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +95,7 @@ class TextOrderIntakeResult:
             "order_number_allocations": self.order_number_allocations,
             "routed_groups": self.routed_groups,
             "conversion_inputs": self.conversion_inputs,
+            "confirmation_deferred": self.confirmation_deferred,
             "privacy": "recipient_fields_masked_raw_text_not_returned",
         }
 
@@ -1236,6 +1238,7 @@ def _prepare_single_text_order_materialized(
     output_dir: str | Path,
     *,
     order_number_state_dir: str | Path | None = None,
+    confirmation_deferred: bool = False,
 ) -> TextOrderIntakeResult:
     order_number_policy = materialized.get("order_number_policy") or {}
     if order_number_policy.get("strategy") == "datetime_sequence" and any(
@@ -1411,6 +1414,12 @@ def _prepare_single_text_order_materialized(
         "batch_defaults": {},
         "order_number": {"strategy": "source_column"},
         "unresolved_fields": [],
+        "source_confirmation": {
+            "status": "pending" if confirmation_deferred else "confirmed",
+            "draft_id": materialized["draft_id"],
+            "source_sha256": _text(materialized["source"].get("sha256")),
+            "order_count": len(materialized["orders"]),
+        },
     }
     plan_path.write_text(
         json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
@@ -1432,6 +1441,7 @@ def _prepare_single_text_order_materialized(
             "order_count": len(materialized["orders"]),
         }
     ]
+    result.confirmation_deferred = confirmation_deferred
     return result
 
 
@@ -1441,11 +1451,12 @@ def prepare_text_order_draft(
     *,
     company_registry_path: str | Path,
     order_number_state_dir: str | Path | None = None,
+    defer_confirmation: bool = False,
 ) -> TextOrderIntakeResult:
     result, materialized = validate_text_order_draft(
         draft_path,
         company_registry_path=company_registry_path,
-        require_confirmation=True,
+        require_confirmation=not defer_confirmation,
     )
     if materialized is None:
         return result
@@ -1455,6 +1466,7 @@ def prepare_text_order_draft(
             materialized,
             output_dir,
             order_number_state_dir=order_number_state_dir,
+            confirmation_deferred=defer_confirmation,
         )
         if prepared.order_number_allocation is not None:
             prepared.order_number_allocations = [prepared.order_number_allocation]
@@ -1477,6 +1489,7 @@ def prepare_text_order_draft(
             group,
             output_dir,
             order_number_state_dir=order_number_state_dir,
+            confirmation_deferred=defer_confirmation,
         )
         aggregate_outputs.extend(prepared.outputs)
         aggregate_inputs.extend(prepared.conversion_inputs)
@@ -1491,4 +1504,5 @@ def prepare_text_order_draft(
     result.order_number_allocation = (
         aggregate_allocations[0] if len(aggregate_allocations) == 1 else None
     )
+    result.confirmation_deferred = defer_confirmation
     return result

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/decision-bundle-v1.json",
+  "title": "Shangyu Deferred Decision Bundle",
+  "description": "预览文件生成后集中交给用户确认的非阻断决策；不构成上传或持久化授权。",
+  "type": "object",
+  "required": ["schema_version", "status", "items", "reply_examples", "safety"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["awaiting_user_confirmation", "not_required"]},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "number", "schema_version", "decision_id", "code", "source_ref",
+          "field", "proposed_value", "reason", "confirmation_question",
+          "persistence_options"
+        ],
+        "properties": {
+          "number": {"type": "integer", "minimum": 1},
+          "schema_version": {"const": "1.0"},
+          "decision_id": {"type": "string", "pattern": "^D-[0-9a-f]{12}$"},
+          "code": {"type": "string", "minLength": 1},
+          "source_ref": {"type": "string", "minLength": 1},
+          "field": {"type": "string", "minLength": 1},
+          "proposed_value": {"type": "object"},
+          "reason": {"type": "string", "minLength": 1},
+          "confirmation_question": {"type": "string", "minLength": 1},
+          "persistence_options": {
+            "type": "array",
+            "items": {"enum": ["current_batch", "future"]},
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "next_action": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "reply_examples": {"type": "array", "items": {"type": "string"}},
+    "safety": {
+      "type": "object",
+      "required": [
+        "preview_only", "decision_bundle_authorizes_upload",
+        "persistence_requires_explicit_future_choice"
+      ],
+      "properties": {
+        "preview_only": {"type": "boolean"},
+        "decision_bundle_authorizes_upload": {"const": false},
+        "persistence_requires_explicit_future_choice": {"const": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

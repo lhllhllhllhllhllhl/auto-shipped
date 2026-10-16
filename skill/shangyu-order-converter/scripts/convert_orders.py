@@ -401,7 +401,11 @@ def main() -> int:
             }
         separate_results.append(payload)
 
-    if all(code == 0 for code in exit_codes):
+    result_statuses = {str(item.get("status") or "failed") for item in separate_results}
+    if all(code == 0 for code in exit_codes) and "preview_ready" in result_statuses:
+        status = "preview_ready"
+        exit_code = 0
+    elif all(code == 0 for code in exit_codes):
         status = "ready"
         exit_code = 0
     elif all(code in {0, 2} for code in exit_codes):

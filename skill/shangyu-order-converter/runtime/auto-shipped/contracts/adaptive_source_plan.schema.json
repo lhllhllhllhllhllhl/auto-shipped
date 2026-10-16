@@ -83,6 +83,18 @@
       "type": "array",
       "items": {"type": "string"},
       "uniqueItems": true
+    },
+    "source_confirmation": {
+      "type": "object",
+      "description": "文字或截图来源的最终核对状态；pending只允许生成不可上传的预览。",
+      "required": ["status", "draft_id", "source_sha256", "order_count"],
+      "properties": {
+        "status": {"enum": ["pending", "confirmed"]},
+        "draft_id": {"type": "string", "minLength": 1},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "order_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

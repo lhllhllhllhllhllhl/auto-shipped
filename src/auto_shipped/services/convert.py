@@ -20,7 +20,12 @@ from auto_shipped.companies import (
     validate_company_workflow,
 )
 from auto_shipped.detection import DetectionResult, detect_source, load_source_profiles
-from auto_shipped.domain import ClarificationRequest, deduplicate_clarifications
+from auto_shipped.domain import (
+    ClarificationRequest,
+    DecisionBundle,
+    DecisionItem,
+    deduplicate_clarifications,
+)
 from auto_shipped.platforms.guanyi import (
     GuanyiCustomImportError,
     GuanyiPolicyModuleError,
@@ -43,6 +48,7 @@ from auto_shipped.services.adaptive import (
     propose_adaptive_excel_plan,
     write_adaptive_plan,
 )
+from auto_shipped.services.decision_orchestrator import converge_decisions
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -76,6 +82,7 @@ class ConversionResult:
     outputs: list[str] = field(default_factory=list)
     upload_manifest: str | None = None
     clarifications: list[ClarificationRequest] = field(default_factory=list)
+    decisions: list[DecisionItem] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -89,6 +96,7 @@ class ConversionResult:
             "outputs": self.outputs,
             "upload_manifest": self.upload_manifest,
             "clarifications": [item.to_dict() for item in self.clarifications],
+            "decision_bundle": DecisionBundle(self.decisions).to_dict(),
             "errors": self.errors,
         }
 
@@ -780,6 +788,36 @@ def convert_order_file(
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )
+    source_confirmation = (
+        adaptive_plan.get("source_confirmation")
+        if isinstance(adaptive_plan, dict)
+        else None
+    )
+    if (
+        isinstance(source_confirmation, dict)
+        and source_confirmation.get("status") == "pending"
+    ):
+        built.decisions.append(
+            DecisionItem(
+                code="CONFIRM_TEXT_ORDER_EXTRACTION",
+                source_ref=f"文字订单草稿:{source_confirmation.get('draft_id')}",
+                field="文字/截图提取结果",
+                proposed_value={
+                    "draft_id": source_confirmation.get("draft_id"),
+                    "source_sha256": source_confirmation.get("source_sha256"),
+                    "order_count": source_confirmation.get("order_count"),
+                    "company_id": company.company_id,
+                    "source_profile_id": detection.source_profile_id,
+                },
+                reason="文字或截图中的订单字段由Agent提取，尚未经过用户最终核对。",
+                confirmation_question=(
+                    "系统已按脱敏摘要中的订单、渠道、商品、数量、收件信息和单号规则"
+                    "生成预览。请确认本批提取结果是否正确；该项只确认本批，不写入正式映射。"
+                ),
+                persistence_options=("current_batch",),
+                next_action="confirm_text_draft_then_rerun_conversion",
+            )
+        )
     duplicate_codes = {
         code
         for rule_id in coverage.blocked_rule_ids
@@ -792,19 +830,26 @@ def convert_order_file(
     built.clarifications = deduplicate_clarifications(
         coverage.clarifications + built.clarifications
     )
-    if built.clarifications:
-        built.lines = []
-    if built.clarifications:
+    decision_state = converge_decisions(
+        clarifications=built.clarifications,
+        decisions=built.decisions,
+    )
+    if decision_state.status == "needs_input":
         return _needs_input(
             source_file,
-            built.clarifications,
+            list(decision_state.clarifications),
             detection=detection,
             route=route,
             parsed_order_count=len(parsed.orders),
         )
+    built.decisions = list(decision_state.decisions)
 
     output_root = Path(output_dir)
-    output_name = f"{_safe_stem(source.stem)}_管易自定义订单导入.xlsx"
+    output_name = (
+        f"{_safe_stem(source.stem)}_待确认预览.xlsx"
+        if built.decisions
+        else f"{_safe_stem(source.stem)}_管易自定义订单导入.xlsx"
+    )
     output_path = output_root / output_name
     try:
         rendered = render_custom_import(
@@ -824,9 +869,7 @@ def convert_order_file(
         )
 
     output_root.mkdir(parents=True, exist_ok=True)
-    manifest_path = output_root / f"{_safe_stem(source.stem)}_上传预检.json"
     preflight = preflight_custom_import(rendered, platform_profile)
-    preflight.write_manifest(manifest_path)
     if preflight.status != "ready":
         return ConversionResult(
             status="blocked",
@@ -835,10 +878,31 @@ def convert_order_file(
             route=route,
             parsed_order_count=len(parsed.orders),
             output_row_count=len(built.lines),
-            upload_manifest=str(manifest_path),
             errors=[issue.to_dict() for issue in preflight.issues],
         )
 
+    if built.decisions:
+        result = ConversionResult(
+            status="preview_ready",
+            source_file=source_file,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+            output_row_count=len(built.lines),
+            outputs=[str(rendered)],
+            upload_manifest=None,
+            decisions=built.decisions,
+        )
+        report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
+        report_path.write_text(
+            json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        result.outputs.append(str(report_path))
+        return result
+
+    manifest_path = output_root / f"{_safe_stem(source.stem)}_上传预检.json"
+    preflight.write_manifest(manifest_path)
     result = ConversionResult(
         status="ready",
         source_file=source_file,

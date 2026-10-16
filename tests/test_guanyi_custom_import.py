@@ -272,6 +272,40 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅本次使用", request.question)
         self.assertIn("以后都沿用", request.question)
 
+    def test_unique_unconfirmed_candidate_builds_preview_decision(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "测试商品", "S1", "唯一规格", 100, "上海仓")]
+        )
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="P1",
+            source_product_name="测试商品",
+            source_spec="",
+            quantity=2,
+            source_line_no=2,
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "preview_ready")
+        self.assertEqual(len(result.lines), 1)
+        self.assertEqual(result.lines[0]["商品代码"], "P1")
+        self.assertEqual(result.lines[0]["规格代码"], "S1")
+        self.assertEqual(len(result.decisions), 1)
+        decision = result.decisions[0]
+        self.assertEqual(decision.code, "CONFIRM_GUANYI_PRODUCT_MAPPING")
+        self.assertEqual(
+            decision.persistence_options,
+            ("current_batch", "future"),
+        )
+        self.assertIn("仅本次使用", decision.confirmation_question)
+        self.assertIn("以后遇到相同来源时沿用", decision.confirmation_question)
+
     def test_white_label_library_adds_one_order_level_system_remark(self) -> None:
         order = parsed_order()
         order.source_note = "周末发货"
