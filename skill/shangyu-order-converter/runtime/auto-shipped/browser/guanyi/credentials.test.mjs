@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   credentialProviderFor,
   readExternalCredentials,
+  replacedMacCredentialAccount,
 } from "./credentials.mjs";
 
 
@@ -18,6 +19,13 @@ test("selects a secure credential provider by operating system", () => {
     credentialProviderFor("linux", "/opt/agent/bin/guanyi-secret"),
     "external_secret_helper",
   );
+});
+
+
+test("removes only a different macOS Keychain account during replacement", () => {
+  assert.equal(replacedMacCredentialAccount("old-user", "new-user"), "old-user");
+  assert.equal(replacedMacCredentialAccount("same-user", "same-user"), null);
+  assert.equal(replacedMacCredentialAccount(null, "new-user"), null);
 });
 
 

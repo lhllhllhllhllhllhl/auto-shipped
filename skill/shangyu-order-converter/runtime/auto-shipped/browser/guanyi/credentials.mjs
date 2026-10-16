@@ -120,6 +120,36 @@ async function findMacMetadata() {
 }
 
 
+export async function currentMacCredentialAccount() {
+  const metadata = await findMacMetadata();
+  return parseAccountName(metadata.stdout);
+}
+
+
+export function replacedMacCredentialAccount(previousAccount, nextAccount) {
+  return previousAccount && previousAccount !== nextAccount
+    ? previousAccount
+    : null;
+}
+
+
+export async function deleteMacCredentialAccount(account) {
+  if (!account) return false;
+  await execFileAsync(
+    "security",
+    [
+      "delete-generic-password",
+      "-a",
+      account,
+      "-s",
+      KEYCHAIN_SERVICE,
+    ],
+    { encoding: "utf8", maxBuffer: 1024 * 1024 },
+  );
+  return true;
+}
+
+
 function powershellExecutable() {
   return process.env.GUANYI_POWERSHELL_EXECUTABLE || "powershell.exe";
 }
@@ -174,7 +204,14 @@ async function readMacCredentials() {
   try {
     const result = await execFileAsync(
       "security",
-      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+      [
+        "find-generic-password",
+        "-a",
+        username,
+        "-s",
+        KEYCHAIN_SERVICE,
+        "-w",
+      ],
       { encoding: "utf8", maxBuffer: 1024 * 1024 },
     );
     const password = result.stdout.replace(/[\r\n]+$/, "");
@@ -220,6 +257,7 @@ try {
 
 
 async function storeMacCredentials(username, password) {
+  const previousAccount = await currentMacCredentialAccount().catch(() => null);
   return await new Promise((resolve, reject) => {
     const child = spawn(
       "security",
@@ -239,9 +277,20 @@ async function storeMacCredentials(username, password) {
       stderr += chunk.toString("utf8");
     });
     child.once("error", reject);
-    child.once("exit", (code) => {
+    child.once("exit", async (code) => {
       if (code === 0) {
-        resolve();
+        try {
+          const replaced = replacedMacCredentialAccount(
+            previousAccount,
+            username,
+          );
+          if (replaced) {
+            await deleteMacCredentialAccount(replaced);
+          }
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
       } else {
         reject(new Error(stderr.trim() || "keychain_write_failed"));
       }

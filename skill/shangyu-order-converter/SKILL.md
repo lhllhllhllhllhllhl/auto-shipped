@@ -198,6 +198,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py capture-task-baseline "<operation-
 python3 <skill-dir>/scripts/guanyi_browser.py inspect-file-selection "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py select-import-file "<operation-id>" "CONFIRM_FILE_SELECTION_MAY_UPLOAD"
 python3 <skill-dir>/scripts/guanyi_browser.py submit-import "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+python3 <skill-dir>/scripts/guanyi_browser.py execute-import "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 python3 <skill-dir>/scripts/guanyi_browser.py reconcile-operation "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py resolve-no-task "<operation-id>" "CONFIRM_CLOSE_NO_TASK_OPERATION"
 python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/path/to/上传预检.json"
@@ -209,7 +210,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - `login` 使用专用 Chrome 配置，由用户手动登录。
 - `login-auto` 只读取安全凭证提供器：macOS Keychain、当前 Windows 用户的 DPAPI，或云端平台 Secret/Vault 提供的只读外部凭证助手。不得把凭证写入 Skill、源码、普通配置、环境变量、命令参数或日志。本地未配置时可运行 `credential-web` 产生一次性 `127.0.0.1` 页面。
 - 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，Agent 只通过私有 GUI 填入当前管易登录页，再运行 `login-credentials-ready`。不得转存、复述、写入剪贴板脚本或跨任务复用。执行器只检查字段是否非空并继续现有登录状态机，不读取或保存字段内容。
-- 登录后的持久会话优先于重复读取凭证；不勾选管易“记住账户”，不启用 Chrome 保存密码。
+- 登录会话只在当前浏览器进程内可靠复用；不把进程关闭后的 Cookie 当成稳定前提，不勾选管易“记住账户”，不启用 Chrome 保存密码。
 - 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，再通过 `login-sms-submit` 标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
 - `probe` 检查登录和页面状态，只关闭已登记的安全通知。
 - `navigate-import` 导航到“自定义导入”页面后停止，禁止选择文件。
@@ -220,7 +221,8 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - `inspect-file-selection` 重新校验 manifest、Excel 哈希、操作状态和任务基线，进入待审核表单并唯一定位“订单信息上传”输入框；它不得选择文件。
 - `select-import-file` 是受控写入边界。只有用户在当前对话中明确同意本次真实文件选择后才可运行，并必须传入精确授权口令 `CONFIRM_FILE_SELECTION_MAY_UPLOAD`。执行器在动作前写入 `file_selection_started`，文件输入变更尝试后立即进入 `write_request_maybe_sent`，仅记录不含查询串和请求正文的网络元数据；禁止点击“确定”、刷新、重新选文件或盲目重试。
 - `submit-import` 已实现“选择文件 → 第一次确定 → 完整核对自定义字段对应 → 第二次确定”的同一写入边界。只有用户在当前对话明确授权当前批次时才可传入 `CONFIRM_GUANYI_IMPORT_SUBMISSION`。文件选择只允许出现已登记的管易取 OSS 地址和指定 OSS 暂存请求；第一次确定只允许调用已登记的模板读取接口；字段表必须遍历全部虚拟滚动行，系统字段与Excel字段逐行同名、一一对应且必填字段齐全；第二次确定只允许调用已登记的最终导入接口。任一证据缺失、重复、非成功或出现额外写请求都停止并先查任务中心。
-- 正式 `guanyi_browser.py` 入口只有在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时才会为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import`。`GUANYI_CONTROLLED_WRITE_VALIDATION` 只保留给维护者未来重新验收，不参与普通生产流程，也永远不能代替当前批次的用户提交授权。
+- 正常生产上传优先使用 `execute-import`：它只在用户已经确认当前批次后启动。会话不可用时先在当前进程读取安全凭证并自动登录，再顺序完成待审核表单、任务中心基线、受控提交和最长两分钟的结果回读。过程中不退出登录、不另启浏览器；若登录要求短信验证，只返回 `needs_verification`，不发送短信、不选择文件，Agent 先走标准短信交接再重新执行当前已授权批次。若结果仍为 `reconciling`，退出后只能运行只读 `reconcile-operation`，不得重新提交。
+- 正式 `guanyi_browser.py` 入口只有在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时才会为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import` 和 `execute-import`。`GUANYI_CONTROLLED_WRITE_VALIDATION` 只保留给维护者未来重新验收，不参与普通生产流程，也永远不能代替当前批次的用户提交授权。
 - `reconcile-operation` 只读查询任务中心。已经点击第二次确定但短时没有新增任务时保持 `reconciling`，不得重提；只有尚未进入最终提交且任务中心确认无新增任务时才可进入 `retryable_failed`。唯一新增任务的 ID、任务名称和“执行完成”状态只证明任务结束，必须继续打开“查看结果”，回读总数、成功数、格式错误数和非法数据数；只有全部成功才返回 `verified`，部分成功返回 `needs_manual_review`，全部失败返回 `retryable_failed`。多条新增、任务 ID 证据不足、统计矛盾或未知状态进入 `needs_manual_review`。
 - Agent 必须把最终任务 ID、导入总数、成功数、失败分类和需要人工处理的来源行号返回给用户；不得返回或记录结果窗口中的收件人、手机号、详细地址或原始失败整行。未登记的失败文本统一脱敏为人工查看提示。
 - 同一 Excel 哈希只有在已 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 和明确失败关闭后允许创建新操作；新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得本次上传授权。

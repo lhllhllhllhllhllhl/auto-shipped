@@ -60,6 +60,7 @@ npm run capture-task-baseline -- "<operation-id>"
 npm run inspect-file-selection -- "<operation-id>"
 npm run select-import-file -- "<operation-id>" "CONFIRM_FILE_SELECTION_MAY_UPLOAD"
 npm run submit-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+npm run execute-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 npm run reconcile-operation -- "<operation-id>"
 npm run verify-manifest -- "/path/to/上传预检.json"
 npm run prepare-operation -- "/path/to/上传预检.json"
@@ -75,7 +76,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
-正式 Skill 包装入口只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import`。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
+正式 Skill 包装入口只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import` 和 `execute-import`。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
 
 运行时会话和失败截图位于 `runtime/`，已排除出版本控制。截图可能包含后台信息，只用于本地故障诊断。
 
@@ -101,6 +102,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 18. `submit-import` 只有在用户明确授权当前批次后才可运行；文件选择只允许出现已登记的管易取 OSS 地址与指定 OSS 暂存请求，且两条响应必须成功。第一次“确定”后必须唯一出现“自定义字段对应”，完整遍历虚拟滚动表格的全部行，确认系统字段与 Excel 字段逐行同名、一一对应且必填字段齐全；随后才允许点击第二次“确定”。模板读取和最终导入请求必须分别精确匹配已登记接口，缺失、重复、非成功响应或任何额外写请求都停止并进入查重，禁止刷新、重选或重提。
 19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
 20. 相同 Excel 哈希只有在 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 或明确失败关闭后允许创建新操作，新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得用户授权。
+21. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再依次完成表单、基线、提交和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent 先走标准短信交接，再重新执行当前已授权批次。两分钟内仍无唯一结果时返回 `reconciling`，后续仅允许只读续查。
 
 ## 实机验收记录
 

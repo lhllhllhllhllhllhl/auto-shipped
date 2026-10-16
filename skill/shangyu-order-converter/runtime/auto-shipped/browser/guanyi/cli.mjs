@@ -32,8 +32,6 @@ import {
 import {
   createPreparedOperation,
   NO_TASK_RESOLUTION_AUTHORIZATION,
-  recordImportTaskResult,
-  reconcileOperationTask,
   OperationStateError,
   recordTaskBaseline,
   resolveNoTaskManualReview,
@@ -45,6 +43,7 @@ import {
   selectPreparedImportFile,
 } from "./file-selection.mjs";
 import {
+  requireSubmitAuthorization,
   SUBMIT_AUTHORIZATION,
   SubmissionError,
   submitPreparedImport,
@@ -70,12 +69,16 @@ import {
 import { detectState } from "./states.mjs";
 import { captureReadOnlyScreenshot } from "./screenshot.mjs";
 import {
-  readCompletedImportTaskResult,
   probeImportTaskSnapshot,
   probeCompletedImportTasks,
   probeTaskCenter,
   TaskCenterError,
 } from "./task-center.mjs";
+import {
+  executeAuthorizedImportInSingleSession,
+  reconcileImportInCurrentSession,
+  workflowExitCode,
+} from "./workflow.mjs";
 
 
 function printJson(payload) {
@@ -86,7 +89,7 @@ function printJson(payload) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-ready|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-ready|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
     commands: {
       login: "打开专用Chrome配置，由用户手动登录并保存会话。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
@@ -121,6 +124,8 @@ function help() {
         `真实选择文件但不点确定；需要当次授权口令 ${FILE_SELECTION_AUTHORIZATION}。`,
       "submit-import":
         `在同一浏览器会话内选择文件并受控提交；需要当次授权口令 ${SUBMIT_AUTHORIZATION}。`,
+      "execute-import":
+        `用户确认当前批次后，在一个浏览器进程内完成表单、任务基线、受控提交和结果回读；需要当次授权口令 ${SUBMIT_AUTHORIZATION}。`,
       "reconcile-operation":
         "只读轮询任务中心，以唯一任务 ID、类型和状态核验提交结果。",
       "resolve-no-task":
@@ -831,6 +836,82 @@ async function runSubmitImport(page, operationId, authorization) {
 }
 
 
+async function authenticateForAuthorizedImport(context, page) {
+  await openApp(page);
+  const observed = await detectState(page);
+  if (observed.state === "needs_verification") {
+    return { result: observed };
+  }
+  if (observed.state !== "needs_login") {
+    return { page };
+  }
+
+  await page.bringToFront();
+  await markDedicatedLoginWindow(page);
+  const credentials = await readStoredCredentials();
+  printJson({
+    status: "authenticating",
+    credentialSource: credentialProviderName(),
+    browserSession: "single_process",
+  });
+  try {
+    const authenticatedPage = await loginWithCredentials(
+      context,
+      page,
+      credentials,
+      LOGIN_TIMEOUT_MS,
+      {
+        onVerificationRequired: async () => {
+          throw new SessionError(
+            "SMS_VERIFICATION_AUTHORIZATION_REQUIRED",
+            "管易要求短信验证；尚未取得本次短信发送确认。",
+          );
+        },
+      },
+    );
+    return { page: authenticatedPage };
+  } catch (error) {
+    if (error?.code !== "SMS_VERIFICATION_AUTHORIZATION_REQUIRED") {
+      throw error;
+    }
+    return {
+      result: {
+        status: "needs_verification",
+        state: "needs_verification",
+        verificationType: "sms",
+        instruction:
+          "请先通过 login-auto-start 完成当次短信验证，再重新执行当前已授权批次；未发送短信，也未选择文件。",
+        safety: "验证码不会写入凭证库、Skill、命令参数或日志。",
+      },
+    };
+  }
+}
+
+
+async function runExecuteImport(context, page, operationId, authorization) {
+  if (!operationId) {
+    throw new OperationStateError(
+      "OPERATION_ID_REQUIRED",
+      "执行单批导入闭环需要操作 ID。",
+    );
+  }
+  requireSubmitAuthorization(authorization);
+  const session = await authenticateForAuthorizedImport(context, page);
+  if (session.result) {
+    printJson(session.result);
+    return workflowExitCode(session.result);
+  }
+  const result = await executeAuthorizedImportInSingleSession(
+    session.page,
+    operationId,
+    authorization,
+    { onProgress: async (event) => printJson(event) },
+  );
+  printJson(result);
+  return workflowExitCode(result);
+}
+
+
 async function runReconcileOperation(page, operationId) {
   if (!operationId) {
     throw new OperationStateError(
@@ -844,63 +925,9 @@ async function runReconcileOperation(page, operationId) {
     printJson(observed);
     return 2;
   }
-  const deadline = Date.now() + 30_000;
-  let result;
-  do {
-    const tasks = await probeImportTaskSnapshot(page);
-    result = await reconcileOperationTask(operationId, tasks);
-    if (result.status === "result_required") {
-      const importResult = await readCompletedImportTaskResult(
-        page,
-        result.task.taskId,
-      );
-      result = await recordImportTaskResult(operationId, importResult);
-      printJson({
-        status: result.status,
-        reason: result.reason || null,
-        operationId,
-        state: result.record.state,
-        task: {
-          taskId: importResult.taskId,
-          taskName: importResult.taskName,
-          taskStatus: importResult.taskStatus,
-        },
-        importResult: {
-          summary: importResult.summary,
-          failures: importResult.failures,
-          visibleFailureCount: importResult.visibleFailureCount,
-          detailsTruncated: importResult.detailsTruncated,
-        },
-        safety:
-          "Recipient, phone, address, and raw platform-order content are omitted from this result.",
-      });
-      return result.status === "verified" ? 0 : 3;
-    }
-    if (result.status !== "reconciling") {
-      printJson({
-        status: result.status,
-        reason: result.reason || null,
-        operationId,
-        state: result.record.state,
-        task: result.task || null,
-        candidates: result.candidates || null,
-      });
-      return result.status === "verified" ? 0 : 3;
-    }
-    if (Date.now() < deadline) {
-      await page.waitForTimeout(2_000);
-    }
-  } while (Date.now() < deadline);
-
-  printJson({
-    status: "reconciling",
-    reason: result?.reason || "task_not_yet_visible",
-    operationId,
-    state: result.record.state,
-    safety:
-      "No unique completed task is visible yet. Do not resubmit; run reconciliation again later.",
-  });
-  return 2;
+  const result = await reconcileImportInCurrentSession(page, operationId);
+  printJson(result);
+  return workflowExitCode(result);
 }
 
 
@@ -962,6 +989,7 @@ async function main() {
       "inspect-file-selection",
       "select-import-file",
       "submit-import",
+      "execute-import",
       "reconcile-operation",
       "resolve-no-task",
       "verify-manifest",
@@ -1085,6 +1113,14 @@ async function main() {
     }
     if (command === "submit-import") {
       return await runSubmitImport(
+        session.page,
+        process.argv[3],
+        process.argv[4],
+      );
+    }
+    if (command === "execute-import") {
+      return await runExecuteImport(
+        session.context,
         session.page,
         process.argv[3],
         process.argv[4],
