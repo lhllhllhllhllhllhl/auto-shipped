@@ -375,6 +375,17 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertTrue(intake.confirmation_deferred)
             plan = load_adaptive_plan(intake.outputs[1])
             self.assertEqual(plan["source_confirmation"]["status"], "pending")
+            masked_orders = plan["source_confirmation"]["masked_order_preview"]
+            self.assertEqual(len(masked_orders), 1)
+            self.assertEqual(
+                masked_orders[0]["recipient"]["name"],
+                payload["orders"][0]["recipient"]["name"][:1] + "**",
+            )
+            self.assertIn("****", masked_orders[0]["recipient"]["contact"])
+            self.assertNotIn(
+                payload["orders"][0]["recipient"]["contact"],
+                json.dumps(masked_orders, ensure_ascii=False),
+            )
 
             conversion = convert_order_file(
                 intake.outputs[0],
@@ -390,6 +401,13 @@ class TextOrderIntakeTests(unittest.TestCase):
                 {item.code for item in conversion.decisions},
                 {"CONFIRM_TEXT_ORDER_EXTRACTION"},
             )
+            extraction = conversion.decisions[0]
+            self.assertEqual(
+                extraction.proposed_value["masked_order_preview"],
+                masked_orders,
+            )
+            self.assertIn("预览Excel已经生成", extraction.reason)
+            self.assertIn("请先查看已交付的预览Excel", extraction.confirmation_question)
             self.assertTrue(Path(conversion.outputs[0]).name.endswith("待确认预览.xlsx"))
 
     def test_deferred_text_batches_merge_into_one_preview_without_manifest(self) -> None:

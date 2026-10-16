@@ -1180,6 +1180,7 @@ def _validate_single_text_order_draft(
         "rule_source_profile_id": rule_profile,
         "source": source,
         "order_number_policy": order_number_policy,
+        "masked_preview": masked_preview,
         "orders": materialized_orders,
     }
 
@@ -1473,6 +1474,7 @@ def _prepare_single_text_order_materialized(
             "draft_id": materialized["draft_id"],
             "source_sha256": _text(materialized["source"].get("sha256")),
             "order_count": len(materialized["orders"]),
+            "masked_order_preview": materialized.get("masked_preview", []),
         },
     }
     plan_path.write_text(

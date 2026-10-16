@@ -184,6 +184,19 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("mapping_reuse_bundle", schema["required"])
         self.assertFalse(schema["additionalProperties"])
 
+    def test_adaptive_plan_can_carry_only_masked_text_recipient_preview(self):
+        schema = load_json("contracts/adaptive_source_plan.schema.json")
+        confirmation = schema["properties"]["source_confirmation"]["properties"]
+        masked = confirmation["masked_order_preview"]
+        recipient = masked["items"]["properties"]["recipient"]
+
+        self.assertIn("不含完整收件信息", masked["description"])
+        self.assertEqual(
+            set(recipient["properties"]),
+            {"name", "contact", "address"},
+        )
+        self.assertFalse(recipient["additionalProperties"])
+
     def test_approved_route_has_business_rule_coverage_scope(self):
         routing = load_json("config/routing/order_routes_v1.json")
         catalog = load_json(
