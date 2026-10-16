@@ -357,6 +357,45 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅供查找，未作为默认值", request.question)
         self.assertIn("关键语义属性", request.reason)
 
+    def test_blocking_product_hides_preview_only_decisions_until_rerun(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "测试商品", "S1", "唯一规格", 100, "上海仓")]
+        )
+        order = parsed_order()
+        order.items = [
+            ParsedItem(
+                source_product_code="P1",
+                source_product_name="测试商品",
+                source_spec="",
+                quantity=1,
+                source_line_no=2,
+            ),
+            ParsedItem(
+                source_product_code="UNKNOWN",
+                source_product_name="未登记商品",
+                source_spec="粉色",
+                quantity=1,
+                source_line_no=3,
+            ),
+        ]
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "needs_input")
+        self.assertEqual(result.lines, [])
+        self.assertEqual(result.decisions, [])
+        self.assertTrue(
+            any(
+                request.code == "PROVIDE_GUANYI_PRODUCT_MAPPING"
+                for request in result.clarifications
+            )
+        )
+
     def test_current_batch_mapping_emits_nonblocking_reuse_candidate(self) -> None:
         order = parsed_order()
         catalog = ProductCatalog(

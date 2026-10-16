@@ -805,6 +805,13 @@ def build_custom_import_lines(
     result.clarifications = deduplicate_clarifications(result.clarifications)
     result.decisions = deduplicate_decisions(result.decisions)
     if result.clarifications:
+        # Blocking facts must be answered before a trustworthy preview can be
+        # rendered.  Defer non-blocking candidate/recipient decisions until
+        # the blocking items are resolved and the whole batch can produce one
+        # preview.  They are deterministically recomputed on the next run, so
+        # the user sees one focused mid-flow question instead of a mixed list
+        # of blockers and preview-only confirmations.
+        result.decisions = []
         return result
 
     resolved_order_items_by_order = {
