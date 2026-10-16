@@ -878,6 +878,67 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertTrue(result.candidates)
         self.assertEqual(result.candidates[0].product_code, "P1")
 
+    def test_single_low_confidence_fuzzy_candidate_is_still_blocking(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "J-579",
+                    "和匠日本进口搓澡巾手套去鸡皮去角质搓泥双面两用沐浴花洗澡巾",
+                    "J-579",
+                    "双面两用",
+                    100,
+                    "测试仓",
+                )
+            ],
+            [],
+            {
+                "company_a": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        result = product_catalog.resolve(
+            "",
+            source_profile_id="company_a",
+            source_product_name="搓澡巾",
+            source_spec="超硬深蓝色",
+        )
+
+        self.assertEqual(result.status, "low_confidence")
+        self.assertEqual(result.confidence_tier, "blocking")
+        self.assertIsNone(result.product)
+        self.assertEqual(result.candidates[0].product_code, "J-579")
+        self.assertIn("颜色:深蓝", result.candidate_evidence[0].missing_attributes)
+        self.assertIn("软硬:超硬", result.candidate_evidence[0].missing_attributes)
+
+    def test_single_high_confidence_fuzzy_candidate_can_build_preview(self) -> None:
+        product_catalog = ProductCatalog(
+            [ProductRecord("P1", "蓝色搓澡巾", "S1", "蓝色", 100, "测试仓")],
+            [],
+            {
+                "company_a": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        result = product_catalog.resolve(
+            "",
+            source_profile_id="company_a",
+            source_product_name="蓝色搓背巾",
+            source_spec="蓝色",
+        )
+
+        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.confidence_tier, "preview_safe")
+        self.assertEqual(result.product.product_code, "P1")
+        self.assertEqual(result.candidate_evidence[0].confidence_tier, "preview_safe")
+
     def test_company_name_alias_uses_the_universal_mapping_table(self) -> None:
         product_catalog = ProductCatalog(
             [ProductRecord("P1", "标准搓澡巾", "S1", "蓝色", 100, "测试仓")],

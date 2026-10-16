@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from .catalog_layers import CatalogLayer, build_effective_catalog
 from .batch_mapping_replacement import validate_batch_mapping_replacement_document
-from .product_candidates import rank_similar_products
+from .product_candidates import RankedProductCandidate, rank_product_candidates
 
 
 def clean_identifier(value: Any) -> str:
@@ -65,6 +65,8 @@ class ProductResolution:
     sticks_per_target_unit: int | None = None
     mapping_authority: str = ""
     reuse_scope: str = ""
+    confidence_tier: str = ""
+    candidate_evidence: tuple[RankedProductCandidate, ...] = ()
 
 
 class ProductCatalog:
@@ -458,6 +460,7 @@ class ProductCatalog:
                 match_method="cross_source_exact_alias_candidate",
                 identifier_type="product_name",
                 candidates=(product,),
+                confidence_tier="preview_safe",
             )
         if targets:
             return ProductResolution(
@@ -1298,27 +1301,49 @@ class ProductCatalog:
         if semantic_resolution is not None:
             return semantic_resolution
 
-        if name and policy.get("fuzzy_name_action") == "candidate_requires_user_confirmation":
-            candidates: tuple[ProductRecord, ...] = ()
+        if (
+            name
+            and policy.get("fuzzy_name_action")
+            == "candidate_requires_user_confirmation"
+        ):
+            ranked_candidates: tuple[RankedProductCandidate, ...] = ()
             for layer_records in self._records_by_priority:
-                candidates = rank_similar_products(
+                ranked_candidates = rank_product_candidates(
                     layer_records,
                     source_name=name,
                     source_spec=source_spec,
                     normalizer=normalize_product_text,
                 )
-                if candidates:
+                if ranked_candidates:
                     break
-            if candidates:
+            if ranked_candidates:
+                candidates = tuple(candidate.product for candidate in ranked_candidates)
+                preview_safe = (
+                    len(ranked_candidates) == 1
+                    and ranked_candidates[0].confidence_tier == "preview_safe"
+                )
+                if preview_safe:
+                    reason = (
+                        "商品名称仅相似命中一个候选，且名称、规格与关键语义属性"
+                        "均达到待确认预览门槛；仍须由用户确认，禁止自动写入正式映射"
+                    )
+                else:
+                    evidence_reason = ranked_candidates[0].confidence_reason
+                    reason = (
+                        "商品名称仅模糊命中候选，但候选证据不足以安全生成预览；"
+                        f"{evidence_reason}，必须由用户确认具体管易商品"
+                    )
                 return ProductResolution(
-                    status="unconfirmed" if len(candidates) == 1 else "ambiguous",
+                    status="unconfirmed" if preview_safe else "low_confidence",
                     external_sku=key or name,
-                    product=candidates[0] if len(candidates) == 1 else None,
+                    product=candidates[0] if preview_safe else None,
                     confirmed=False,
-                    reason="商品名称仅相似命中候选，必须由用户确认，禁止自动映射",
+                    reason=reason,
                     match_method="fuzzy_name_candidates",
                     identifier_type="product_name",
                     candidates=candidates,
+                    confidence_tier="preview_safe" if preview_safe else "blocking",
+                    candidate_evidence=ranked_candidates,
                 )
 
         display = key or name

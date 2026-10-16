@@ -286,7 +286,13 @@ def _product_resolution_key(
 
 
 def _product_source_label(item: Any) -> str:
-    return str(item.source_product_code or item.source_product_name or "未提供商品标识")
+    base = str(
+        item.source_product_code or item.source_product_name or "未提供商品标识"
+    )
+    source_spec = str(item.source_spec or "").strip()
+    if source_spec and source_spec not in base:
+        return f"{base} / {source_spec}"
+    return base
 
 
 def _fingerprint_sha256(order: ParsedOrder) -> str:
@@ -583,6 +589,32 @@ def build_custom_import_lines(
                         next_action="record_package_semantics_proposal_if_reusable",
                     )
                 )
+            elif (
+                resolution.match_method == "fuzzy_name_candidates"
+                and resolution.confidence_tier == "blocking"
+            ):
+                candidate_text = _product_candidate_summary(resolution.candidates)
+                result.clarifications.append(
+                    ClarificationRequest(
+                        code="CONFIRM_LOW_CONFIDENCE_GUANYI_PRODUCT_CANDIDATE",
+                        scope="batch",
+                        source_ref=source_ref,
+                        field="商品代码/规格代码",
+                        question=(
+                            f"来源商品“{source_label}”没有安全的唯一商品匹配。"
+                            + (
+                                f"系统只找到以下低可信候选（仅供查找，未作为默认值）：{candidate_text}。"
+                                if candidate_text
+                                else ""
+                            )
+                            + "请提供或确认正确的管易商品代码、规格代码、条码或准确名称，"
+                            "并说明仅本次使用，还是以后沿用。"
+                        ),
+                        reason=resolution.reason,
+                        answer_type="text",
+                        next_action="resolve_target_hint_then_use_once_or_persist",
+                    )
+                )
             elif len(resolution.candidates) > 1:
                 result.clarifications.append(
                     ClarificationRequest(
@@ -640,6 +672,12 @@ def build_custom_import_lines(
                             "product_name": proposed_product.product_name,
                             "spec_name": proposed_product.spec_name,
                             "match_method": resolution.match_method,
+                            "confidence_tier": resolution.confidence_tier,
+                            "candidate_evidence": [
+                                evidence.public_evidence()
+                                for evidence in resolution.candidate_evidence
+                                if evidence.product == proposed_product
+                            ],
                             "global_alias_eligible": global_alias_eligible,
                         },
                         confirmation_question=(

@@ -35,7 +35,10 @@ def converge_decisions(
     blocking = tuple(deduplicate_clarifications(clarifications))
     provisional = tuple(deduplicate_decisions(decisions))
     if blocking:
-        return DecisionState("needs_input", blocking, provisional)
+        # A blocker means no preview artifact exists.  Do not leak provisional
+        # decisions (including masked recipient review) into the blocking
+        # response, otherwise Agents tend to mix pre-file and post-file steps.
+        return DecisionState("needs_input", blocking, ())
     if provisional:
         return DecisionState("preview_ready", (), provisional)
     return DecisionState("ready", (), ())
