@@ -62,6 +62,9 @@ DEFAULT_CANDIDATE_CONFIDENCE_POLICY = CandidateConfidencePolicy()
 # the source.  Exact aliases and confirmed mappings remain the authority.
 _ATTRIBUTE_ALIASES: dict[str, tuple[tuple[str, str], ...]] = {
     "颜色": (
+        ("deep blue", "深蓝"),
+        ("navy", "藏蓝"),
+        ("denim blue", "牛仔蓝"),
         ("深蓝色", "深蓝"),
         ("深蓝", "深蓝"),
         ("藏蓝色", "藏蓝"),
@@ -85,6 +88,14 @@ _ATTRIBUTE_ALIASES: dict[str, tuple[tuple[str, str], ...]] = {
         ("黑色", "黑"),
         ("紫色", "紫"),
         ("红色", "红"),
+        ("orange", "橘"),
+        ("green", "绿"),
+        ("yellow", "黄"),
+        ("white", "白"),
+        ("black", "黑"),
+        ("pink", "粉"),
+        ("blue", "蓝"),
+        ("gold", "金"),
     ),
     "软硬": (
         ("超超软", "超超软"),
@@ -113,8 +124,11 @@ _ATTRIBUTE_ALIASES: dict[str, tuple[tuple[str, str], ...]] = {
 _NON_BRAND_LATIN_TOKENS = {
     "black",
     "blue",
+    "deep",
+    "denim",
     "gold",
     "green",
+    "navy",
     "orange",
     "pink",
     "white",
@@ -128,7 +142,11 @@ def _similarity(left: str, right: str) -> float:
     if left == right:
         return 1.0
     ratio = SequenceMatcher(None, left, right).ratio()
-    if left in right or right in left:
+    shorter = left if len(left) <= len(right) else right
+    meaningful_substring = len(shorter) >= 3 or (
+        len(shorter) >= 2 and any(ord(character) > 127 for character in shorter)
+    )
+    if meaningful_substring and (left in right or right in left):
         ratio = max(ratio, 0.82)
     return ratio
 
@@ -176,9 +194,151 @@ def _compare_attributes(
             missing.append(f"{category}:{source_value}")
         elif target_value == source_value:
             matched.append(f"{category}:{source_value}")
+        elif _compatible_attribute_values(category, source_value, target_value):
+            matched.append(f"{category}:{source_value}~{target_value}")
         else:
             conflicting.append(f"{category}:{source_value}!={target_value}")
     return tuple(matched), tuple(missing), tuple(conflicting)
+
+
+_COLOR_FAMILIES = {
+    "蓝": "蓝",
+    "深蓝": "蓝",
+    "藏蓝": "蓝",
+    "宝石蓝": "蓝",
+    "牛仔蓝": "蓝",
+    "浅蓝": "蓝",
+}
+
+
+def _compatible_attribute_values(
+    category: str,
+    source_value: str,
+    target_value: str,
+) -> bool:
+    """Return conservative semantic compatibility without collapsing SKU identity.
+
+    Blue shades remain distinct canonical values.  They are only treated as
+    compatible evidence when another gate (for example a confirmed alias
+    family plus hardness) has already narrowed the candidate set.  Multiple
+    compatible blue variants therefore remain ambiguous instead of being
+    silently merged.
+    """
+
+    if category != "颜色":
+        return False
+    source_family = _COLOR_FAMILIES.get(source_value)
+    target_family = _COLOR_FAMILIES.get(target_value)
+    return bool(source_family and source_family == target_family)
+
+
+def rank_alias_family_candidates(
+    records: Iterable[Any],
+    *,
+    source_spec: str,
+    normalizer: Callable[[Any], str],
+    limit: int = 5,
+    policy: CandidateConfidencePolicy = DEFAULT_CANDIDATE_CONFIDENCE_POLICY,
+) -> tuple[RankedProductCandidate, ...]:
+    """Rank variants inside a family established by confirmed name aliases.
+
+    The caller is responsible for proving that ``records`` belong to one
+    stable target-code family learned from at least two official mappings for
+    the same source product name.  This function only compares the still-new
+    source specification (colour, hardness, and similar explicit attributes)
+    with those family variants.  It never confirms or persists a mapping.
+    """
+
+    normalized_spec = normalizer(source_spec)
+    source_attributes = _extract_attributes(source_spec)
+    if not normalized_spec or not source_attributes:
+        return ()
+
+    ranked: dict[tuple[str, str], tuple[float, RankedProductCandidate]] = {}
+    for record in records:
+        target_attributes = _extract_attributes(
+            getattr(record, "product_name", ""),
+            getattr(record, "spec_name", ""),
+        )
+        matched, missing, conflicting = _compare_attributes(
+            source_attributes,
+            target_attributes,
+        )
+        # A family hint narrows the product category, but every attribute that
+        # the source explicitly supplied as its spec must still be represented
+        # by the target.  Missing/conflicting variants are not safe candidates.
+        if missing or conflicting:
+            continue
+
+        lexical_score = max(
+            _similarity(
+                normalized_spec,
+                normalizer(getattr(record, "product_name", "")),
+            ),
+            _similarity(
+                normalized_spec,
+                normalizer(getattr(record, "spec_name", "")),
+            ),
+        )
+        exact_count = sum("~" not in item for item in matched)
+        compatible_count = len(matched) - exact_count
+        semantic_score = (
+            exact_count + compatible_count * 0.85
+        ) / max(1, len(source_attributes))
+        combined_score = semantic_score * 0.85 + lexical_score * 0.15
+        evidence = RankedProductCandidate(
+            product=record,
+            rank=0,
+            # The product-name identity was established by the caller's
+            # official alias family, rather than by fuzzy catalog text.
+            name_score=1.0,
+            spec_score=semantic_score,
+            combined_score=combined_score,
+            score_margin=0.0,
+            matched_attributes=matched,
+            missing_attributes=(),
+            conflicting_attributes=(),
+        )
+        key = (
+            str(getattr(record, "product_code", "") or ""),
+            str(getattr(record, "spec_code", "") or ""),
+        )
+        previous = ranked.get(key)
+        if previous is None or combined_score > previous[0]:
+            ranked[key] = (combined_score, evidence)
+
+    ordered = sorted(
+        ranked.values(),
+        key=lambda item: (
+            -item[0],
+            str(getattr(item[1].product, "product_code", "") or ""),
+            str(getattr(item[1].product, "spec_code", "") or ""),
+        ),
+    )[: max(1, limit)]
+    results: list[RankedProductCandidate] = []
+    for index, (score, evidence) in enumerate(ordered):
+        next_score = ordered[index + 1][0] if index + 1 < len(ordered) else 0.0
+        margin = score - next_score
+        preview_safe = (
+            index == 0
+            and len(ordered) == 1
+            and evidence.spec_score >= policy.preview_minimum_spec_score
+            and margin >= policy.preview_minimum_margin
+        )
+        results.append(
+            replace(
+                evidence,
+                rank=index + 1,
+                score_margin=margin,
+                confidence_tier="preview_safe" if preview_safe else "blocking",
+                confidence_reason=(
+                    "同一来源名称已有多个正式映射形成稳定商品系列，且新规格在系列内唯一完整命中"
+                    if preview_safe
+                    else "正式映射商品系列内仍有多个规格候选，必须由用户选择"
+                ),
+            )
+        )
+    return tuple(results)
 
 
 def rank_product_candidates(

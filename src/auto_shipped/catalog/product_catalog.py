@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +9,11 @@ from typing import Any, Iterable
 
 from .catalog_layers import CatalogLayer, build_effective_catalog
 from .batch_mapping_replacement import validate_batch_mapping_replacement_document
-from .product_candidates import RankedProductCandidate, rank_product_candidates
+from .product_candidates import (
+    RankedProductCandidate,
+    rank_alias_family_candidates,
+    rank_product_candidates,
+)
 
 
 def clean_identifier(value: Any) -> str:
@@ -426,7 +431,10 @@ class ProductCatalog:
             )
             if mapping_profile in {current_profile, "*"}:
                 continue
-            if clean_identifier(mapping.get("mapping_authority")) != "feishu_official":
+            if (
+                clean_identifier(mapping.get("mapping_authority"))
+                != "feishu_official"
+            ):
                 continue
             if clean_identifier(mapping.get("reuse_scope")) != "future":
                 continue
@@ -474,6 +482,130 @@ class ProductCatalog:
                 candidates=tuple(targets.values()),
             )
         return None
+
+    @staticmethod
+    def _target_code_family_prefix(product_code: Any) -> str:
+        """Return a conservative alphabetic SKU family prefix.
+
+        Product families are inferred only from prefixes of at least four
+        letters (for example ``KKAW``).  Short generic prefixes such as ``J``
+        or ``SW`` are deliberately ignored because they group unrelated
+        catalog products too broadly.
+        """
+
+        match = re.match(r"[A-Za-z]{4,}", clean_identifier(product_code))
+        return match.group(0).casefold() if match else ""
+
+    def _official_alias_family_prefixes(
+        self,
+        source_product_name: Any,
+    ) -> tuple[str, ...]:
+        """Find stable target families learned from repeated official aliases.
+
+        One mapping cannot establish a product family.  At least two distinct
+        official future mappings for the same normalized source product name
+        must point to different SKUs with the same conservative code prefix.
+        """
+
+        normalized_name = normalize_product_text(source_product_name)
+        if not normalized_name:
+            return ()
+        family_codes: dict[str, set[str]] = {}
+        for mapping in self.mapping_records:
+            if clean_identifier(mapping.get("identifier_type")) != "product_name":
+                continue
+            if clean_identifier(mapping.get("mapping_authority")) != "feishu_official":
+                continue
+            if clean_identifier(mapping.get("reuse_scope")) != "future":
+                continue
+            if self._normalize_source_value(
+                "product_name", mapping.get("source_value")
+            ) != normalized_name:
+                continue
+            product_code = clean_identifier(mapping.get("product_code"))
+            spec_code = clean_identifier(mapping.get("spec_code"))
+            if self.resolve_unique_target(product_code, spec_code) is None:
+                continue
+            prefix = self._target_code_family_prefix(product_code)
+            if prefix:
+                family_codes.setdefault(prefix, set()).add(product_code)
+        return tuple(
+            sorted(
+                prefix
+                for prefix, product_codes in family_codes.items()
+                if len(product_codes) >= 2
+            )
+        )
+
+    def _official_alias_family_resolution(
+        self,
+        *,
+        source_product_name: Any,
+        source_spec: Any,
+    ) -> ProductResolution | None:
+        """Suggest a new variant inside a family proven by official aliases."""
+
+        prefixes = self._official_alias_family_prefixes(source_product_name)
+        if len(prefixes) != 1 or not normalize_product_text(source_spec):
+            return None
+        prefix = prefixes[0]
+        ranked_candidates: tuple[RankedProductCandidate, ...] = ()
+        for layer_records in self._records_by_priority:
+            family_records = [
+                record
+                for record in layer_records
+                if record.product_code.casefold().startswith(prefix)
+            ]
+            if not family_records:
+                continue
+            ranked_candidates = rank_alias_family_candidates(
+                family_records,
+                source_spec=clean_identifier(source_spec),
+                normalizer=normalize_product_text,
+            )
+            if ranked_candidates:
+                break
+        if not ranked_candidates:
+            return None
+
+        candidates = tuple(candidate.product for candidate in ranked_candidates)
+        preview_safe = (
+            len(ranked_candidates) == 1
+            and ranked_candidates[0].confidence_tier == "preview_safe"
+        )
+        family_label = prefix.upper()
+        if preview_safe:
+            return ProductResolution(
+                status="unconfirmed",
+                external_sku=clean_identifier(source_product_name),
+                product=candidates[0],
+                confirmed=False,
+                reason=(
+                    "飞书正式映射中同一来源商品名称已有多个已确认SKU，"
+                    f"共同形成{family_label}商品系列；当前规格在该系列内唯一完整命中。"
+                    "本次只生成待确认预览，禁止自动写入正式映射"
+                ),
+                match_method="official_alias_family_spec_candidate",
+                identifier_type="product_name",
+                candidates=candidates,
+                confidence_tier="preview_safe",
+                candidate_evidence=ranked_candidates,
+            )
+        return ProductResolution(
+            status="ambiguous",
+            external_sku=clean_identifier(source_product_name),
+            product=None,
+            confirmed=False,
+            reason=(
+                "飞书正式映射已识别同一商品系列，"
+                f"但当前规格在{family_label}系列内仍对应多个候选，必须由用户选择"
+            ),
+            match_method="official_alias_family_spec_candidates",
+            identifier_type="product_name",
+            candidates=candidates,
+            confidence_tier="blocking",
+            candidate_evidence=ranked_candidates,
+        )
 
     def resolve_official_mapping_target(
         self,
@@ -1292,6 +1424,13 @@ class ProductCatalog:
                         "product_name",
                         tuple(unique_candidates.values()),
                     )
+
+            alias_family_resolution = self._official_alias_family_resolution(
+                source_product_name=name,
+                source_spec=source_spec,
+            )
+            if alias_family_resolution is not None:
+                return alias_family_resolution
 
         semantic_resolution = self._resolve_semantic_catalog_match(
             source_profile_id=source_profile_id,

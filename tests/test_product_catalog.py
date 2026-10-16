@@ -939,6 +939,162 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(result.product.product_code, "P1")
         self.assertEqual(result.candidate_evidence[0].confidence_tier, "preview_safe")
 
+    def test_official_alias_family_can_suggest_unique_new_variant(self) -> None:
+        records = [
+            ProductRecord(
+                "KKAW0290",
+                "Yellow超软",
+                "4548404200290",
+                "超软",
+                100,
+                "测试仓",
+            ),
+            ProductRecord(
+                "KKAW0030",
+                "蓝色【硬款】",
+                "4548404200030",
+                "硬款",
+                100,
+                "测试仓",
+            ),
+            ProductRecord(
+                "KKAW1532",
+                "Blue超硬",
+                "4548404201532",
+                "超硬",
+                100,
+                "测试仓",
+            ),
+            ProductRecord(
+                "KKAW1006",
+                "Green软",
+                "4548404201006",
+                "软",
+                100,
+                "测试仓",
+            ),
+            ProductRecord(
+                "J-579",
+                "和匠日本进口搓澡巾手套去鸡皮去角质搓泥双面两用沐浴花洗澡巾",
+                "J-579",
+                "双面两用",
+                100,
+                "测试仓",
+            ),
+        ]
+        official_aliases = [
+            {
+                "source_profile_id": "source_a",
+                "identifier_type": "product_name",
+                "source_value": "搓澡巾",
+                "source_spec": "超软黄色",
+                "product_code": "KKAW0290",
+                "spec_code": "4548404200290",
+                "confirmed": True,
+                "reuse_scope": "future",
+                "mapping_authority": "feishu_official",
+            },
+            {
+                "source_profile_id": "source_b",
+                "identifier_type": "product_name",
+                "source_value": "搓澡巾",
+                "source_spec": "蓝色",
+                "product_code": "KKAW0030",
+                "spec_code": "4548404200030",
+                "confirmed": True,
+                "reuse_scope": "future",
+                "mapping_authority": "feishu_official",
+            },
+        ]
+        catalog = ProductCatalog(
+            records,
+            official_aliases,
+            {
+                "source_c": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        deep_blue = catalog.resolve(
+            "",
+            source_profile_id="source_c",
+            source_product_name="搓澡巾",
+            source_spec="超硬深蓝色",
+        )
+        green = catalog.resolve(
+            "",
+            source_profile_id="source_c",
+            source_product_name="搓澡巾",
+            source_spec="绿色",
+        )
+
+        self.assertEqual(deep_blue.status, "unconfirmed")
+        self.assertEqual(deep_blue.confidence_tier, "preview_safe")
+        self.assertEqual(deep_blue.product.product_code, "KKAW1532")
+        self.assertEqual(
+            deep_blue.match_method,
+            "official_alias_family_spec_candidate",
+        )
+        self.assertEqual(green.status, "unconfirmed")
+        self.assertEqual(green.product.product_code, "KKAW1006")
+
+    def test_one_official_alias_does_not_establish_a_product_family(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "KKAW0030",
+                    "蓝色【硬款】",
+                    "4548404200030",
+                    "硬款",
+                    100,
+                    "测试仓",
+                ),
+                ProductRecord(
+                    "KKAW1006",
+                    "Green软",
+                    "4548404201006",
+                    "软",
+                    100,
+                    "测试仓",
+                ),
+            ],
+            [
+                {
+                    "source_profile_id": "source_a",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "蓝色",
+                    "product_code": "KKAW0030",
+                    "spec_code": "4548404200030",
+                    "confirmed": True,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+            {
+                "source_b": {
+                    "source_identifier_type": "product_name",
+                    "allow_exact_catalog_name": False,
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="source_b",
+            source_product_name="搓澡巾",
+            source_spec="绿色",
+        )
+
+        self.assertNotEqual(
+            result.match_method,
+            "official_alias_family_spec_candidate",
+        )
+
     def test_company_name_alias_uses_the_universal_mapping_table(self) -> None:
         product_catalog = ProductCatalog(
             [ProductRecord("P1", "标准搓澡巾", "S1", "蓝色", 100, "测试仓")],
