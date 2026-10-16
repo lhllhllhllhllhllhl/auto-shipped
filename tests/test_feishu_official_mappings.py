@@ -136,6 +136,79 @@ def item_expansion_rows() -> list[dict[str, str]]:
 
 
 class FeishuOfficialMappingTests(unittest.TestCase):
+    def test_global_product_name_alias_is_normalized_in_snapshot(self) -> None:
+        global_record = record()
+        global_record.update(
+            {
+                "mapping_id": "global-blue-corn",
+                "company_id": "*",
+                "source_profile_id": "*",
+                "identifier_type": "product_name",
+                "source_value": "十根玉米礼盒",
+            }
+        )
+        global_record["mapping_key"] = build_mapping_key(
+            company_id="*",
+            source_profile_id="*",
+            identifier_type="product_name",
+            source_value="十根玉米礼盒",
+            source_spec="",
+            target_platform="guanyi",
+        )
+
+        snapshot = build_official_mapping_snapshot(
+            [global_record],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+
+        self.assertEqual(snapshot["mappings"][0]["mapping_scope"], "global")
+        validate_official_mapping_snapshot(snapshot, catalog())
+
+    def test_legacy_snapshot_without_mapping_scope_remains_valid(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+        snapshot["mappings"][0].pop("mapping_scope")
+        unsigned = dict(snapshot)
+        unsigned.pop("snapshot_sha256")
+        canonical = json.dumps(
+            unsigned,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        snapshot["snapshot_sha256"] = hashlib.sha256(canonical).hexdigest()
+
+        validate_official_mapping_snapshot(snapshot, catalog())
+
+    def test_global_product_code_mapping_is_rejected(self) -> None:
+        invalid = record()
+        invalid.update(
+            {
+                "company_id": "*",
+                "source_profile_id": "*",
+                "identifier_type": "product_code",
+            }
+        )
+        invalid["mapping_key"] = build_mapping_key(
+            company_id="*",
+            source_profile_id="*",
+            identifier_type="product_code",
+            source_value=invalid["source_value"],
+            source_spec="",
+            target_platform="guanyi",
+        )
+
+        with self.assertRaisesRegex(OfficialMappingSyncError, "全局映射只允许"):
+            build_official_mapping_snapshot(
+                [invalid],
+                {"repository_status": "active", "mapping_revision": "1"},
+                catalog(),
+            )
+
     def test_item_expansions_share_the_official_versioned_snapshot(self) -> None:
         snapshot = build_official_mapping_snapshot(
             [record()],

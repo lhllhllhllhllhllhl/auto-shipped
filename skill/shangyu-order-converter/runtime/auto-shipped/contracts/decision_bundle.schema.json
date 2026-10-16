@@ -33,6 +33,11 @@
             "minItems": 1,
             "uniqueItems": true
           },
+          "future_scope_options": {
+            "type": "array",
+            "items": {"enum": ["source", "global"]},
+            "uniqueItems": true
+          },
           "next_action": {"type": ["string", "null"]}
         },
         "additionalProperties": false

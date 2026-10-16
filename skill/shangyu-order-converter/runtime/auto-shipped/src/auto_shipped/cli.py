@@ -49,6 +49,10 @@ from auto_shipped.services.adaptive import (
     write_adaptive_plan,
 )
 from auto_shipped.services.ingest import ingest_file
+from auto_shipped.services.product_decision import (
+    ProductDecisionError,
+    resolve_product_mapping_decision,
+)
 from auto_shipped.services.redaction import redact_order
 from auto_shipped.services.text_intake import (
     TextOrderDraftError,
@@ -506,6 +510,12 @@ def build_parser() -> argparse.ArgumentParser:
     direct_add.add_argument("--company-id", required=True)
     direct_add.add_argument("--source-profile", required=True)
     direct_add.add_argument(
+        "--mapping-scope",
+        choices=["source", "global"],
+        default="source",
+        help="source=仅当前来源；global=所有来源共享的精确商品名称别名",
+    )
+    direct_add.add_argument(
         "--identifier-type",
         required=True,
         choices=["product_code", "barcode", "product_name"],
@@ -634,6 +644,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     save_mapping.add_argument("--source-fingerprint", default="")
     save_mapping.add_argument("--confirmation-token", required=True)
+
+    resolve_decision = subparsers.add_parser(
+        "resolve-product-decision",
+        help="把用户对商品候选的回答作为目标线索解析，禁止改写来源商品身份",
+    )
+    resolve_decision.add_argument("--decision-bundle", required=True)
+    resolve_decision.add_argument("--decision-id", required=True)
+    resolve_decision.add_argument("--target-hint", required=True)
+    resolve_decision.add_argument(
+        "--hint-type",
+        choices=["auto", "spec_code", "product_code", "barcode", "product_name"],
+        default="auto",
+    )
+    resolve_decision.add_argument(
+        "--reuse-scope",
+        choices=["current_batch", "future"],
+        default="current_batch",
+    )
+    resolve_decision.add_argument(
+        "--mapping-scope",
+        choices=["source", "global"],
+        default="source",
+    )
+    resolve_decision.add_argument("--catalog", required=True)
+    resolve_decision.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    resolve_decision.add_argument(
+        "--preferred-catalog", action="append", default=[]
+    )
+    resolve_decision.add_argument("--output")
 
     save_replacement = subparsers.add_parser(
         "save-batch-mapping-replacement",
@@ -1637,6 +1679,7 @@ def run_publish_pending_mappings(args: argparse.Namespace) -> int:
             allowed_source_profile_ids=source_profiles,
             confirmation_token=args.confirmation_token,
             operation_id=args.operation_id,
+            mapping_scope=args.mapping_scope,
         )
     except (
         OSError,
@@ -1948,6 +1991,52 @@ def run_save_product_mapping(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_resolve_product_decision(args: argparse.Namespace) -> int:
+    try:
+        decision_path = Path(args.decision_bundle).expanduser().resolve()
+        document = json.loads(decision_path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ProductDecisionError("decision bundle文件根节点必须是对象。")
+        catalog = ProductCatalog.from_files(
+            args.catalog,
+            args.mappings,
+            preferred_catalog_paths=tuple(args.preferred_catalog),
+        )
+        result = resolve_product_mapping_decision(
+            document,
+            catalog,
+            decision_id=args.decision_id,
+            target_hint=args.target_hint,
+            hint_type=args.hint_type,
+            reuse_scope=args.reuse_scope,
+            mapping_scope=args.mapping_scope,
+        )
+        payload = result.to_dict()
+        if args.output:
+            output = Path(args.output).expanduser().resolve()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            payload["output"] = str(output)
+    except (OSError, ValueError, json.JSONDecodeError, ProductDecisionError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "PRODUCT_DECISION_RESOLUTION_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if result.status == "resolved" else 2
+
+
 def run_save_batch_mapping_replacement(args: argparse.Namespace) -> int:
     try:
         registry = load_company_registry(args.registry)
@@ -2161,6 +2250,8 @@ def main() -> int:
         return run_save_batch_item_expansion(args)
     if args.command == "save-product-mapping":
         return run_save_product_mapping(args)
+    if args.command == "resolve-product-decision":
+        return run_resolve_product_decision(args)
     if args.command == "save-batch-mapping-replacement":
         return run_save_batch_mapping_replacement(args)
     if args.command == "save-package-semantics-proposal":

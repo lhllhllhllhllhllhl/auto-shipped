@@ -306,6 +306,37 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅本次使用", decision.confirmation_question)
         self.assertIn("以后遇到相同来源时沿用", decision.confirmation_question)
 
+    def test_name_candidate_offers_source_or_global_future_scope(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "蓝色硬款搓澡巾", "S1", "硬款", 100, "上海仓")],
+            source_policies={
+                "tiantian_warehouse_v2": {
+                    "source_identifier_type": "product_name",
+                    "fuzzy_name_action": "candidate_requires_user_confirmation",
+                }
+            },
+        )
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="",
+            source_product_name="蓝色硬款搓澡巾",
+            source_spec="",
+            quantity=1,
+            source_line_no=2,
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "preview_ready")
+        decision = result.decisions[0]
+        self.assertEqual(decision.future_scope_options, ("source", "global"))
+        self.assertIn("以后所有来源沿用", decision.confirmation_question)
+
     def test_white_label_library_adds_one_order_level_system_remark(self) -> None:
         order = parsed_order()
         order.source_note = "周末发货"

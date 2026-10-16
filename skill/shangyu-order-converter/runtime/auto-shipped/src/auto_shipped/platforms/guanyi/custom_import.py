@@ -606,11 +606,18 @@ def build_custom_import_lines(
                     if future_allowed
                     else ("current_batch",)
                 )
-                scope_prompt = (
-                    "如果判断正确，请选择仅本次使用，还是以后遇到相同来源时沿用。"
-                    if future_allowed
-                    else "该来源已有正式映射但身份信息不一致，只能先按本批次确认；长期修改请联系管理员。"
+                global_alias_eligible = (
+                    future_allowed and resolution.identifier_type == "product_name"
                 )
+                if global_alias_eligible:
+                    scope_prompt = (
+                        "如果判断正确，请选择仅本次使用、以后仅当前来源沿用，"
+                        "还是以后所有来源沿用。"
+                    )
+                elif future_allowed:
+                    scope_prompt = "如果判断正确，请选择仅本次使用，还是以后遇到相同来源时沿用。"
+                else:
+                    scope_prompt = "该来源已有正式映射但身份信息不一致，只能先按本批次确认；长期修改请联系管理员。"
                 result.decisions.append(
                     DecisionItem(
                         code="CONFIRM_GUANYI_PRODUCT_MAPPING",
@@ -629,6 +636,7 @@ def build_custom_import_lines(
                             "product_name": proposed_product.product_name,
                             "spec_name": proposed_product.spec_name,
                             "match_method": resolution.match_method,
+                            "global_alias_eligible": global_alias_eligible,
                         },
                         confirmation_question=(
                             f"系统暂按“{source_label}”→管易商品代码"
@@ -637,6 +645,9 @@ def build_custom_import_lines(
                         ),
                         reason=resolution.reason or "当前商品映射被标记为待确认。",
                         persistence_options=persistence_options,
+                        future_scope_options=(
+                            ("source", "global") if global_alias_eligible else ()
+                        ),
                         next_action="use_once_or_submit_mapping_if_reusable",
                     )
                 )

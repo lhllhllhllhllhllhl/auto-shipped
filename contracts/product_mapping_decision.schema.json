@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/product-mapping-decision-v1.json",
+  "title": "Shangyu Product Mapping Decision Resolution",
+  "description": "把用户对商品候选的回答绑定到原待确认项；来源身份不可由用户目标线索覆盖。",
+  "type": "object",
+  "required": [
+    "schema_version", "status", "decision_id", "source_identity",
+    "source_identity_sha256", "target_hint", "target_resolution",
+    "reuse_scope", "mapping_scope", "mapping_record", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "status": {"enum": ["resolved", "needs_input"]},
+    "decision_id": {"type": "string", "pattern": "^D-[0-9a-f]{12}$"},
+    "source_identity": {
+      "type": "object",
+      "required": ["company_id", "source_profile_id", "identifier_type", "source_value", "source_spec", "source_fingerprint"],
+      "properties": {
+        "company_id": {"type": "string"},
+        "source_profile_id": {"type": "string"},
+        "identifier_type": {"enum": ["product_code", "barcode", "product_name"]},
+        "source_value": {"type": "string"},
+        "source_spec": {"type": "string"},
+        "source_fingerprint": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "source_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "target_hint": {
+      "type": "object",
+      "required": ["raw_value", "declared_type"],
+      "properties": {
+        "raw_value": {"type": "string"},
+        "declared_type": {"enum": ["auto", "spec_code", "product_code", "barcode", "product_name"]}
+      },
+      "additionalProperties": false
+    },
+    "target_resolution": {"type": "object"},
+    "reuse_scope": {"enum": ["current_batch", "future"]},
+    "mapping_scope": {"enum": ["source", "global"]},
+    "mapping_record": {"type": ["object", "null"]},
+    "safety": {
+      "type": "object",
+      "required": ["source_identity_copied_from_decision_bundle", "user_target_hint_never_rewrites_source", "fuzzy_candidate_requires_another_confirmation", "may_persist"],
+      "properties": {
+        "source_identity_copied_from_decision_bundle": {"const": true},
+        "user_target_hint_never_rewrites_source": {"const": true},
+        "fuzzy_candidate_requires_another_confirmation": {"type": "boolean"},
+        "may_persist": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -18,6 +18,7 @@ from .item_expansion_registry import (
     ItemExpansionRegistryError,
     normalize_item_expansion_rules,
 )
+from .mapping_contract import MappingScopeError, normalize_mapping_scope
 
 
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
@@ -86,6 +87,17 @@ def build_official_mapping_snapshot(
             raise OfficialMappingSyncError(
                 f"正式映射{mapping_id}使用未知identifier_type：{identifier_type}"
             )
+        try:
+            mapping_scope = normalize_mapping_scope(
+                company_id=company_id,
+                source_profile_id=source_profile_id,
+                identifier_type=identifier_type,
+                source_value=source_value,
+            )
+        except MappingScopeError as exc:
+            raise OfficialMappingSyncError(
+                f"正式映射{mapping_id}作用范围无效：{exc}"
+            ) from exc
         if target_platform != "guanyi":
             raise OfficialMappingSyncError(
                 f"正式映射{mapping_id}目标平台不是guanyi。"
@@ -129,6 +141,7 @@ def build_official_mapping_snapshot(
             "identifier_type": identifier_type,
             "source_value": source_value,
             "source_spec": source_spec,
+            "mapping_scope": mapping_scope,
             "product_code": product_code,
             "spec_code": spec_code,
             "confirmed": True,
@@ -252,6 +265,27 @@ def validate_official_mapping_snapshot(
         if identifier_type not in ALLOWED_IDENTIFIER_TYPES:
             raise OfficialMappingSyncError(
                 f"正式映射快照记录{mapping_id}使用未知identifier_type。"
+            )
+        try:
+            mapping_scope = normalize_mapping_scope(
+                company_id=company_id,
+                source_profile_id=source_profile_id,
+                identifier_type=identifier_type,
+                source_value=source_value,
+            )
+        except MappingScopeError as exc:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}作用范围无效：{exc}"
+            ) from exc
+        stored_mapping_scope = clean_identifier(source.get("mapping_scope"))
+        # Older signed snapshots predate the explicit mapping_scope field.
+        # Their scope is still derivable from the existing wildcard contract.
+        # New snapshots always persist the field; reject only an explicit
+        # conflict so a temporary Feishu outage does not invalidate a valid
+        # pre-upgrade cache.
+        if stored_mapping_scope and stored_mapping_scope != mapping_scope:
+            raise OfficialMappingSyncError(
+                f"正式映射快照记录{mapping_id}的mapping_scope与公司/来源作用域不一致。"
             )
         if source.get("confirmed") is not True:
             raise OfficialMappingSyncError(f"正式映射快照记录{mapping_id}未确认。")

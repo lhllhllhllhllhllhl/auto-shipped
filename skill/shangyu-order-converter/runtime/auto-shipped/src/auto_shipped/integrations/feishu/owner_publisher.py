@@ -25,6 +25,7 @@ from .pending_mappings import (
     PendingMappingProposal,
     build_mapping_key,
 )
+from .mapping_contract import MappingScopeError, scoped_mapping_identity
 
 
 PUBLISH_CONFIRMATION_TOKEN = "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS"
@@ -326,6 +327,7 @@ def add_confirmed_mapping_direct(
     confirmation_token: str,
     operation_id: str | None = None,
     timestamp: str | None = None,
+    mapping_scope: str = "source",
 ) -> DirectMappingAddResult:
     """Append one conflict-free user-confirmed mapping to the official table.
 
@@ -365,7 +367,29 @@ def add_confirmed_mapping_direct(
             code="DIRECT_MAPPING_USER_IDENTITY_REQUIRED",
             reason="必须使用可追溯的飞书用户身份，禁止共享机器人身份写正式映射。",
         )
-    if company_id not in {clean_identifier(value) for value in allowed_company_ids}:
+    try:
+        company_id, source_profile_id, resolved_scope = scoped_mapping_identity(
+            mapping_scope=mapping_scope,
+            company_id=company_id,
+            source_profile_id=source_profile_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+        )
+    except MappingScopeError as exc:
+        return DirectMappingAddResult(
+            status="blocked",
+            operation_id=operation_id or "",
+            mapping_key="",
+            revision_before="",
+            revision_after="",
+            product_code="",
+            spec_code="",
+            code="DIRECT_MAPPING_SCOPE_INVALID",
+            reason=str(exc),
+        )
+    if resolved_scope == "source" and company_id not in {
+        clean_identifier(value) for value in allowed_company_ids
+    }:
         return DirectMappingAddResult(
             status="needs_admin",
             operation_id=operation_id or "",
@@ -377,7 +401,7 @@ def add_confirmed_mapping_direct(
             code="DIRECT_MAPPING_COMPANY_NOT_REGISTERED",
             reason="公司尚未登记，不能通过商品映射入口新增；请联系管理员维护公司库。",
         )
-    if source_profile_id not in {
+    if resolved_scope == "source" and source_profile_id not in {
         clean_identifier(value) for value in allowed_source_profile_ids
     }:
         return DirectMappingAddResult(
