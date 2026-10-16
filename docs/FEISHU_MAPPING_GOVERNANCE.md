@@ -57,6 +57,8 @@ list_pending_proposals / append_pending_proposal
 
 待确认写入必须使用当前员工的飞书`user`身份。共享`bot`身份无法区分员工，必须返回`FEISHU_USER_IDENTITY_REQUIRED`。
 
+备用适配器优先用`lark-cli auth status --verify`取得稳定用户身份。部分旧版CLI（已见`v1.0.93`）没有`auth`子命令，但提供`whoami --as user`；此时适配器读取`onBehalfOf.openId`，并用同一user身份真实读取正式库元数据后才接受该身份。只从dry-run看到`identity=user`不足以证明稳定用户ID，不能放行正式写入。两个身份接口都不可用时返回准确网关错误，不得笼统描述成“版本不兼容”后继续声称长期复用成功。
+
 正式映射只读同步额外支持Agent原生载荷桥：Agent从固定Sheet ID读取后，必须提交以下结构给确定性校验器，不能直接把模型理解结果交给转换器：
 
 ```json
@@ -267,6 +269,8 @@ python3 <skill-dir>/scripts/feishu_mapping.py add \
 ```
 
 命令会验证当前用户身份、公司/来源登记、有效商品目录、正式库版本和重复键；写入后回读映射、日志和新版本，并同步本机正式快照。完全重复返回`already_exists`且不增加版本；同键不同目标返回`needs_admin`且不写入。
+
+用户已经授权“以后沿用”而受控新增因CLI身份、权限、网络或接口错误失败时，不得再次询问授权，也不得声称长期登记成功。目标已经确认且本批指纹可用时，可以降级为仅当前批次临时映射以完成预览，并保留准确错误代码和待补录状态；网关恢复后重试同一幂等新增操作。临时映射永远不能替代正式表的写后回读证据。
 
 名称别名需要所有来源共享时，在同一命令增加`--mapping-scope global`；仅当前来源沿用时保持默认`--mapping-scope source`。全局新增仍执行相同的目标目录校验、重复/冲突门禁、版本锁、发布日志和写后回读。
 

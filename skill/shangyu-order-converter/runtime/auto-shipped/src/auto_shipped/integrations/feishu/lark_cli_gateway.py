@@ -267,7 +267,12 @@ class LarkCliFeishuSheetGateway:
         return start
 
     def get_current_identity(self) -> FeishuIdentity:
-        data = self._run("auth", "status", "--json", "--verify")
+        try:
+            data = self._run("auth", "status", "--json", "--verify")
+        except LarkCliGatewayError as auth_error:
+            if not self._is_unknown_auth_command(auth_error):
+                raise
+            return self._get_current_identity_from_whoami(auth_error)
         user = (data.get("identities") or {}).get("user") or {}
         if not user.get("available") or user.get("status") != "ready":
             return FeishuIdentity(user_id="", identity_type="unavailable")
@@ -275,6 +280,56 @@ class LarkCliFeishuSheetGateway:
             user_id=str(user.get("openId") or ""),
             identity_type="user",
             display_name=str(user.get("userName") or ""),
+        )
+
+    @staticmethod
+    def _is_unknown_auth_command(error: LarkCliGatewayError) -> bool:
+        message = str(error).lower()
+        return "unknown command" in message and "auth" in message
+
+    def _get_current_identity_from_whoami(
+        self,
+        auth_error: LarkCliGatewayError,
+    ) -> FeishuIdentity:
+        try:
+            data = self._run("whoami", "--as", "user")
+        except LarkCliGatewayError as whoami_error:
+            raise LarkCliGatewayError(
+                "当前lark-cli不支持auth status，whoami兼容身份探针也失败："
+                f"auth={auth_error}; whoami={whoami_error}"
+            ) from whoami_error
+
+        delegated = data.get("onBehalfOf") or data.get("on_behalf_of") or {}
+        identity_type = str(data.get("identity") or "").strip().lower()
+        token_status = str(
+            data.get("tokenStatus") or data.get("token_status") or ""
+        ).strip().lower()
+        available = data.get("available") is True
+        user_id = str(
+            delegated.get("openId") or delegated.get("open_id") or ""
+        ).strip()
+        if (
+            identity_type != "user"
+            or not available
+            or token_status != "ready"
+            or not user_id
+        ):
+            return FeishuIdentity(user_id="", identity_type="unavailable")
+
+        # Older lark-cli releases can expose whoami without auth status.  Verify
+        # the reported user token against the configured workbook before that
+        # identity is allowed to participate in a governed write.
+        self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_metadata_sheet_id,
+            cell_range="A1:B2",
+        )
+        return FeishuIdentity(
+            user_id=user_id,
+            identity_type="user",
+            display_name=str(
+                delegated.get("userName") or delegated.get("user_name") or ""
+            ),
         )
 
     def _require_feedback_binding(self) -> tuple[str, str, str]:
