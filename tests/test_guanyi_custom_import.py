@@ -797,6 +797,157 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     expected,
                 )
 
+    def test_sam_direct_and_expanded_items_use_the_same_catalog_product_name(self) -> None:
+        sam_rules = json.loads(
+            (
+                PROJECT_ROOT
+                / "config"
+                / "platform_rules"
+                / "guanyi"
+                / "sam_order_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "JTTZE1",
+                    "光明满元气 花糯玉米8棒家庭装",
+                    "6974768564835",
+                    "8袋/箱",
+                    1210,
+                    "上海尚舆商贸有限公司",
+                ),
+                ProductRecord(
+                    "GMCN-1",
+                    "光明满元气 花糯玉米单根装",
+                    "6974768564798",
+                    "50根/箱",
+                    180,
+                    "上海尚舆商贸有限公司",
+                ),
+            ],
+            [
+                {
+                    "source_profile_id": "sam_order_v1",
+                    "identifier_type": "product_code",
+                    "source_value": "DIRECT-FLOWER",
+                    "product_code": "JTTZE1",
+                    "spec_code": "6974768564835",
+                    "confirmed": True,
+                }
+            ],
+        )
+        catalog.item_expansion_rules = (
+            {
+                "rule_id": "sam-flower-bundle",
+                "company_id": "sam",
+                "source_profile_id": "sam_order_v1",
+                "identifier_type": "product_code",
+                "source_value": "BUNDLE-FLOWER",
+                "source_spec": "8+1",
+                "target_platform": "guanyi",
+                "confirmed": True,
+                "reuse_scope": "future",
+                "components": [
+                    {
+                        "component_index": 1,
+                        "product_code": "JTTZE1",
+                        "spec_code": "6974768564835",
+                        "quantity_multiplier": 1,
+                    },
+                    {
+                        "component_index": 2,
+                        "product_code": "GMCN-1",
+                        "spec_code": "6974768564798",
+                        "quantity_multiplier": 1,
+                    },
+                ],
+            },
+        )
+        rules = confirmed_rules()
+        rules.pop("store_assignment_policy")
+        rules["defaults"]["store"] = {"value": "sam", "confirmed": True}
+        rules["field_output_policy"]["product_name"] = sam_rules[
+            "field_output_policy"
+        ]["product_name"]
+        rules["item_expansion_policy"] = sam_rules["item_expansion_policy"]
+
+        direct_order = parsed_order()
+        direct_order.source = ParsedSource(
+            profile_id="sam_order_v1",
+            source_label="SAM群接龙订单",
+            order_type=direct_order.source.order_type,
+            source_order_no="SAM-DIRECT",
+            file_name=direct_order.source.file_name,
+            file_fingerprint=direct_order.source.file_fingerprint,
+            sheet_name=direct_order.source.sheet_name,
+            row_numbers=direct_order.source.row_numbers,
+        )
+        direct_order.items = [
+            ParsedItem(
+                source_product_code="DIRECT-FLOWER",
+                source_product_name="来源表里的花糯8根名称",
+                source_display_spec="花糯8根",
+                quantity=1,
+                source_line_no=2,
+            )
+        ]
+        expanded_order = parsed_order()
+        expanded_order.source = ParsedSource(
+            profile_id="sam_order_v1",
+            source_label="SAM群接龙订单",
+            order_type=expanded_order.source.order_type,
+            source_order_no="SAM-BUNDLE",
+            file_name=expanded_order.source.file_name,
+            file_fingerprint=expanded_order.source.file_fingerprint,
+            sheet_name=expanded_order.source.sheet_name,
+            row_numbers=expanded_order.source.row_numbers,
+        )
+        expanded_order.items = [
+            ParsedItem(
+                source_product_code="BUNDLE-FLOWER",
+                source_product_name="来源表里的花糯8+1名称",
+                source_spec="8+1",
+                source_display_spec="花糯8根+1根",
+                quantity=1,
+                source_line_no=2,
+            )
+        ]
+
+        direct_result = build_custom_import_lines(
+            [direct_order],
+            catalog,
+            rules,
+            self.profile,
+            source_company_id="sam",
+            official_mapping_ready=True,
+        )
+        expanded_result = build_custom_import_lines(
+            [expanded_order],
+            catalog,
+            rules,
+            self.profile,
+            source_company_id="sam",
+            official_mapping_ready=True,
+        )
+
+        self.assertEqual(direct_result.status, "ready")
+        self.assertEqual(expanded_result.status, "ready")
+        self.assertEqual(
+            direct_result.lines[0]["商品名称"],
+            "光明满元气 花糯玉米8棒家庭装",
+        )
+        expanded_flower = next(
+            line
+            for line in expanded_result.lines
+            if line["商品代码"] == "JTTZE1"
+            and line["规格代码"] == "6974768564835"
+        )
+        self.assertEqual(
+            expanded_flower["商品名称"],
+            direct_result.lines[0]["商品名称"],
+        )
+
     def test_missing_official_mapping_blocks_before_product_question(self) -> None:
         result = build_custom_import_lines(
             [parsed_order()],

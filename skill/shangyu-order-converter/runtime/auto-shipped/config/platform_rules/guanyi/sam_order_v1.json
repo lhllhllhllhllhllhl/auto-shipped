@@ -3,7 +3,7 @@
   "profile_id": "guanyi_sam_order_v1",
   "source_profile_id": "sam_order_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 14,
+  "version": 15,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.sam_fixed.v1"},
     "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
@@ -23,9 +23,9 @@
   },
   "field_output_policy": {
     "product_name": {
-      "strategy": "source_name_with_display_spec_for_standard_items",
+      "strategy": "catalog_product_name",
       "confirmed": true,
-      "source": "用户确认SAM商品名称应贴近人工习惯；普通商品使用来源品名与来源规格拼接，组合展开商品仍使用各目标商品的管易名称；2026-10-04"
+      "source": "用户确认：商品代码和规格代码确定后，普通商品与组合展开商品均从有效商品目录回填标准商品名称；2026-10-16"
     },
     "spec_name": {
       "strategy": "catalog_spec_name",

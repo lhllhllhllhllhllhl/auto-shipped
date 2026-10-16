@@ -191,7 +191,7 @@ class ArchitectureContractTests(unittest.TestCase):
         rules = load_guanyi_rules("sam_order_v1.json")
         self.assertEqual(
             rules["field_output_policy"]["product_name"]["strategy"],
-            "source_name_with_display_spec_for_standard_items",
+            "catalog_product_name",
         )
         buyer = rules["buyer_member_policy"]
         self.assertEqual(buyer["strategy"], "sam_product_type_date_group")
