@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +47,28 @@ def compatible_python() -> str | None:
     return None
 
 
+def make_tree_owner_writable(root: Path) -> None:
+    """Undo read-only package modes on a private copied runtime."""
+
+    for directory, _, filenames in os.walk(root):
+        directory_path = Path(directory)
+        directory_mode = stat.S_IMODE(directory_path.stat().st_mode)
+        directory_path.chmod(
+            directory_mode | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
+        )
+        for filename in filenames:
+            file_path = directory_path / filename
+            if file_path.is_symlink():
+                continue
+            file_mode = stat.S_IMODE(file_path.stat().st_mode)
+            file_path.chmod(file_mode | stat.S_IRUSR | stat.S_IWUSR)
+
+
+def copy_runtime_tree(source: Path, destination: Path) -> None:
+    shutil.copytree(source, destination)
+    make_tree_owner_writable(destination)
+
+
 def main() -> int:
     integrity = verify_bundled_runtime()
     if not integrity.get("ready"):
@@ -69,7 +93,7 @@ def main() -> int:
         if STATE_PROJECT_ROOT.exists():
             shutil.rmtree(STATE_PROJECT_ROOT)
         STATE_PROJECT_ROOT.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(BUNDLED_PROJECT_ROOT, STATE_PROJECT_ROOT)
+        copy_runtime_tree(BUNDLED_PROJECT_ROOT, STATE_PROJECT_ROOT)
     except OSError as error:
         print(json.dumps({
             "status": "failed",

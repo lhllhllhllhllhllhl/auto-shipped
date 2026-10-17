@@ -1,11 +1,15 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { chromium } from "playwright-core";
 
 import {
   APP_URL,
   ARTIFACT_DIR,
+  BROWSER_SESSION_LOCK,
   CHROME_EXECUTABLE,
   DEFAULT_TIMEOUT_MS,
+  LOGIN_RESULT_TIMEOUT_MS,
   PROFILE_DIR,
   LOGIN_URL,
   WINDOW_HEIGHT,
@@ -29,6 +33,96 @@ export class SessionError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+
+function isProcessAlive(processId) {
+  if (!Number.isInteger(processId) || processId < 1) return false;
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+
+export async function acquireBrowserSessionLease(
+  lockPath = BROWSER_SESSION_LOCK,
+  {
+    processId = process.pid,
+    processAlive = isProcessAlive,
+    now = () => Date.now(),
+  } = {},
+) {
+  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const nonce = randomUUID();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let handle;
+    try {
+      handle = await fs.open(lockPath, "wx", 0o600);
+      await handle.writeFile(
+        `${JSON.stringify({
+          schemaVersion: "guanyi-browser-session-lock/1.0",
+          processId,
+          nonce,
+          createdAt: new Date(now()).toISOString(),
+        })}\n`,
+        "utf8",
+      );
+      await handle.close();
+      handle = null;
+      let released = false;
+      return {
+        lockPath,
+        async release() {
+          if (released) return;
+          const current = await fs
+            .readFile(lockPath, "utf8")
+            .then((value) => JSON.parse(value))
+            .catch(() => null);
+          if (current?.nonce === nonce) {
+            await fs.unlink(lockPath).catch((error) => {
+              if (error?.code !== "ENOENT") throw error;
+            });
+          }
+          released = true;
+        },
+      };
+    } catch (error) {
+      await handle?.close().catch(() => null);
+      if (error?.code !== "EEXIST") throw error;
+      const [existing, stats] = await Promise.all([
+        fs
+          .readFile(lockPath, "utf8")
+          .then((value) => JSON.parse(value))
+          .catch(() => null),
+        fs.stat(lockPath).catch(() => null),
+      ]);
+      const ownerAlive = processAlive(existing?.processId);
+      const incompleteAndFresh =
+        !existing && stats && now() - stats.mtimeMs < 5_000;
+      if (ownerAlive || incompleteAndFresh) {
+        throw new SessionError(
+          "BROWSER_SESSION_BUSY",
+          "管易专用浏览器正在被另一个操作使用；请继续当前操作，不要启动 probe、导航或第二个登录。",
+          {
+            ownerProcessId: Number.isInteger(existing?.processId)
+              ? existing.processId
+              : null,
+            createdAt: existing?.createdAt || null,
+          },
+        );
+      }
+      await fs.unlink(lockPath).catch((unlinkError) => {
+        if (unlinkError?.code !== "ENOENT") throw unlinkError;
+      });
+    }
+  }
+  throw new SessionError(
+    "BROWSER_SESSION_BUSY",
+    "无法取得管易专用浏览器的独占使用权。",
+  );
 }
 
 
@@ -111,35 +205,46 @@ export async function retainSingleStartupPage(context) {
 
 
 export async function launchSession() {
-  await fs.access(CHROME_EXECUTABLE);
-  await fs.mkdir(PROFILE_DIR, { recursive: true, mode: 0o700 });
-  await fs.mkdir(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
+  const lease = await acquireBrowserSessionLease();
+  let context;
+  try {
+    await fs.access(CHROME_EXECUTABLE);
+    await fs.mkdir(PROFILE_DIR, { recursive: true, mode: 0o700 });
+    await fs.mkdir(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
 
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    executablePath: CHROME_EXECUTABLE,
-    headless: false,
-    viewport: null,
-    acceptDownloads: false,
-    locale: "zh-CN",
-    args: [
-      "--no-first-run",
-      "--no-default-browser-check",
-      `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
-      "--window-position=0,0",
-    ],
-  });
-  context.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
-  context.setDefaultNavigationTimeout(30_000);
+    context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      executablePath: CHROME_EXECUTABLE,
+      headless: false,
+      viewport: null,
+      acceptDownloads: false,
+      locale: "zh-CN",
+      args: [
+        "--no-first-run",
+        "--no-default-browser-check",
+        `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
+        "--window-position=0,0",
+      ],
+    });
+    context.once("close", () => {
+      void lease.release();
+    });
+    context.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+    context.setDefaultNavigationTimeout(30_000);
 
-  const page = await retainSingleStartupPage(context);
-  for (const candidate of context.pages()) {
-    registerPageGeometry(context, candidate);
+    const page = await retainSingleStartupPage(context);
+    for (const candidate of context.pages()) {
+      registerPageGeometry(context, candidate);
+    }
+    context.on("page", (candidate) => {
+      registerPageGeometry(context, candidate);
+    });
+    await ensurePageGeometry(page, "browser_launch", { forceApply: true });
+    return { context, page, release: lease.release };
+  } catch (error) {
+    await context?.close().catch(() => null);
+    await lease.release();
+    throw error;
   }
-  context.on("page", (candidate) => {
-    registerPageGeometry(context, candidate);
-  });
-  await ensurePageGeometry(page, "browser_launch", { forceApply: true });
-  return { context, page };
 }
 
 
@@ -222,6 +327,125 @@ export async function submitSmsCode(page, code) {
 }
 
 
+const LOGIN_FEEDBACK_SELECTORS = [
+  '[role="alert"]',
+  '[role="dialog"]',
+  ".ant-message-notice-content",
+  ".ant-notification-notice",
+  ".ant-modal-content",
+  ".ant-form-item-explain-error",
+  ".ant-form-item-explain",
+].join(",");
+
+
+export function classifyLoginFeedback(text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (
+    /验证码.{0,12}(错误|不正确|无效|过期|失效)|(?:错误|不正确|无效|过期|失效).{0,12}验证码/.test(
+      value,
+    )
+  ) {
+    return "sms_code_rejected";
+  }
+  if (
+    /操作过于频繁|操作频繁|登录频繁|请求频繁|稍后再试|安全风险|风险验证|账号异常|访问受限|登录受限/.test(
+      value,
+    )
+  ) {
+    return "login_risk_controlled";
+  }
+  if (
+    /账号或密码|密码.{0,8}(错误|不正确|过期)|账号.{0,8}(不存在|锁定|禁用)/.test(
+      value,
+    )
+  ) {
+    return "credentials_rejected";
+  }
+  return null;
+}
+
+
+function feedbackError(category, details) {
+  if (category === "sms_code_rejected") {
+    return new SessionError(
+      "SMS_CODE_REJECTED",
+      "管易登录页拒绝了本次短信验证码；不要自动重新发送短信。",
+      details,
+    );
+  }
+  if (category === "login_risk_controlled") {
+    return new SessionError(
+      "LOGIN_RISK_CONTROLLED",
+      "管易登录页显示频率或安全风控提示；请停止重试并人工确认。",
+      details,
+    );
+  }
+  if (category === "credentials_rejected") {
+    return new SessionError(
+      "LOGIN_CREDENTIALS_REJECTED",
+      "管易登录页拒绝了当前账号或密码。",
+      details,
+    );
+  }
+  return null;
+}
+
+
+export async function inspectPostSmsLoginState(page) {
+  const url = page.url();
+  const safeUrl = (() => {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      return "unknown";
+    }
+  })();
+  const verificationVisible = await isVerificationRequired(page);
+  const visibleFeedback = await page
+    .locator(LOGIN_FEEDBACK_SELECTORS)
+    .evaluateAll((elements) =>
+      elements.reduce(
+        (result, element) => {
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const visible =
+            style.visibility !== "hidden" &&
+            style.display !== "none" &&
+            rect.width > 0 &&
+            rect.height > 0;
+          if (!visible) return result;
+          const text = element.innerText || element.textContent || "";
+          if (text) result.texts.push(text);
+          if (
+            element.matches('[role="dialog"], .ant-modal-content') ||
+            element.closest('[role="dialog"], .ant-modal-content')
+          ) {
+            result.dialogVisible = true;
+          }
+          return result;
+        },
+        { texts: [], dialogVisible: false },
+      ),
+    )
+    .catch(() => ({ texts: [], dialogVisible: false }));
+  const feedbackCategory = visibleFeedback.texts
+    .map((value) => classifyLoginFeedback(value))
+    .find(Boolean) || null;
+  return {
+    pageState: isAuthenticatedAppUrl(url)
+      ? "authenticated_app"
+      : isLoginUrl(url)
+        ? "login_page"
+        : "other_page",
+    safeUrl,
+    verificationVisible,
+    feedbackCategory,
+    dialogVisible: visibleFeedback.dialogVisible,
+  };
+}
+
+
 export async function markDedicatedLoginWindow(page) {
   await page.evaluate(() => {
     document.title = "【尚舆自动化专用】管易登录";
@@ -259,7 +483,10 @@ export async function loginWithCredentials(
 ) {
   const prepared = await fillPreparedCredentialLogin(page, credentials);
   await submitPreparedCredentialLogin(page, prepared);
-  return await waitForAuthenticatedPage(context, page, timeoutMs, options);
+  return await waitForAuthenticatedPage(context, page, timeoutMs, {
+    ...options,
+    credentialsSubmitted: true,
+  });
 }
 
 
@@ -338,10 +565,20 @@ export async function waitForAuthenticatedPage(
   context,
   page,
   timeoutMs,
-  { onVerificationRequired } = {},
+  {
+    onVerificationRequired,
+    postVerificationTimeoutMs = LOGIN_RESULT_TIMEOUT_MS,
+    additionalStepStabilityMs = 1_500,
+    credentialsSubmitted = false,
+  } = {},
 ) {
-  const deadline = Date.now() + timeoutMs;
+  let deadline = Date.now() + timeoutMs;
   let verificationReported = false;
+  let verificationSubmitted = false;
+  let verificationPage = null;
+  let lastObservation = null;
+  let unregisteredPageSince = null;
+  let unregisteredSafeUrl = null;
   while (Date.now() < deadline) {
     for (const candidate of context.pages()) {
       if (
@@ -357,8 +594,52 @@ export async function waitForAuthenticatedPage(
         (await isVerificationRequired(candidate))
       ) {
         verificationReported = true;
+        verificationPage = candidate;
         await candidate.bringToFront();
-        await onVerificationRequired?.(candidate);
+        const result = await onVerificationRequired?.(candidate);
+        if (result?.verificationSubmitted) {
+          verificationSubmitted = true;
+          deadline = Date.now() + postVerificationTimeoutMs;
+        }
+      }
+      if (verificationSubmitted && candidate === verificationPage) {
+        lastObservation = await inspectPostSmsLoginState(candidate);
+        const feedbackFailure = feedbackError(
+          lastObservation.feedbackCategory,
+          lastObservation,
+        );
+        if (feedbackFailure) throw feedbackFailure;
+        if (lastObservation.dialogVisible) {
+          throw new SessionError(
+            "LOGIN_ADDITIONAL_STEP_REQUIRED",
+            "验证码提交后出现了未登记的登录步骤或弹窗；已停止自动处理。",
+            lastObservation,
+          );
+        }
+        if (lastObservation.pageState === "other_page") {
+          if (unregisteredSafeUrl !== lastObservation.safeUrl) {
+            unregisteredSafeUrl = lastObservation.safeUrl;
+            unregisteredPageSince = Date.now();
+          } else if (
+            Date.now() - unregisteredPageSince >= additionalStepStabilityMs
+          ) {
+            throw new SessionError(
+              "LOGIN_ADDITIONAL_STEP_REQUIRED",
+              "验证码提交后停留在未登记的登录步骤；已停止自动处理。",
+              lastObservation,
+            );
+          }
+        } else {
+          unregisteredPageSince = null;
+          unregisteredSafeUrl = null;
+        }
+      } else if (credentialsSubmitted && candidate === page) {
+        const observation = await inspectPostSmsLoginState(candidate);
+        const feedbackFailure = feedbackError(
+          observation.feedbackCategory,
+          observation,
+        );
+        if (feedbackFailure) throw feedbackFailure;
       }
     }
     if (
@@ -368,6 +649,19 @@ export async function waitForAuthenticatedPage(
       return page;
     }
     await page.waitForTimeout(250);
+  }
+  if (verificationSubmitted) {
+    throw new SessionError(
+      "LOGIN_OUTCOME_UNCONFIRMED",
+      "验证码已提交，但管易没有在限定时间内给出可确认的登录结果；禁止自动重试。",
+      lastObservation || {
+        pageState: "unknown",
+        safeUrl: "unknown",
+        verificationVisible: null,
+        feedbackCategory: null,
+        dialogVisible: null,
+      },
+    );
   }
   throw new Error(`等待管易登录超时：${timeoutMs}ms`);
 }

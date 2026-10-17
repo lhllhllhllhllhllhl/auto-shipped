@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
-import { LOGIN_OPERATION_DIR, LOGIN_TIMEOUT_MS } from "./config.mjs";
+import {
+  LOGIN_OPERATION_DIR,
+  LOGIN_TIMEOUT_MS,
+} from "./config.mjs";
 
 
 export const SMS_REQUEST_AUTHORIZATION = "CONFIRM_REQUEST_GUANYI_SMS";
@@ -135,6 +138,7 @@ export function publicLoginOperation(record) {
   if (record.error) {
     payload.code = record.error.code;
     payload.message = record.error.message;
+    if (record.error.details) payload.details = record.error.details;
   }
   if (record.state === LoginOperationState.WAITING_FOR_CREDENTIALS) {
     payload.credentialMode = "temporary_agent_input";
@@ -337,7 +341,13 @@ export async function setLoginControlEndpoint(
 export async function transitionLoginOperation(
   operationId,
   nextState,
-  { reason = null, code = null, message = null } = {},
+  {
+    reason = null,
+    code = null,
+    message = null,
+    details = null,
+    expiresInMs = null,
+  } = {},
   directory = LOGIN_OPERATION_DIR,
 ) {
   const loaded = await loadLoginOperation(operationId, directory);
@@ -354,6 +364,10 @@ export async function transitionLoginOperation(
     ...loaded.record,
     state: nextState,
     updatedAt: now,
+    expiresAt:
+      Number.isFinite(expiresInMs) && expiresInMs > 0
+        ? new Date(Date.now() + expiresInMs).toISOString()
+        : loaded.record.expiresAt,
     control: terminal
       ? { host: null, port: null, token: "" }
       : loaded.record.control,
@@ -362,6 +376,7 @@ export async function transitionLoginOperation(
         ? {
             code: code || "LOGIN_FAILED",
             message: message || "管易登录失败。",
+            details,
           }
         : loaded.record.error,
     history: [

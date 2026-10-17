@@ -1,4 +1,5 @@
 import sys
+import stat
 from pathlib import Path
 
 
@@ -7,6 +8,7 @@ SKILL_SCRIPTS = PROJECT_ROOT / "skill" / "shangyu-order-converter" / "scripts"
 sys.path.insert(0, str(SKILL_SCRIPTS))
 
 from runtime_common import runtime_trust_status, state_root_status  # noqa: E402
+from bootstrap_runtime import copy_runtime_tree, make_tree_owner_writable  # noqa: E402
 
 
 def test_source_checkout_is_an_explicit_development_runtime() -> None:
@@ -43,3 +45,37 @@ def test_writable_state_root_is_reported(tmp_path: Path) -> None:
 
     assert status["ready"] is True
     assert status["code"] is None
+
+
+def test_bootstrap_copy_makes_read_only_package_writable(tmp_path: Path) -> None:
+    source = tmp_path / "readonly-source"
+    nested = source / "browser" / "guanyi"
+    nested.mkdir(parents=True)
+    package_file = nested / "package.json"
+    package_file.write_text('{"private":true}\n', encoding="utf-8")
+    package_file.chmod(0o444)
+    nested.chmod(0o555)
+    (source / "browser").chmod(0o555)
+    source.chmod(0o555)
+
+    destination = tmp_path / "state-runtime"
+    try:
+        copy_runtime_tree(source, destination)
+
+        assert stat.S_IMODE(destination.stat().st_mode) & stat.S_IWUSR
+        assert stat.S_IMODE(
+            (destination / "browser").stat().st_mode
+        ) & stat.S_IWUSR
+        assert stat.S_IMODE(
+            (destination / "browser" / "guanyi").stat().st_mode
+        ) & stat.S_IWUSR
+        assert stat.S_IMODE(
+            (
+                destination
+                / "browser"
+                / "guanyi"
+                / "package.json"
+            ).stat().st_mode
+        ) & stat.S_IWUSR
+    finally:
+        make_tree_owner_writable(source)

@@ -36,9 +36,11 @@
 
 运行时自动识别操作系统：macOS 使用 Keychain；Windows 使用当前 Windows 用户的 DPAPI 加密凭证文件。两者都必须在新电脑重新配置，不能回退到明文配置。Linux/云端优先由平台 Secret/Vault 配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；该助手接受 `get` 参数并通过私有标准输出返回账号密码 JSON，Skill 不负责写入 Vault。没有安全凭证入口时仍先复用已有浏览器会话；会话失效且用户明确接受对话历史会保留密码时，可使用 `login-agent-start`。Agent用平台自带浏览器打开命令返回的单次`127.0.0.1`凭据页，把凭据直接交给仍在等待的Playwright worker；支持私有stdin的平台也可使用`login-credentials-submit`。项目不得把聊天凭据复制到临时脚本、文件、环境变量、命令参数或日志。
 
-云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口。跨消息凭据与短信验证共用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；单次凭据页提交成功后失效，验证码由用户临时提供，二者都只进入登录进程内存，不写文件或日志。
+云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口。平台内置/CDP浏览器与项目Playwright浏览器是两个隔离会话：前者只打开一次性的`127.0.0.1`交接页，后者自行观察和操作管易页面。跨消息凭据与短信验证共用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；单次凭据页提交成功后失效，验证码由用户临时提供，二者都只进入登录进程内存，不写文件或日志。验证码提交后由Playwright worker回读并返回脱敏分类，不要求平台浏览器看到管易窗口。
 
-默认状态目录不可写时，运行时会回退到当前系统用户独占的临时目录并在`doctor.py`中标记`persistent=false`；这能保证单次云端任务继续初始化，但不承诺跨云工作区保留profile。平台有明确的可写持久目录时，应通过`SHANGYU_SKILL_STATE_ROOT`指定该目录。`bootstrap_runtime.py`始终复制完整且经清单验证的运行时，不允许只复制`browser/guanyi`。
+默认状态目录不可写时，运行时会回退到当前系统用户独占的临时目录并在`doctor.py`中标记`persistent=false`；这能保证单次云端任务继续初始化，但不承诺跨云工作区保留profile。平台有明确的可写持久目录时，应通过`SHANGYU_SKILL_STATE_ROOT`指定该目录。`bootstrap_runtime.py`始终复制完整且经清单验证的运行时，不允许只复制`browser/guanyi`；只读Skill来源的权限不会原样阻断安装，复制完成后只对私有状态副本恢复当前用户写权限。
+
+同一持久profile由进程锁保证单一Playwright所有者。登录worker运行期间只能轮询同一operation的`login-status`，不得再启动`probe`、导航、上传或第二个登录。人机交接的每一等待阶段默认获得10分钟，验证码提交后的页面判定窗口默认45秒；`code_submitted`是等待态，不是重试信号。验证码错误、风控、凭据拒绝、未知弹窗/额外步骤和结果不明确都会失败关闭，禁止自动重发短信。
 
 macOS 已完成真实登录和导航验收。Windows 已实现路径选择、虚拟环境、Chrome 发现和 DPAPI 提供器，并通过平台路由单元测试；首次拿到真实 Windows 电脑时仍必须完成 `doctor → credential-web → probe → navigate-import` 实机验收后，才能启用自动登录。
 

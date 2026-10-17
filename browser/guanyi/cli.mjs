@@ -6,7 +6,11 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-import { ARTIFACT_DIR, LOGIN_TIMEOUT_MS } from "./config.mjs";
+import {
+  ARTIFACT_DIR,
+  LOGIN_RESULT_TIMEOUT_MS,
+  LOGIN_TIMEOUT_MS,
+} from "./config.mjs";
 import {
   CredentialError,
   credentialProviderName,
@@ -84,6 +88,23 @@ import {
 
 function printJson(payload) {
   process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+
+const LOGIN_SESSION_ERROR_CODES = new Set([
+  "SMS_CODE_REJECTED",
+  "LOGIN_RISK_CONTROLLED",
+  "LOGIN_CREDENTIALS_REJECTED",
+  "LOGIN_ADDITIONAL_STEP_REQUIRED",
+  "LOGIN_OUTCOME_UNCONFIRMED",
+]);
+
+
+function sessionErrorStatus(error) {
+  if (error.code === "BROWSER_SESSION_BUSY") return "browser_session_busy";
+  if (error.code === "LOGIN_RISK_CONTROLLED") return "login_blocked";
+  if (LOGIN_SESSION_ERROR_CODES.has(error.code)) return "login_failed";
+  return "access_blocked";
 }
 
 
@@ -306,7 +327,10 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         const verification = await transitionLoginOperation(
           operationId,
           LoginOperationState.NEEDS_VERIFICATION,
-          { reason: "sms_verification_required" },
+          {
+            reason: "sms_verification_required",
+            expiresInMs: LOGIN_TIMEOUT_MS,
+          },
         );
         pendingCommand = await mailbox.take(
           "request_sms",
@@ -322,7 +346,10 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
           const waiting = await transitionLoginOperation(
             operationId,
             LoginOperationState.WAITING_FOR_USER_CODE,
-            { reason: "sms_requested_and_notice_dismissed" },
+            {
+              reason: "sms_requested_and_notice_dismissed",
+              expiresInMs: LOGIN_TIMEOUT_MS,
+            },
           );
           pendingCommand.resolve(publicLoginOperation(waiting.record));
           pendingCommand = await mailbox.take(
@@ -333,10 +360,14 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
           const submitted = await transitionLoginOperation(
             operationId,
             LoginOperationState.CODE_SUBMITTED,
-            { reason: "one_time_sms_code_submitted" },
+            {
+              reason: "one_time_sms_code_submitted",
+              expiresInMs: LOGIN_RESULT_TIMEOUT_MS + 10_000,
+            },
           );
           pendingCommand.resolve(publicLoginOperation(submitted.record));
           pendingCommand = null;
+          return { verificationSubmitted: true };
         } catch (error) {
           pendingCommand?.reject(error);
           pendingCommand = null;
@@ -348,7 +379,10 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
       const waiting = await transitionLoginOperation(
         operationId,
         LoginOperationState.WAITING_FOR_CREDENTIALS,
-        { reason: "temporary_agent_credentials_required" },
+        {
+          reason: "temporary_agent_credentials_required",
+          expiresInMs: LOGIN_TIMEOUT_MS,
+        },
       );
       pendingCommand = await mailbox.take(
         "submit_credentials",
@@ -358,7 +392,10 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         const authenticating = await transitionLoginOperation(
           operationId,
           LoginOperationState.AUTHENTICATING,
-          { reason: "temporary_agent_credentials_filled" },
+          {
+            reason: "temporary_agent_credentials_filled",
+            expiresInMs: LOGIN_TIMEOUT_MS,
+          },
         );
         if (pendingCommand.action === "submit_credentials") {
           const temporaryCredentials = pendingCommand.credentials;
@@ -382,7 +419,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
           session.context,
           session.page,
           LOGIN_TIMEOUT_MS,
-          loginOptions,
+          { ...loginOptions, credentialsSubmitted: true },
         );
       } catch (error) {
         pendingCommand?.reject(error);
@@ -425,6 +462,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
           reason: "login_worker_failed",
           code: error?.code || error?.name || "LOGIN_FAILED",
           message: error?.message || "管易登录失败。",
+          details: error?.details || null,
         },
       ).catch(() => null);
     }
@@ -432,6 +470,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
   } finally {
     await new Promise((resolve) => server?.close(resolve) || resolve());
     await session?.context.close().catch(() => null);
+    await session?.release?.().catch(() => null);
   }
 }
 
@@ -565,7 +604,12 @@ async function runLoginStatus(operationId) {
     );
   }
   printJson(publicLoginOperation(loaded.record));
-  return loaded.record.state === LoginOperationState.FAILED ? 2 : 0;
+  return [
+    LoginOperationState.FAILED,
+    LoginOperationState.EXPIRED,
+  ].includes(loaded.record.state)
+    ? 2
+    : 0;
 }
 
 
@@ -581,7 +625,7 @@ async function runLoginSmsSubmit(operationId) {
   const code = await readSmsCode();
   await sendLoginControl(operationId, "submit_sms", { code });
   const loaded = await waitForLoginOperation(operationId, {
-    timeoutMs: 30_000,
+    timeoutMs: LOGIN_RESULT_TIMEOUT_MS + 5_000,
     states: new Set([
       LoginOperationState.AUTHENTICATED,
       LoginOperationState.FAILED,
@@ -589,7 +633,9 @@ async function runLoginSmsSubmit(operationId) {
     ]),
   });
   printJson(publicLoginOperation(loaded.record));
-  return loaded.record.state === LoginOperationState.AUTHENTICATED ? 0 : 2;
+  if (loaded.record.state === LoginOperationState.AUTHENTICATED) return 0;
+  if (loaded.record.state === LoginOperationState.CODE_SUBMITTED) return 0;
+  return 2;
 }
 
 
@@ -749,6 +795,7 @@ async function runAutoLoginWithSms(context, page, afterAuthenticated = null) {
         const code = await readSmsCode();
         await submitSmsCode(candidate, code);
         printJson({ status: "sms_code_submitted" });
+        return { verificationSubmitted: true };
       },
     },
   );
@@ -1220,7 +1267,11 @@ async function main() {
     }
     return await runNavigateImport(session.page);
   } catch (error) {
-    const screenshot = session?.page
+    const screenshot =
+      session?.page &&
+      !(error instanceof SessionError &&
+        (LOGIN_SESSION_ERROR_CODES.has(error.code) ||
+          error.code === "BROWSER_SESSION_BUSY"))
       ? await saveFailureScreenshot(session.page, "guanyi-probe-failure")
       : null;
     if (error instanceof CredentialError) {
@@ -1244,7 +1295,7 @@ async function main() {
     }
     if (error instanceof SessionError) {
       printJson({
-        status: "access_blocked",
+        status: sessionErrorStatus(error),
         code: error.code,
         message: error.message,
         details: error.details,
@@ -1321,6 +1372,7 @@ async function main() {
     return 1;
   } finally {
     await session?.context.close().catch(() => null);
+    await session?.release?.().catch(() => null);
   }
 }
 

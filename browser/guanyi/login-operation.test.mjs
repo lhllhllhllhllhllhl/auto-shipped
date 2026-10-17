@@ -106,6 +106,55 @@ test("temporary Agent credentials use the existing login state without persisten
 });
 
 
+test("user handoff transitions refresh expiry and expose only safe failure details", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
+  try {
+    const created = await createLoginOperation(directory, 1_000);
+    await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "worker_started" },
+      directory,
+    );
+    const waiting = await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.WAITING_FOR_CREDENTIALS,
+      { reason: "waiting", expiresInMs: 60_000 },
+      directory,
+    );
+    assert.ok(
+      Date.parse(waiting.record.expiresAt) > Date.parse(created.record.expiresAt),
+    );
+    await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "credentials_received" },
+      directory,
+    );
+    const failed = await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.FAILED,
+      {
+        reason: "page_observed",
+        code: "SMS_CODE_REJECTED",
+        message: "验证码被拒绝。",
+        details: {
+          pageState: "login_page",
+          feedbackCategory: "sms_code_rejected",
+        },
+      },
+      directory,
+    );
+    assert.deepEqual(publicLoginOperation(failed.record).details, {
+      pageState: "login_page",
+      feedbackCategory: "sms_code_rejected",
+    });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
 test("login control uses a private token and never persists the SMS code", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
   let server;

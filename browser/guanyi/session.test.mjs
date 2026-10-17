@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  acquireBrowserSessionLease,
+  classifyLoginFeedback,
   confirmStableAuthenticatedPage,
   fillPreparedCredentialLogin,
+  inspectPostSmsLoginState,
   isAccessBlockedText,
   isAuthenticatedAppUrl,
   isLoginUrl,
   retainSingleStartupPage,
   SessionError,
   submitPreparedCredentialLogin,
+  waitForAuthenticatedPage,
 } from "./session.mjs";
 
 
@@ -21,6 +28,261 @@ test("recognizes login, app, and firewall-blocked states", () => {
     true,
   );
   assert.equal(isAccessBlockedText("管易首页"), false);
+});
+
+
+test("classifies only safe login feedback categories", () => {
+  assert.equal(classifyLoginFeedback("短信验证码错误，请重新输入"), "sms_code_rejected");
+  assert.equal(classifyLoginFeedback("操作过于频繁，请稍后再试"), "login_risk_controlled");
+  assert.equal(classifyLoginFeedback("账号或密码错误"), "credentials_rejected");
+  assert.equal(classifyLoginFeedback("验证码将发送到手机号码"), null);
+});
+
+
+test("returns a redacted post-SMS observation", async () => {
+  const page = {
+    url() {
+      return "https://login.guanyierp.com/login?account=private";
+    },
+    getByPlaceholder() {
+      return { async isVisible() { return true; } };
+    },
+    getByText() {
+      return { async isVisible() { return true; } };
+    },
+    locator() {
+      return {
+        async evaluateAll() {
+          return {
+            texts: ["短信验证码错误，账号 13800000000"],
+            dialogVisible: false,
+          };
+        },
+      };
+    },
+  };
+
+  const result = await inspectPostSmsLoginState(page);
+  assert.deepEqual(result, {
+    pageState: "login_page",
+    safeUrl: "https://login.guanyierp.com/login",
+    verificationVisible: true,
+    feedbackCategory: "sms_code_rejected",
+    dialogVisible: false,
+  });
+  assert.equal(JSON.stringify(result).includes("13800000000"), false);
+  assert.equal(JSON.stringify(result).includes("account=private"), false);
+});
+
+
+test("fails fast with a classified result after an SMS code is submitted", async () => {
+  const page = {
+    url() {
+      return "https://login.guanyierp.com/login";
+    },
+    frames() {
+      return [this];
+    },
+    async bringToFront() {},
+    async waitForTimeout() {},
+    getByPlaceholder() {
+      return { async isVisible() { return true; } };
+    },
+    getByText() {
+      return { async isVisible() { return true; } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return { async innerText() { return ""; } };
+      }
+      return {
+        async evaluateAll() {
+          return {
+            texts: ["验证码已过期"],
+            dialogVisible: false,
+          };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  await assert.rejects(
+    waitForAuthenticatedPage(context, page, 1_000, {
+      postVerificationTimeoutMs: 100,
+      async onVerificationRequired() {
+        return { verificationSubmitted: true };
+      },
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "SMS_CODE_REJECTED" &&
+      error.details.feedbackCategory === "sms_code_rejected",
+  );
+});
+
+
+test("fails fast when submitted credentials are rejected before SMS", async () => {
+  const page = {
+    url() {
+      return "https://login.guanyierp.com/login";
+    },
+    frames() {
+      return [this];
+    },
+    async waitForTimeout() {},
+    getByPlaceholder() {
+      return { async isVisible() { return false; } };
+    },
+    getByText() {
+      return { async isVisible() { return false; } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return { async innerText() { return ""; } };
+      }
+      return {
+        async evaluateAll() {
+          return { texts: ["账号或密码错误"], dialogVisible: false };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  await assert.rejects(
+    waitForAuthenticatedPage(context, page, 1_000, {
+      credentialsSubmitted: true,
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "LOGIN_CREDENTIALS_REJECTED",
+  );
+});
+
+
+test("stops on an unregistered post-SMS dialog instead of retrying", async () => {
+  const page = {
+    url() {
+      return "https://login.guanyierp.com/login";
+    },
+    frames() {
+      return [this];
+    },
+    async bringToFront() {},
+    async waitForTimeout() {},
+    getByPlaceholder() {
+      return { async isVisible() { return true; } };
+    },
+    getByText() {
+      return { async isVisible() { return true; } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return { async innerText() { return ""; } };
+      }
+      return {
+        async evaluateAll() {
+          return { texts: ["需要进行额外确认"], dialogVisible: true };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  await assert.rejects(
+    waitForAuthenticatedPage(context, page, 1_000, {
+      postVerificationTimeoutMs: 100,
+      additionalStepStabilityMs: 0,
+      async onVerificationRequired() {
+        return { verificationSubmitted: true };
+      },
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "LOGIN_ADDITIONAL_STEP_REQUIRED" &&
+      error.details.dialogVisible === true,
+  );
+});
+
+
+test("allows a brief redirect page after SMS before authenticated app", async () => {
+  let url = "https://login.guanyierp.com/login";
+  const page = {
+    url() {
+      return url;
+    },
+    frames() {
+      return [this];
+    },
+    async bringToFront() {},
+    async waitForLoadState() {},
+    async waitForTimeout() {
+      url = "https://www.guanyierp.com/index";
+    },
+    async waitForURL() {
+      throw new Error("Timeout");
+    },
+    getByPlaceholder() {
+      return { async isVisible() { return true; } };
+    },
+    getByText() {
+      return { async isVisible() { return true; } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return { async innerText() { return "菜单 首页 我的工单"; } };
+      }
+      return {
+        async evaluateAll() {
+          return { texts: [], dialogVisible: false };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  const result = await waitForAuthenticatedPage(context, page, 1_000, {
+    postVerificationTimeoutMs: 100,
+    async onVerificationRequired() {
+      url = "https://login.guanyierp.com/redirect";
+      return { verificationSubmitted: true };
+    },
+  });
+  assert.equal(result, page);
+});
+
+
+test("allows only one Playwright owner for a browser profile", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-lock-"));
+  const lockPath = path.join(directory, "browser.lock");
+  let first;
+  let second;
+  try {
+    first = await acquireBrowserSessionLease(lockPath, {
+      processId: 111,
+      processAlive: (processId) => processId === 111,
+    });
+    await assert.rejects(
+      acquireBrowserSessionLease(lockPath, {
+        processId: 222,
+        processAlive: (processId) => processId === 111,
+      }),
+      (error) =>
+        error instanceof SessionError &&
+        error.code === "BROWSER_SESSION_BUSY",
+    );
+    await first.release();
+    first = null;
+    second = await acquireBrowserSessionLease(lockPath, {
+      processId: 222,
+      processAlive: () => false,
+    });
+  } finally {
+    await first?.release();
+    await second?.release();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
 
 

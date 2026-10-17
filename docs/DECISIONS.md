@@ -140,6 +140,8 @@
 - `DEC-USER-CLOUD-CREDENTIAL-001`：账号密码不进入 Skill、Git、普通配置、环境变量、命令参数或日志。本地继续使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 提供的只读外部凭证助手。豆包当前未确认有安全凭证入口，用户明确选择便利性优先并接受对话历史留存风险：持久会话失效时可把本次账号密码发给同一 Agent。Agent用平台自带私有浏览器打开当前登录operation返回的单次`127.0.0.1`凭据页，或在平台支持时通过私有stdin提交；二者都进入同一个随机令牌控制通道和Playwright worker，项目不保存、不复述、不跨任务复用凭据。此决策取代“普通聊天绝对禁用”的旧限制，但不把聊天描述为安全存储。
 - `DEC-USER-SMS-HANDOFF-001`：短信验证改为可跨消息恢复的短时登录操作。检测到验证时先询问用户，用户确认后才请求短信；验证码优先经同一个随机令牌本机控制服务上的单次页面交给原浏览器进程，平台支持时也可经标准输入提交，只存在于内存。
 - `DEC-USER-CLOUD-BROWSER-VISIBILITY-001`：云端浏览器允许在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口；Geometry Guard、状态回读和截图约束不变。
+- `DEC-USER-CLOUD-LOGIN-OBSERVABILITY-001`：平台自带/CDP浏览器只负责一次性`127.0.0.1`凭据与验证码交接，不要求它看到项目Playwright窗口。Playwright worker在验证码提交后自行识别成功、验证码/凭据拒绝、风控、未知步骤和结果超时，并只持久化脱敏分类；`code_submitted`不得触发自动重试。
+- `DEC-USER-BROWSER-SESSION-LEASE-001`：同一持久profile同时只允许一个Playwright所有者；活动登录期间仅允许读取同一operation状态，probe、导航、上传和第二个登录必须返回忙碌，防止并发进程关闭或污染当前会话。
 - `DEC-USER-CLOUD-RUNTIME-INTEGRITY-001`：云端只读Skill副本必须完整复制到可写状态目录并保持`runtime-manifest.json`一致；显式`SHANGYU_AUTO_SHIPPED_ROOT`不能让普通临时副本绕过清单。默认状态目录不可写时允许回退到用户独占临时目录，但必须报告`persistent=false`，不能宣称跨工作区保留profile。
 - `DEC-USER-LINUX-GEOMETRY-001`：Linux headed Chromium允许稳定的原生垂直滚动条gutter，但只在三次采样一致、没有水平滚动、页面缩放正常且document/visual viewport宽度证据一致时放行；禁止把全部宽度容差从3px扩大到20px。
 - `DEC-USER-MULTI-BATCH-UPLOAD-001`：同一对话中“把这些都上传”可以授权多个已明确列出的 manifest。每批仍使用独立哈希、operation ID 和任务基线，并严格串行执行；前一批未核验成功时停止后续批次。隔离只防止串批，不限制自然语言选择全部或部分批次。

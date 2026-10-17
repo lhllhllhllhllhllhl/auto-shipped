@@ -19,8 +19,8 @@
 
 ## 模块
 
-- `session.mjs`：专用 Chrome 会话与登录状态。
-- `login-operation.mjs`：跨消息短信验证的短时登录操作、私有控制通道和状态回执；不保存验证码。
+- `session.mjs`：专用 Chrome 会话、单一profile进程锁与登录状态；验证码提交后只返回脱敏结果分类。
+- `login-operation.mjs`：跨消息凭据/短信验证的短时登录操作、分阶段有效期、私有控制通道和状态回执；不保存账号密码或验证码。
 - `geometry.mjs`：原生窗口策略、页面几何快照、稳定性检测与写后 fail-close 接口。
 - `screenshot.mjs`：不改变 viewport、缩放和滚动的只读截图。
 - `credentials.mjs`：macOS 钥匙串凭证提供器，可独立替换。
@@ -75,6 +75,10 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持时也可通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
 
+平台自带/CDP浏览器与项目Playwright浏览器不是同一个页面会话。平台浏览器只作为一次性本机交接入口；管易登录页由Playwright worker自己持续检查。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
+
+同一profile同时只允许一个Playwright所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`，防止并发probe关闭登录浏览器。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的结果窗口默认45秒。
+
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
 正式 Skill 包装入口只接受清单一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区，并只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层。显式指定普通复制目录不能绕过`runtime-manifest.json`；规则回退、实现引用失效、临时修改或打包不一致都会结构性拒绝浏览器入口。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
@@ -85,7 +89,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 1. 登录失效时返回 `needs_login`。
 2. 用户登录后返回可识别的已认证状态。
-3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。
+3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。云端提交验证码后必须在同一operation返回`authenticated`或明确的脱敏失败分类；等待中的`code_submitted`不得触发重发短信。登录worker运行期间启动第二个浏览器命令必须返回`browser_session_busy`，不能抢占或关闭profile。
 4. 已知公告可以安全关闭；关闭未生效、页面地址变化或出现未知弹窗时返回 `popup_unknown`。
 5. 侧栏展开或折叠时都能进入订单查询。
 6. 能打开订单导入并切换到自定义导入。

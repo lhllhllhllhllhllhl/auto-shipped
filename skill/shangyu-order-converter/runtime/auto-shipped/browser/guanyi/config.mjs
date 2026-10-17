@@ -13,6 +13,10 @@ export const RUNTIME_ROOT = path.resolve(
 export const PROFILE_DIR = path.resolve(
   process.env.GUANYI_PROFILE_DIR || path.join(RUNTIME_ROOT, "guanyi-browser-profile"),
 );
+export const BROWSER_SESSION_LOCK = path.resolve(
+  process.env.GUANYI_BROWSER_SESSION_LOCK ||
+    `${PROFILE_DIR}.lock`,
+);
 export const ARTIFACT_DIR = path.resolve(
   process.env.GUANYI_ARTIFACT_DIR || path.join(RUNTIME_ROOT, "guanyi-browser-artifacts"),
 );
@@ -105,7 +109,10 @@ export const DEFAULT_TIMEOUT_MS = Number(
   process.env.GUANYI_BROWSER_TIMEOUT_MS || 15_000,
 );
 export const LOGIN_TIMEOUT_MS = Number(
-  process.env.GUANYI_LOGIN_TIMEOUT_MS || 5 * 60_000,
+  process.env.GUANYI_LOGIN_TIMEOUT_MS || 10 * 60_000,
+);
+export const LOGIN_RESULT_TIMEOUT_MS = Number(
+  process.env.GUANYI_LOGIN_RESULT_TIMEOUT_MS || 45_000,
 );
 export const KEYCHAIN_SERVICE =
   process.env.GUANYI_KEYCHAIN_SERVICE || "com.shangyu.auto-shipped.guanyi";
