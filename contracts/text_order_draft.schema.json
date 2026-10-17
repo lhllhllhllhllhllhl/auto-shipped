@@ -84,6 +84,8 @@
       "required": ["source_product_code", "source_product_name", "source_spec", "quantity", "unit"],
       "properties": {
         "source_product_code": {"type": "string"},
+        "source_item_text": {"type": "string"},
+        "source_brand": {"type": "string"},
         "source_product_name": {"type": "string"},
         "source_spec": {"type": "string"},
         "quantity": {"type": "number", "exclusiveMinimum": 0},

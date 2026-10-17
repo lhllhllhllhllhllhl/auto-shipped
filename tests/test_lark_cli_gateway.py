@@ -14,6 +14,10 @@ from auto_shipped.integrations.feishu import (
     LarkCliGatewayError,
     UserSheetRoute,
 )
+from auto_shipped.integrations.feishu.lark_cli_gateway import (
+    OFFICIAL_MAPPING_BASE_HEADERS,
+    OFFICIAL_MAPPING_HEADERS,
+)
 
 
 class FakeLarkRunner:
@@ -92,6 +96,33 @@ def gateway(runner: FakeLarkRunner) -> LarkCliFeishuSheetGateway:
 
 
 class LarkCliGatewayTests(unittest.TestCase):
+    def test_official_mapping_reader_accepts_legacy_and_extended_headers(self) -> None:
+        for headers, expected_version in (
+            (OFFICIAL_MAPPING_BASE_HEADERS, "1.0"),
+            (OFFICIAL_MAPPING_HEADERS, "2.0"),
+        ):
+            row = ["value"] * len(headers)
+            row[0] = "mapping-1"
+
+            def runner(command: Sequence[str]) -> dict[str, Any]:
+                if "+csv-get" in command:
+                    cell_range = FakeLarkRunner._arg(command, "--range")
+                    if cell_range == "A1:S1":
+                        return FakeLarkRunner._csv_payload([(1, list(headers))])
+                    if cell_range == "A1:S5000":
+                        return FakeLarkRunner._csv_payload(
+                            [(1, list(headers)), (2, list(row))]
+                        )
+                raise AssertionError(f"unexpected command: {command}")
+
+            client = gateway(runner)  # type: ignore[arg-type]
+
+            self.assertEqual(client.official_mapping_schema_version(), expected_version)
+            records = client.list_official_mapping_records()
+            self.assertEqual(records[0]["mapping_id"], "mapping-1")
+            if expected_version == "1.0":
+                self.assertEqual(records[0]["canonical_source_product"], "")
+
     def test_identity_revision_and_route_write_are_read_back(self) -> None:
         runner = FakeLarkRunner()
         client = gateway(runner)

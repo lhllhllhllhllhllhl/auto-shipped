@@ -24,6 +24,8 @@ from auto_shipped.integrations.feishu import (
     ALLOWED_FEEDBACK_TYPES,
     ALLOWED_REUSE_SCOPES,
     CORRECTION_FEEDBACK_CONFIRMATION_TOKEN,
+    CANONICAL_MAPPING_MIGRATION_CONFIRMATION,
+    CanonicalMappingMigrationError,
     LarkCliFeishuSheetGateway,
     LarkCliGatewayError,
     OfficialMappingSyncError,
@@ -35,6 +37,8 @@ from auto_shipped.integrations.feishu import (
     build_pending_mapping_proposal,
     load_official_mapping_snapshot,
     plan_pending_mapping_publish,
+    plan_canonical_mapping_migration,
+    migrate_canonical_mapping_schema,
     publish_pending_mappings,
     resolve_or_provision_user_sheet,
     submit_pending_mapping_proposal,
@@ -474,6 +478,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan_publish.add_argument("--operation-id")
 
+    plan_canonical_migration = subparsers.add_parser(
+        "plan-canonical-mapping-migration",
+        help="只读检查正式映射规范字段迁移、冲突和预计写入内容",
+    )
+    plan_canonical_migration.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    plan_canonical_migration.add_argument("--catalog", required=True)
+    plan_canonical_migration.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    plan_canonical_migration.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+
+    migrate_canonical = subparsers.add_parser(
+        "migrate-canonical-mapping-schema",
+        help="所有者专用：把程序生成的规范商品字段写入正式映射表",
+    )
+    migrate_canonical.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    migrate_canonical.add_argument("--catalog", required=True)
+    migrate_canonical.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    migrate_canonical.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    migrate_canonical.add_argument("--operation-id")
+    migrate_canonical.add_argument("--output")
+    migrate_canonical.add_argument("--confirmation-token", required=True)
+
     publish_pending = subparsers.add_parser(
         "publish-pending-mappings",
         help="所有者专用：经冲突预检后把全部pending映射发布到正式库",
@@ -765,6 +806,8 @@ def build_parser() -> argparse.ArgumentParser:
         sync_official,
         sync_official_native,
         plan_publish,
+        plan_canonical_migration,
+        migrate_canonical,
         publish_pending,
         direct_add,
         direct_store_route,
@@ -1173,6 +1216,7 @@ def run_feishu_mapping_status(args: argparse.Namespace) -> int:
         gateway = _lark_gateway(args.config)
         identity = gateway.get_current_identity()
         revision = gateway.get_official_mapping_revision()
+        mapping_sheet_schema_version = gateway.official_mapping_schema_version()
         routes = gateway.list_user_routes()
         sheets = gateway.list_managed_pending_sheets()
     except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
@@ -1198,6 +1242,7 @@ def run_feishu_mapping_status(args: argparse.Namespace) -> int:
                     "display_name": identity.display_name,
                 },
                 "official_mapping_revision": revision,
+                "official_mapping_sheet_schema_version": mapping_sheet_schema_version,
                 "route_count": len(routes),
                 "managed_pending_sheet_count": len(sheets),
                 "template_sheet_id": gateway.template_sheet_id,
@@ -1253,6 +1298,7 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
             {
                 "status": "synced",
                 "mapping_revision": snapshot["mapping_revision"],
+                "canonical_schema_version": snapshot["canonical_schema_version"],
                 "mapping_count": len(snapshot["mappings"]),
                 "manual_store_route_count": len(snapshot["manual_store_routes"]),
                 "item_expansion_count": len(snapshot["item_expansions"]),
@@ -1667,6 +1713,85 @@ def run_plan_pending_mapping_publish(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps(plan.to_public_dict(), ensure_ascii=False, indent=2))
     return 0 if plan.status in {"ready", "no_changes"} else 2
+
+
+def run_plan_canonical_mapping_migration(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        metadata = gateway.get_official_repository_metadata()
+        plan = plan_canonical_mapping_migration(
+            gateway.list_official_mapping_records(),
+            catalog,
+            mapping_revision=str(metadata.get("mapping_revision") or ""),
+            sheet_schema_before=gateway.official_mapping_schema_version(),
+        )
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+        CanonicalMappingMigrationError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "CANONICAL_MAPPING_MIGRATION_PLAN_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2))
+    return 0 if plan.status == "ready" else 2
+
+
+def run_migrate_canonical_mapping_schema(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, owners, _, _ = _load_mapping_publisher_context(args)
+        result = migrate_canonical_mapping_schema(
+            gateway,
+            catalog,
+            allowed_owner_user_ids=owners,
+            confirmation_token=args.confirmation_token,
+            operation_id=args.operation_id or "",
+        )
+        if result.get("status") in {"migrated", "already_current"} and args.output:
+            snapshot = build_official_mapping_snapshot(
+                gateway.list_official_mapping_records(),
+                gateway.get_official_repository_metadata(),
+                catalog,
+                manual_store_route_records=gateway.list_manual_store_route_records(),
+                item_expansion_records=(
+                    gateway.list_item_expansion_component_records()
+                ),
+            )
+            write_official_mapping_snapshot(args.output, snapshot)
+            result["snapshot_output"] = str(args.output)
+            result["snapshot_revision"] = snapshot["mapping_revision"]
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        LarkCliGatewayError,
+        CanonicalMappingMigrationError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "CANONICAL_MAPPING_MIGRATION_FAILED",
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("status") in {"migrated", "already_current"} else 2
 
 
 def run_publish_pending_mappings(args: argparse.Namespace) -> int:
@@ -2241,6 +2366,10 @@ def main() -> int:
         return run_collect_correction_feedback(args)
     if args.command == "plan-pending-mapping-publish":
         return run_plan_pending_mapping_publish(args)
+    if args.command == "plan-canonical-mapping-migration":
+        return run_plan_canonical_mapping_migration(args)
+    if args.command == "migrate-canonical-mapping-schema":
+        return run_migrate_canonical_mapping_schema(args)
     if args.command == "publish-pending-mappings":
         return run_publish_pending_mappings(args)
     if args.command == "direct-add-official-mapping":

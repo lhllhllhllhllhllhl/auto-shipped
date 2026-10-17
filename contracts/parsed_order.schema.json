@@ -184,6 +184,14 @@
         "source_product_code": {
           "type": ["string", "null"]
         },
+        "source_item_text": {
+          "type": ["string", "null"],
+          "description": "文字或截图中的原始商品短语；用于复核规范化，不代替商品编码。"
+        },
+        "source_brand": {
+          "type": ["string", "null"],
+          "description": "来源明确提供或Agent从原文拆出的品牌；可为空。"
+        },
         "source_product_name": {
           "type": ["string", "null"]
         },

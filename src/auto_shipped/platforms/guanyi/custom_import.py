@@ -52,6 +52,7 @@ class GuanyiBuildResult:
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(
         default_factory=list
     )
+    mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -275,24 +276,63 @@ def _platform_order_no(
 def _product_resolution_key(
     order: ParsedOrder,
     item: Any,
-) -> tuple[str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str]:
     return (
         order.source.profile_id,
         order.source.file_fingerprint,
         str(item.source_product_code or ""),
+        str(item.source_item_text or ""),
+        str(item.source_brand or ""),
         str(item.source_product_name or ""),
         str(item.source_spec or ""),
+        str(item.unit or ""),
     )
 
 
 def _product_source_label(item: Any) -> str:
     base = str(
-        item.source_product_code or item.source_product_name or "未提供商品标识"
+        item.source_product_code
+        or item.source_item_text
+        or item.source_product_name
+        or "未提供商品标识"
     )
     source_spec = str(item.source_spec or "").strip()
     if source_spec and source_spec not in base:
         return f"{base} / {source_spec}"
     return base
+
+
+def _mapping_evidence(
+    catalog: ProductCatalog,
+    item: Any,
+    resolution: Any,
+) -> dict[str, Any]:
+    identity = resolution.canonical_identity or catalog.canonicalize_source_identity(
+        source_item_text=item.source_item_text,
+        source_brand=item.source_brand,
+        source_product_name=item.source_product_name,
+        source_spec=item.source_spec,
+        unit=item.unit,
+    )
+    product = resolution.product
+    return {
+        "mapping_revision": catalog.mapping_revision,
+        "mapping_snapshot_sha256": catalog.mapping_snapshot_sha256,
+        "source_item_text": str(item.source_item_text or ""),
+        "initial_split": {
+            "brand": str(item.source_brand or ""),
+            "product_name": str(item.source_product_name or ""),
+            "source_spec": str(item.source_spec or ""),
+            "unit": str(item.unit or ""),
+        },
+        "canonical_identity": identity.to_dict(),
+        "mapping_ids": list(resolution.mapping_ids),
+        "match_method": str(resolution.match_method or ""),
+        "target": {
+            "product_code": product.product_code if product else "",
+            "spec_code": product.spec_code if product else "",
+        },
+    }
 
 
 def _fingerprint_sha256(order: ParsedOrder) -> str:
@@ -520,7 +560,7 @@ def build_custom_import_lines(
     result = GuanyiBuildResult()
     result.clarifications.extend(_rule_clarifications(rules))
 
-    resolved_products: dict[tuple[str, str, str, str, str], Any] = {}
+    resolved_products: dict[tuple[str, str, str, str, str, str, str], Any] = {}
     resolved_lines_by_order: dict[int, list[ResolvedLineItem]] = {}
     official_mapping_clarification_added = False
     for order in orders:
@@ -605,13 +645,68 @@ def build_custom_import_lines(
                 resolution = catalog.resolve(
                     item.source_product_code,
                     source_profile_id=order.source.profile_id,
+                    source_item_text=item.source_item_text,
+                    source_brand=item.source_brand,
                     source_product_name=item.source_product_name,
                     source_spec=item.source_spec,
+                    unit=item.unit,
                     source_fingerprint=order.source.file_fingerprint,
                 )
                 resolved_products[resolution_key] = resolution
+            result.mapping_evidence.append(
+                _mapping_evidence(catalog, item, resolution)
+            )
             source_label = _product_source_label(item)
             source_ref = f"商品:{source_label}"
+            for warning in resolution.review_warnings:
+                result.decisions.append(
+                    DecisionItem(
+                        code=str(warning.get("code") or "REVIEW_PRODUCT_MAPPING"),
+                        source_ref=source_ref,
+                        field="来源商品名称与编码映射",
+                        proposed_value={
+                            "source_profile_id": order.source.profile_id,
+                            "company_id": source_company_id,
+                            "source_identifier_type": resolution.identifier_type,
+                            "source_product_code": item.source_product_code,
+                            "source_item_text": item.source_item_text,
+                            "source_brand": item.source_brand,
+                            "source_product_name": item.source_product_name,
+                            "source_spec": item.source_spec,
+                            "source_fingerprint": order.source.file_fingerprint,
+                            "product_code": (
+                                resolution.product.product_code
+                                if resolution.product
+                                else ""
+                            ),
+                            "spec_code": (
+                                resolution.product.spec_code
+                                if resolution.product
+                                else ""
+                            ),
+                            "match_method": resolution.match_method,
+                            "canonical_identity": (
+                                resolution.canonical_identity.to_dict()
+                                if resolution.canonical_identity
+                                else catalog.canonicalize_source_identity(
+                                    source_item_text=item.source_item_text,
+                                    source_brand=item.source_brand,
+                                    source_product_name=item.source_product_name,
+                                    source_spec=item.source_spec,
+                                    unit=item.unit,
+                                ).to_dict()
+                            ),
+                        },
+                        confirmation_question=(
+                            "来源编码/条码已优先按正式映射生成预览，但来源商品名称"
+                            "与已登记身份存在明显差异。请确认本批仍使用该编码映射，"
+                            "还是原订单商品字段提取有误。"
+                        ),
+                        reason=str(warning.get("message") or resolution.reason),
+                        persistence_options=("current_batch",),
+                        next_action="confirm_code_mapping_for_current_batch_or_fix_source_extraction",
+                    )
+                )
             if resolution.match_method == "shipping_expression_forbidden":
                 result.clarifications.append(
                     ClarificationRequest(
@@ -855,6 +950,22 @@ def build_custom_import_lines(
 
     result.clarifications = deduplicate_clarifications(result.clarifications)
     result.decisions = deduplicate_decisions(result.decisions)
+    evidence_by_key: dict[str, dict[str, Any]] = {}
+    for evidence in result.mapping_evidence:
+        key = hashlib.sha256(
+            repr(
+                (
+                    evidence.get("source_item_text"),
+                    evidence.get("initial_split"),
+                    evidence.get("canonical_identity"),
+                    evidence.get("mapping_ids"),
+                    evidence.get("match_method"),
+                    evidence.get("target"),
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+        evidence_by_key[key] = evidence
+    result.mapping_evidence = list(evidence_by_key.values())
     if result.clarifications:
         # Blocking facts must be answered before a trustworthy preview can be
         # rendered.  Defer non-blocking candidate/recipient decisions until

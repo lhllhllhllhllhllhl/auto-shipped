@@ -323,6 +323,139 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertIn("仅本次使用", decision.confirmation_question)
         self.assertIn("以后遇到相同来源时沿用", decision.confirmation_question)
 
+    def test_confirmed_code_name_mismatch_builds_preview_and_mapping_evidence(self) -> None:
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="EXT-1",
+            source_item_text="完全不同的新商品1件",
+            source_product_name="完全不同的新商品",
+            quantity=1,
+            unit="件",
+            source_line_no=2,
+        )
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "管易测试商品", "S1", "测试规格", 100, "上海仓")],
+            [
+                {
+                    "mapping_id": "official-ext-1",
+                    "source_profile_id": "tiantian_warehouse_v2",
+                    "identifier_type": "product_code",
+                    "source_value": "EXT-1",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+            {
+                "tiantian_warehouse_v2": {
+                    "source_identifier_type": "product_code",
+                    "require_identity_guard_for_blank_source_spec": True,
+                    "mapping_identity_guards": [
+                        {
+                            "identifier_type": "product_code",
+                            "source_value": "EXT-1",
+                            "allowed_product_names": ["已确认商品"],
+                        }
+                    ],
+                }
+            },
+            mapping_revision="23",
+            mapping_snapshot_sha256="sha256:test",
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "preview_ready")
+        self.assertEqual(len(result.lines), 1)
+        self.assertEqual(result.lines[0]["商品代码"], "P1")
+        self.assertEqual(result.lines[0]["规格代码"], "S1")
+        self.assertEqual(len(result.decisions), 1)
+        self.assertEqual(
+            result.decisions[0].code,
+            "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
+        )
+        self.assertEqual(
+            result.decisions[0].persistence_options,
+            ("current_batch",),
+        )
+        self.assertEqual(len(result.mapping_evidence), 1)
+        evidence = result.mapping_evidence[0]
+        self.assertEqual(evidence["mapping_revision"], "23")
+        self.assertEqual(evidence["mapping_ids"], ["official-ext-1"])
+        self.assertEqual(evidence["initial_split"]["unit"], "件")
+        self.assertEqual(result.lines[0]["数量"], 1)
+        self.assertNotIn("recipient", evidence)
+
+    def test_current_batch_confirmation_suppresses_code_name_mismatch_warning(self) -> None:
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="EXT-1",
+            source_item_text="完全不同的新商品1件",
+            source_product_name="完全不同的新商品",
+            quantity=1,
+            unit="件",
+            source_line_no=2,
+        )
+        common = {
+            "source_profile_id": "tiantian_warehouse_v2",
+            "identifier_type": "product_code",
+            "source_value": "EXT-1",
+            "source_spec": "",
+            "product_code": "P1",
+            "spec_code": "S1",
+            "confirmed": True,
+        }
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "管易测试商品", "S1", "测试规格", 100, "上海仓")],
+            [
+                {
+                    **common,
+                    "mapping_id": "official-ext-1",
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                },
+                {
+                    **common,
+                    "mapping_id": "batch-ext-1",
+                    "reuse_scope": "current_batch",
+                    "mapping_authority": "user_batch_confirmation",
+                    "source_fingerprint": order.source.file_fingerprint,
+                },
+            ],
+            {
+                "tiantian_warehouse_v2": {
+                    "source_identifier_type": "product_code",
+                    "require_identity_guard_for_blank_source_spec": True,
+                    "mapping_identity_guards": [
+                        {
+                            "identifier_type": "product_code",
+                            "source_value": "EXT-1",
+                            "allowed_product_names": ["已确认商品"],
+                        }
+                    ],
+                }
+            },
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.decisions, [])
+        self.assertEqual(result.lines[0]["数量"], 1)
+
     def test_single_low_confidence_fuzzy_candidate_blocks_instead_of_previewing(
         self,
     ) -> None:

@@ -6,7 +6,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from auto_shipped.catalog import ProductCatalog, ProductRecord
+from auto_shipped.catalog import ProductCatalog, ProductPhraseNormalizer, ProductRecord
 from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
     build_item_expansion_rule_key,
@@ -136,6 +136,69 @@ def item_expansion_rows() -> list[dict[str, str]]:
 
 
 class FeishuOfficialMappingTests(unittest.TestCase):
+    def test_legacy_name_row_gets_program_managed_canonical_fields(self) -> None:
+        name_record = record()
+        name_record.update(
+            {
+                "mapping_id": "kqyd-yellow-soft",
+                "company_id": "self_operated",
+                "source_profile_id": "taojuzi_kqyd_text_v1",
+                "identifier_type": "product_name",
+                "source_value": "搓澡巾",
+                "source_spec": "kikulon超软黄色",
+            }
+        )
+        name_record["mapping_key"] = build_mapping_key(
+            company_id=name_record["company_id"],
+            source_profile_id=name_record["source_profile_id"],
+            identifier_type=name_record["identifier_type"],
+            source_value=name_record["source_value"],
+            source_spec=name_record["source_spec"],
+            target_platform="guanyi",
+        )
+        normalized_catalog = ProductCatalog(
+            catalog().records,
+            phrase_normalizer=ProductPhraseNormalizer.from_file(
+                Path(__file__).resolve().parents[1]
+                / "config/catalog/product_phrase_lexicon_v1.json"
+            ),
+        )
+
+        snapshot = build_official_mapping_snapshot(
+            [name_record],
+            {"repository_status": "active", "mapping_revision": "1"},
+            normalized_catalog,
+        )
+
+        mapping = snapshot["mappings"][0]
+        self.assertEqual(mapping["canonical_source_brand"], "kikulon")
+        self.assertEqual(mapping["canonical_source_product"], "搓澡巾")
+        self.assertEqual(mapping["canonical_source_spec"], "黄色|超软")
+        self.assertEqual(mapping["canonical_schema_version"], "1.0")
+
+    def test_code_row_keeps_optional_canonical_fields_blank(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+        )
+
+        mapping = snapshot["mappings"][0]
+        self.assertEqual(mapping["canonical_source_product"], "")
+        self.assertEqual(mapping["canonical_schema_version"], "")
+
+    def test_code_row_rejects_canonical_name_fields(self) -> None:
+        invalid = record()
+        invalid["canonical_source_product"] = "玉米"
+        invalid["canonical_schema_version"] = "1.0"
+
+        with self.assertRaisesRegex(OfficialMappingSyncError, "必须留空"):
+            build_official_mapping_snapshot(
+                [invalid],
+                {"repository_status": "active", "mapping_revision": "1"},
+                catalog(),
+            )
+
     def test_global_product_name_alias_is_normalized_in_snapshot(self) -> None:
         global_record = record()
         global_record.update(
