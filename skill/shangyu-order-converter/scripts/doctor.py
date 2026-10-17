@@ -62,6 +62,33 @@ def catalog_status(project_root: Path, registry_name: str) -> dict:
     }
 
 
+def daily_sequence_status(project_root: Path) -> dict:
+    path = (
+        project_root
+        / "config"
+        / "integrations"
+        / "feishu_daily_sequence_v1.json"
+    )
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"ready": False, "code": "DAILY_SEQUENCE_CONFIG_MISSING"}
+    columns = config.get("columns") or []
+    ready = bool(
+        config.get("spreadsheet_token")
+        and "{year}" in str(config.get("annual_sheet_title_pattern") or "")
+        and len(columns) == 21
+        and config.get("auto_provision_annual_sheet") is True
+    )
+    return {
+        "ready": ready,
+        "code": None if ready else "DAILY_SEQUENCE_CONFIG_INVALID",
+        "wiki_url": config.get("wiki_url"),
+        "annual_sheet_title_pattern": config.get("annual_sheet_title_pattern"),
+        "network_check": "deferred_until_allocation",
+    }
+
+
 def main() -> int:
     project_root = resolve_project_root()
     if project_root is None:
@@ -127,9 +154,12 @@ def main() -> int:
         "lark_cli": {
             "ready": lark_cli is not None,
             "path": lark_cli,
-            "required_for": "fallback_feishu_mapping_gateway",
+            "required_for": (
+                "fallback_feishu_mapping_gateway_and_new_daily_sequence_allocation"
+            ),
             "optional_when_agent_has_native_feishu_sheets": True,
         },
+        "daily_sequence": daily_sequence_status(project_root),
         "playwright_core": {"ready": (browser_root / "node_modules" / "playwright-core").is_dir()},
         "chrome": {"ready": chrome is not None, "path": str(chrome) if chrome else None},
         "template": {"ready": (project_root / "assets" / "templates" / "guanyi" / "自定义订单导入模板.xlsx").is_file()},

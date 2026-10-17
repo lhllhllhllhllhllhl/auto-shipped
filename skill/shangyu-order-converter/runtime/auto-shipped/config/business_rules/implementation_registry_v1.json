@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "shangyu_rule_implementations_v1",
-  "version": 5,
+  "version": 6,
   "implementations": {
     "browser.guanyi.prepare_import_form.pending_review": {
       "runtime": "javascript",
@@ -91,7 +91,13 @@
     "guanyi.platform_order.prefix_minute_sequence": {
       "runtime": "python",
       "target": "auto_shipped.platforms.guanyi.custom_import:_platform_order_no",
-      "test": "tests/test_text_order_intake.py"
+      "test": "tests/test_order_number_allocations.py",
+      "status": "legacy_rerun_only"
+    },
+    "guanyi.platform_order.prefix_daily_sequence": {
+      "runtime": "python",
+      "target": "auto_shipped.services.order_number_allocations:reserve_daily_sequence",
+      "test": "tests/test_order_number_allocations.py"
     },
     "guanyi.platform_order.preferred_order_identity": {
       "runtime": "python",

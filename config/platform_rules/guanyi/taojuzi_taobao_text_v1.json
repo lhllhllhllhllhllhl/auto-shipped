@@ -3,7 +3,7 @@
   "profile_id": "guanyi_taojuzi_taobao_text_v1",
   "source_profile_id": "taojuzi_taobao_text_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 4,
+  "version": 5,
   "policy_module_refs": {
     "store_assignment_policy": {
       "registry_id": "guanyi_policy_modules_v1",
@@ -33,7 +33,7 @@
   "platform_order_number": {
     "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成TB+上海时间整批生成分钟YYYYMMDDHHmm+最少两位弹性序号；2026-10-15起不再追加A。"
+    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成TB+YYYYMMDD+最少三位飞书中央日序号；不追加A；2026-10-17。"
   },
   "field_output_policy": {
     "product_name": {
@@ -67,7 +67,7 @@
     "scope_id": "taojuzi_taobao_text_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_source_channel", "evidence": "用户确认淘宝文字单进入淘橘子。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "用户确认TB+上海时间整批生成分钟+最少两位弹性序号，不追加A。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_daily_sequence", "evidence": "用户确认TB+YYYYMMDD+最少三位飞书中央日序号，不追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通文字销售订单金额规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},

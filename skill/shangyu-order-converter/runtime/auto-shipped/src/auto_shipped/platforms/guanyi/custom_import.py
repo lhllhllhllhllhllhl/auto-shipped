@@ -313,16 +313,24 @@ def _allocate_sam_buyer_member_sequences(
     *,
     business_datetime: datetime | None,
     state_dir: str | Path | None,
-) -> tuple[dict[int, tuple[str, str]], datetime | None, list[ClarificationRequest]]:
+    source_company_id: str,
+    gateway: Any = None,
+) -> tuple[
+    dict[int, tuple[str, str, str]],
+    datetime | None,
+    list[ClarificationRequest],
+]:
     from auto_shipped.services.order_number_allocations import (
         OrderNumberAllocationError,
+        reserve_daily_sequence,
         reserve_minute_sequence,
     )
 
     policy = rules.get("buyer_member_policy") or {}
     if (
         policy.get("strategy") != "sam_product_type_date_group"
-        or policy.get("on_missing_group_number") != "generate_minute_sequence"
+        or policy.get("on_missing_group_number")
+        not in {"generate_daily_sequence", "generate_minute_sequence"}
     ):
         return {}, business_datetime, []
 
@@ -336,9 +344,10 @@ def _allocate_sam_buyer_member_sequences(
         return {}, business_datetime, []
 
     clarifications: list[ClarificationRequest] = []
+    type_codes: dict[int, str] = {}
     for order in missing_group_orders:
         try:
-            resolve_sam_product_type_code(
+            type_codes[id(order)] = resolve_sam_product_type_code(
                 policy,
                 resolved_items_by_order.get(id(order), []),
             )
@@ -376,13 +385,19 @@ def _allocate_sam_buyer_member_sequences(
         frozen_datetime = frozen_datetime.replace(tzinfo=timezone)
     else:
         frozen_datetime = frozen_datetime.astimezone(timezone)
-    stamp_format = str(policy.get("fallback_stamp_format") or "%y%m%d%H%M")
-    batch_minute = frozen_datetime.strftime(stamp_format)
-    sequence_width = int(policy.get("fallback_sequence_width") or 2)
+    daily_mode = policy.get("on_missing_group_number") == "generate_daily_sequence"
+    stamp_format = str(
+        policy.get("fallback_stamp_format")
+        or ("%y%m%d" if daily_mode else "%y%m%d%H%M")
+    )
+    batch_stamp = frozen_datetime.strftime(stamp_format)
+    sequence_width = int(
+        policy.get("fallback_sequence_width") or (3 if daily_mode else 2)
+    )
     sequence_start = int(policy.get("fallback_sequence_start") or 1)
     platform_prefix = str(policy.get("platform_prefix") or "sam").strip()
 
-    grouped: dict[tuple[str, str], list[ParsedOrder]] = {}
+    grouped: dict[tuple[str, str, str], list[ParsedOrder]] = {}
     for order in missing_group_orders:
         try:
             source_sha256 = _fingerprint_sha256(order)
@@ -400,26 +415,60 @@ def _allocate_sam_buyer_member_sequences(
             )
             continue
         grouped.setdefault(
-            (str(order.source.profile_id), source_sha256), []
+            (
+                str(order.source.profile_id),
+                source_sha256,
+                type_codes[id(order)],
+            ),
+            [],
         ).append(order)
     if clarifications:
         return {}, frozen_datetime, clarifications
 
-    sequences: dict[int, tuple[str, str]] = {}
-    for (profile_id, source_sha256), source_orders in grouped.items():
+    sequences: dict[int, tuple[str, str, str]] = {}
+    for (profile_id, source_sha256, type_code), source_orders in grouped.items():
         try:
-            allocation = reserve_minute_sequence(
-                purpose="sam_buyer_member",
-                profile_id=profile_id,
-                prefix=platform_prefix,
-                batch_minute=batch_minute,
-                source_sha256=source_sha256,
-                sequence_count=len(source_orders),
-                sequence_width=sequence_width,
-                sequence_start=sequence_start,
-                stamp_format=stamp_format,
-                state_dir=state_dir,
-            )
+            if daily_mode:
+                allocation = reserve_daily_sequence(
+                    purpose="sam_buyer_member",
+                    profile_id=profile_id,
+                    company_id=source_company_id,
+                    prefix=f"{platform_prefix}{type_code}",
+                    business_date=frozen_datetime.strftime("%Y%m%d"),
+                    source_sha256=source_sha256,
+                    sequence_count=len(source_orders),
+                    sequence_width=sequence_width,
+                    sequence_start=sequence_start,
+                    stamp_format=stamp_format,
+                    sequence_separator=str(
+                        policy.get("fallback_sequence_separator") or "_"
+                    ),
+                    source_partition=type_code,
+                    state_dir=state_dir,
+                    gateway=gateway,
+                )
+                allocated_stamp = datetime.strptime(
+                    allocation.business_date,
+                    "%Y%m%d",
+                ).strftime(allocation.stamp_format)
+                allocated_separator = allocation.sequence_separator
+            else:
+                allocation = reserve_minute_sequence(
+                    purpose="sam_buyer_member",
+                    profile_id=profile_id,
+                    prefix=platform_prefix,
+                    batch_minute=batch_stamp,
+                    source_sha256=source_sha256,
+                    sequence_count=len(source_orders),
+                    sequence_width=sequence_width,
+                    sequence_start=sequence_start,
+                    stamp_format=stamp_format,
+                    state_dir=state_dir,
+                )
+                allocated_stamp = allocation.batch_minute
+                allocated_separator = str(
+                    policy.get("fallback_sequence_separator") or "_"
+                )
         except OrderNumberAllocationError as exc:
             return {}, frozen_datetime, [
                 ClarificationRequest(
@@ -434,8 +483,9 @@ def _allocate_sam_buyer_member_sequences(
         for offset, order in enumerate(source_orders):
             sequence_no = allocation.sequence_start + offset
             sequences[id(order)] = (
-                allocation.batch_minute,
-                f"{sequence_no:0{sequence_width}d}",
+                allocated_stamp,
+                f"{sequence_no:0{allocation.sequence_width}d}",
+                allocated_separator,
             )
     return sequences, frozen_datetime, []
 
@@ -462,6 +512,7 @@ def build_custom_import_lines(
     business_date: date | None = None,
     business_datetime: datetime | None = None,
     buyer_member_sequence_state_dir: str | Path | None = None,
+    buyer_member_sequence_gateway: Any = None,
     source_company_id: str = "",
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
@@ -837,6 +888,8 @@ def build_custom_import_lines(
         rules,
         business_datetime=business_datetime,
         state_dir=buyer_member_sequence_state_dir,
+        source_company_id=source_company_id,
+        gateway=buyer_member_sequence_gateway,
     )
     if sequence_clarifications:
         result.clarifications.extend(sequence_clarifications)
@@ -927,6 +980,7 @@ def build_custom_import_lines(
                 business_datetime=frozen_business_datetime,
                 generated_stamp=(generated_member[0] if generated_member else None),
                 generated_sequence=(generated_member[1] if generated_member else None),
+                generated_separator=(generated_member[2] if generated_member else None),
             )
         except GuanyiOrderPolicyError as exc:
             result.clarifications.append(

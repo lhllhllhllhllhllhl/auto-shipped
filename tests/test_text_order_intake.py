@@ -10,6 +10,9 @@ from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
+from auto_shipped.integrations.feishu.daily_sequence_ledger import (
+    DailySequenceLedgerRecord,
+)
 from auto_shipped.services.text_intake import (
     prepare_text_order_draft,
     validate_text_order_draft,
@@ -88,7 +91,31 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
+class _MemoryDailySequenceGateway:
+    def __init__(self) -> None:
+        self.records: list[DailySequenceLedgerRecord] = []
+
+    def current_user_id(self) -> str:
+        return "ou_text_test"
+
+    def list_records(self) -> list[DailySequenceLedgerRecord]:
+        return list(self.records)
+
+    def append_record(self, record: DailySequenceLedgerRecord) -> None:
+        self.records.append(record)
+
+
 class TextOrderIntakeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.daily_sequence_gateway = _MemoryDailySequenceGateway()
+        patcher = patch(
+            "auto_shipped.services.order_number_allocations."
+            "LarkCliDailySequenceLedgerGateway.from_config",
+            return_value=self.daily_sequence_gateway,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_jzdz_and_drjy_are_peer_manual_sources_with_separate_numbers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -135,8 +162,8 @@ class TextOrderIntakeTests(unittest.TestCase):
                     )
                 finally:
                     workbook.close()
-            self.assertEqual(numbers["jzdz_manual_v1"], "JZDZ261015164801")
-            self.assertEqual(numbers["drjy_manual_v1"], "DRJY261015164801")
+            self.assertEqual(numbers["jzdz_manual_v1"], "JZDZ20261015001")
+            self.assertEqual(numbers["drjy_manual_v1"], "DRJY20261015001")
 
     def test_registered_manual_channels_route_each_order_and_merge_conversion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -223,7 +250,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 "registered_generation_rule",
             )
             self.assertIn(
-                "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
+                "TB+业务日期YYYYMMDD+最少3位顺序号",
                 taobao_preview["order_number_plan"]["message"],
             )
             self.assertIn("不再追加机器人尾缀", taobao_preview["order_number_plan"]["message"])
@@ -260,7 +287,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 self.assertEqual(sheet.cell(2, 2).value, "3317118816003054668")
                 self.assertEqual(sheet.cell(2, 6).value, "JTW8E1")
                 self.assertEqual(sheet.cell(3, 1).value, "淘橘子")
-                self.assertEqual(sheet.cell(3, 2).value, "TB20261013110201")
+                self.assertEqual(sheet.cell(3, 2).value, "TB20261013001")
                 self.assertEqual(sheet.cell(3, 6).value, "KKAW0009")
             finally:
                 workbook.close()
@@ -338,7 +365,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             plan = result.masked_preview[0]["order_number_plan"]
             self.assertEqual(plan["selected_source"], "registered_generation_rule")
             self.assertIn(
-                "TB+上海时区整批生成分钟YYYYMMDDHHmm+最少2位弹性序号",
+            "TB+业务日期YYYYMMDD+最少3位顺序号",
                 plan["message"],
             )
             self.assertIn("不再追加机器人尾缀", plan["message"])
@@ -534,6 +561,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 path,
                 root / "output",
                 company_registry_path=REGISTRY,
+                order_number_state_dir=root / "state",
             )
 
             self.assertEqual(result.status, "ready")
@@ -701,6 +729,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 path,
                 root / "output",
                 company_registry_path=REGISTRY,
+                order_number_state_dir=root / "state",
             )
 
             self.assertEqual(result.status, "ready")
@@ -861,7 +890,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             finally:
                 workbook.close()
 
-    def test_taojuzi_text_profiles_use_minute_numbers_store_and_confirmed_aliases(self) -> None:
+    def test_taojuzi_text_profiles_use_daily_numbers_store_and_confirmed_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             overlay = root / "overlay.json"
@@ -899,7 +928,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 (
                     "taojuzi_taobao_text_v1",
                     "淘宝",
-                    "TB20261009154201",
+                    "TB20261009001",
                     "搓澡巾",
                     "蓝色",
                     "KKAW0030",
@@ -909,7 +938,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 (
                     "taojuzi_kqyd_text_v1",
                     "KQYD",
-                    "KQYD20261009154201",
+                    "KQYD20261009001",
                     "Revo海绵",
                     "绿色",
                     "KKRevo1894",
@@ -989,7 +1018,7 @@ class TextOrderIntakeTests(unittest.TestCase):
                 finally:
                     workbook.close()
 
-    def test_rongzhida_uses_batch_minute_elastic_sequence_and_corn_store(self) -> None:
+    def test_rongzhida_uses_daily_elastic_sequence_and_corn_store(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "draft.json"
@@ -1036,15 +1065,15 @@ class TextOrderIntakeTests(unittest.TestCase):
             try:
                 sheet = workbook["Sheet1"]
                 self.assertEqual(sheet.cell(2, 1).value, "光明满元气")
-                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008142301")
+                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008001")
                 self.assertEqual(sheet.cell(2, 6).value, "GMHN-1")
                 self.assertEqual(sheet.cell(2, 7).value, "6974768564729")
             finally:
                 workbook.close()
 
             self.assertEqual(
-                intake.order_number_allocation["batch_minute"],
-                "202610081423",
+                intake.order_number_allocation["business_date"],
+                "20261008",
             )
             self.assertEqual(intake.order_number_allocation["sequence_start"], 1)
             self.assertEqual(intake.order_number_allocation["sequence_end"], 1)
@@ -1086,13 +1115,13 @@ class TextOrderIntakeTests(unittest.TestCase):
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:
                 sheet = workbook["TextOrders"]
-                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008142301")
-                self.assertEqual(sheet.cell(100, 2).value, "RZD20261008142399")
-                self.assertEqual(sheet.cell(101, 2).value, "RZD202610081423100")
+                self.assertEqual(sheet.cell(2, 2).value, "RZD20261008001")
+                self.assertEqual(sheet.cell(100, 2).value, "RZD20261008099")
+                self.assertEqual(sheet.cell(101, 2).value, "RZD20261008100")
             finally:
                 workbook.close()
 
-    def test_rongzhida_same_minute_continues_and_same_source_reuses(self) -> None:
+    def test_rongzhida_same_day_continues_and_same_source_reuses(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
 
@@ -1112,12 +1141,12 @@ class TextOrderIntakeTests(unittest.TestCase):
             second_path = root / "second.json"
             _write(first_path, make_payload("a" * 64, "first"))
             _write(second_path, make_payload("b" * 64, "second"))
-            fixed_minute = datetime(
+            fixed_datetime = datetime(
                 2026, 10, 8, 14, 23, tzinfo=ZoneInfo("Asia/Shanghai")
             )
             with patch(
                 "auto_shipped.services.text_intake._now_in_timezone",
-                return_value=fixed_minute,
+                return_value=fixed_datetime,
             ):
                 first = prepare_text_order_draft(
                     first_path,
@@ -1149,15 +1178,15 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(second.order_number_allocation["sequence_start"], 2)
             self.assertEqual(repeated.order_number_allocation["sequence_start"], 1)
             self.assertEqual(
-                repeated.order_number_allocation["batch_minute"],
-                "202610081423",
+                repeated.order_number_allocation["business_date"],
+                "20261008",
             )
             self.assertTrue(repeated.order_number_allocation["reused"])
 
             for result, expected in (
-                (first, "RZD20261008142301"),
-                (second, "RZD20261008142302"),
-                (repeated, "RZD20261008142301"),
+                (first, "RZD20261008001"),
+                (second, "RZD20261008002"),
+                (repeated, "RZD20261008001"),
             ):
                 workbook = load_workbook(result.outputs[0], data_only=False)
                 try:

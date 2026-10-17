@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "feishu_daily_sequence_v1",
+  "status": "active",
+  "wiki_url": "https://bcno5qs9unss.feishu.cn/wiki/XTuWw0bKoibvcvk72d0cKGncnYg",
+  "spreadsheet_token": "Nx4ksO5PDhInY7thhx1cVR1PnXc",
+  "annual_sheet_title_pattern": "日序号_{year}",
+  "annual_sheet_row_count": 5000,
+  "annual_sheet_column_count": 21,
+  "auto_provision_annual_sheet": true,
+  "timezone": "Asia/Shanghai",
+  "minimum_sequence_width": 3,
+  "identity_policy": {
+    "required_identity_type": "user",
+    "reject_shared_bot_identity": true
+  },
+  "allocation_policy": {
+    "namespace_fields": [
+      "purpose",
+      "prefix",
+      "business_date"
+    ],
+    "idempotency_fields": [
+      "purpose",
+      "source_profile_id",
+      "source_sha256",
+      "source_partition"
+    ],
+    "daily_reset": true,
+    "reclaim_unused_numbers": false,
+    "same_source_rerun_reuses_original_allocation": true,
+    "write_protocol": "append_then_readback_fail_closed",
+    "new_allocation_when_feishu_unavailable": "block",
+    "confirmed_local_cache_when_feishu_unavailable": "reuse_only"
+  },
+  "privacy": {
+    "recipient_name": "forbidden",
+    "recipient_phone": "forbidden",
+    "recipient_address": "forbidden",
+    "source_file_name": "forbidden"
+  },
+  "columns": [
+    "allocation_id",
+    "allocation_key",
+    "business_date",
+    "purpose",
+    "prefix",
+    "namespace_key",
+    "company_id",
+    "source_profile_id",
+    "source_sha256",
+    "sequence_start",
+    "sequence_end",
+    "sequence_count",
+    "sequence_width",
+    "operation_id",
+    "allocated_by",
+    "allocated_at",
+    "status",
+    "schema_version",
+    "source_partition",
+    "stamp_format",
+    "sequence_separator"
+  ]
+}

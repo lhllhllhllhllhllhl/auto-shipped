@@ -250,7 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_text.add_argument(
         "--order-number-state-dir",
-        help="可选的平台单号本机占号目录；默认使用Skill跨平台状态目录",
+        help=(
+            "可选的日序号本机确认缓存和旧分钟账本目录；"
+            "新日序号仍必须由飞书中央台账分配"
+        ),
     )
     prepare_text.add_argument(
         "--registry",

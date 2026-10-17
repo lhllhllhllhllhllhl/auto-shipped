@@ -20,7 +20,13 @@ from auto_shipped.companies import (
     resolve_company_by_identity,
 )
 from auto_shipped.domain import ClarificationRequest, deduplicate_clarifications
-from auto_shipped.services.order_number_allocations import reserve_minute_sequence
+from auto_shipped.integrations.feishu.daily_sequence_ledger import (
+    DailySequenceLedgerGateway,
+)
+from auto_shipped.services.order_number_allocations import (
+    reserve_daily_sequence,
+    reserve_minute_sequence,
+)
 from auto_shipped.source_adapters.adaptive_excel import inspect_excel_structure
 from auto_shipped.source_adapters.value_validation import normalize_contact
 
@@ -597,6 +603,7 @@ def _date_sequence_policy(
             "date_format": stamp_format,
             "sequence_start": start,
             "sequence_width": width,
+            "sequence_separator": _text(policy.get("sequence_separator")),
             "sequence_scope": _text(policy.get("sequence_scope")) or "current_batch",
             "timezone": timezone_name,
         }
@@ -660,6 +667,7 @@ def _date_sequence_policy(
         "date_format": date_format,
         "sequence_start": start,
         "sequence_width": width,
+        "sequence_separator": _text(policy.get("sequence_separator")),
     }
 
 
@@ -671,6 +679,7 @@ def _generated_order_number(policy: dict[str, Any], index: int) -> str:
         stamp = business_date.strftime(policy["date_format"])
     return (
         f"{policy['prefix']}{stamp}"
+        f"{policy.get('sequence_separator', '')}"
         f"{policy['sequence_start'] + index:0{policy['sequence_width']}d}"
     )
 
@@ -1291,12 +1300,55 @@ def _prepare_single_text_order_materialized(
     output_dir: str | Path,
     *,
     order_number_state_dir: str | Path | None = None,
+    order_number_gateway: DailySequenceLedgerGateway | None = None,
     confirmation_deferred: bool = False,
 ) -> TextOrderIntakeResult:
     order_number_policy = materialized.get("order_number_policy") or {}
-    if order_number_policy.get("strategy") == "datetime_sequence" and any(
-        order.get("_source_order_no_generated")
+    generated_orders = [
+        order
         for order in materialized["orders"]
+        if order.get("_source_order_no_generated")
+    ]
+    generated_numbers = bool(generated_orders)
+    if order_number_policy.get("strategy") == "date_sequence" and generated_numbers:
+        allocation = reserve_daily_sequence(
+            purpose="platform_order_number",
+            profile_id=materialized["rule_source_profile_id"],
+            company_id=materialized["company_id"],
+            prefix=order_number_policy["prefix"],
+            business_date=order_number_policy["business_date"].strftime("%Y%m%d"),
+            source_sha256=_text(materialized["source"].get("sha256")),
+            sequence_count=len(generated_orders),
+            sequence_width=order_number_policy["sequence_width"],
+            stamp_format=order_number_policy["date_format"],
+            sequence_separator=_text(
+                order_number_policy.get("sequence_separator")
+            ),
+            sequence_start=order_number_policy["sequence_start"],
+            state_dir=order_number_state_dir,
+            gateway=order_number_gateway,
+        )
+        allocated_policy = {
+            **order_number_policy,
+            "business_date": datetime.strptime(
+                allocation.business_date,
+                "%Y%m%d",
+            ).date(),
+            "prefix": allocation.prefix,
+            "date_format": allocation.stamp_format,
+            "sequence_separator": allocation.sequence_separator,
+            "sequence_start": allocation.sequence_start,
+            "sequence_width": allocation.sequence_width,
+        }
+        for offset, order in enumerate(generated_orders):
+            order["source_order_no"] = _generated_order_number(
+                allocated_policy,
+                offset,
+            )
+        result.order_number_allocation = allocation.to_public_dict()
+    elif (
+        order_number_policy.get("strategy") == "datetime_sequence"
+        and generated_numbers
     ):
         allocation = reserve_minute_sequence(
             profile_id=materialized["rule_source_profile_id"],
@@ -1507,6 +1559,7 @@ def prepare_text_order_draft(
     *,
     company_registry_path: str | Path,
     order_number_state_dir: str | Path | None = None,
+    order_number_gateway: DailySequenceLedgerGateway | None = None,
     defer_confirmation: bool = False,
 ) -> TextOrderIntakeResult:
     result, materialized = validate_text_order_draft(
@@ -1522,6 +1575,7 @@ def prepare_text_order_draft(
             materialized,
             output_dir,
             order_number_state_dir=order_number_state_dir,
+            order_number_gateway=order_number_gateway,
             confirmation_deferred=defer_confirmation,
         )
         if prepared.order_number_allocation is not None:
@@ -1545,6 +1599,7 @@ def prepare_text_order_draft(
             group,
             output_dir,
             order_number_state_dir=order_number_state_dir,
+            order_number_gateway=order_number_gateway,
             confirmation_deferred=defer_confirmation,
         )
         aggregate_outputs.extend(prepared.outputs)
