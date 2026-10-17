@@ -22,10 +22,10 @@ import {
   LoginOperationState,
   publicLoginOperation,
   requireSmsRequestAuthorization,
-  requireTemporaryCredentialsReadyAuthorization,
+  requireTemporaryCredentialsSubmitAuthorization,
   sendLoginControl,
   SMS_REQUEST_AUTHORIZATION,
-  TEMPORARY_CREDENTIALS_READY_AUTHORIZATION,
+  TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION,
   transitionLoginOperation,
   waitForLoginOperation,
 } from "./login-operation.mjs";
@@ -56,6 +56,7 @@ import {
 import { dismissKnownPopups } from "./popup.mjs";
 import {
   isLoginUrl,
+  fillPreparedCredentialLogin,
   launchSession,
   loginWithCredentials,
   markDedicatedLoginWindow,
@@ -89,16 +90,16 @@ function printJson(payload) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-ready|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
     commands: {
       login: "打开专用Chrome配置，由用户手动登录并保存会话。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
       "login-auto-start":
         "启动可跨消息恢复的自动登录；需要短信时先返回登录操作 ID，不发送短信。",
       "login-agent-start":
-        "云端无安全凭证库时启动同一登录状态机，等待 Agent 把用户临时提供的凭据填入私有 GUI。",
-      "login-credentials-ready":
-        `Agent 已通过私有 GUI 填好临时凭据后继续登录；需要口令 ${TEMPORARY_CREDENTIALS_READY_AUTHORIZATION}。`,
+        "云端无安全凭证库时启动同一登录状态机，等待 Agent 通过标准输入提交本次临时凭据。",
+      "login-credentials-submit":
+        `从标准输入读取一次性账号密码 JSON 并交给当前登录进程；需要口令 ${TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION}。`,
       "login-status": "读取登录操作状态；不启动第二个浏览器。",
       "login-sms-request":
         `用户确认可以接收短信后，请求验证码；需要口令 ${SMS_REQUEST_AUTHORIZATION}。`,
@@ -157,10 +158,10 @@ function commandMailbox(operationId) {
   }
 
   return {
-    async handle({ action, code }) {
+    async handle({ action, code, credentials }) {
       const loaded = await loadLoginOperation(operationId);
       if (
-        action === "credentials_ready" &&
+        action === "submit_credentials" &&
         loaded.record.state !== LoginOperationState.WAITING_FOR_CREDENTIALS
       ) {
         throw new LoginOperationError(
@@ -192,7 +193,28 @@ function commandMailbox(operationId) {
           "短信验证码格式不正确，应为 4 到 8 位数字。",
         );
       }
-      if (!["credentials_ready", "request_sms", "submit_sms"].includes(action)) {
+      if (
+        action === "submit_credentials" &&
+        (!credentials ||
+          typeof credentials.username !== "string" ||
+          credentials.username.length < 1 ||
+          credentials.username.length > 256 ||
+          typeof credentials.password !== "string" ||
+          credentials.password.length < 1 ||
+          credentials.password.length > 1024)
+      ) {
+        throw new LoginOperationError(
+          "TEMPORARY_CREDENTIALS_INVALID",
+          "临时账号或密码格式不正确。",
+        );
+      }
+      if (
+        ![
+          "submit_credentials",
+          "request_sms",
+          "submit_sms",
+        ].includes(action)
+      ) {
         throw new LoginOperationError(
           "LOGIN_CONTROL_ACTION_INVALID",
           "登录控制动作不受支持。",
@@ -207,7 +229,9 @@ function commandMailbox(operationId) {
       pendingActions.add(action);
       return await new Promise((resolve, reject) => {
         deliver(action, {
+          action,
           code,
+          credentials,
           resolve(value) {
             pendingActions.delete(action);
             resolve(value);
@@ -245,7 +269,7 @@ function commandMailbox(operationId) {
 
 
 async function runLoginAutoWorker(operationId, credentialMode = "stored") {
-  if (!["stored", "agent_gui"].includes(credentialMode)) {
+  if (!["stored", "agent_input"].includes(credentialMode)) {
     throw new LoginOperationError(
       "LOGIN_CREDENTIAL_MODE_INVALID",
       "登录凭据模式不受支持。",
@@ -320,14 +344,14 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         }
       },
     };
-    if (credentialMode === "agent_gui") {
+    if (credentialMode === "agent_input") {
       const waiting = await transitionLoginOperation(
         operationId,
         LoginOperationState.WAITING_FOR_CREDENTIALS,
         { reason: "temporary_agent_credentials_required" },
       );
       pendingCommand = await mailbox.take(
-        "credentials_ready",
+        "submit_credentials",
         Math.max(Date.parse(waiting.record.expiresAt) - Date.now(), 1),
       );
       try {
@@ -336,7 +360,22 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
           LoginOperationState.AUTHENTICATING,
           { reason: "temporary_agent_credentials_filled" },
         );
-        await submitPreparedCredentialLogin(session.page);
+        if (pendingCommand.action === "submit_credentials") {
+          const temporaryCredentials = pendingCommand.credentials;
+          const prepared = await fillPreparedCredentialLogin(
+            session.page,
+            temporaryCredentials,
+          );
+          pendingCommand.credentials = null;
+          temporaryCredentials.username = "";
+          temporaryCredentials.password = "";
+          await submitPreparedCredentialLogin(session.page, prepared);
+        } else {
+          throw new LoginOperationError(
+            "TEMPORARY_CREDENTIALS_INPUT_REQUIRED",
+            "当前云端登录操作必须通过标准输入提交临时凭据。",
+          );
+        }
         pendingCommand.resolve(publicLoginOperation(authenticating.record));
         pendingCommand = null;
         await waitForAuthenticatedPage(
@@ -458,11 +497,54 @@ async function runLoginAutoStart(credentialMode = "stored") {
 }
 
 
-async function runLoginCredentialsReady(operationId, authorization) {
-  requireTemporaryCredentialsReadyAuthorization(authorization);
-  const result = await sendLoginControl(operationId, "credentials_ready");
-  printJson(result);
-  return 0;
+async function readTemporaryCredentials() {
+  const prompt = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false,
+  });
+  try {
+    const line = (await prompt.question("")).trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new LoginOperationError(
+        "TEMPORARY_CREDENTIALS_INPUT_INVALID",
+        "标准输入必须是一行包含 username 和 password 的 JSON。",
+      );
+    }
+    if (
+      typeof parsed?.username !== "string" ||
+      !parsed.username ||
+      typeof parsed?.password !== "string" ||
+      !parsed.password
+    ) {
+      throw new LoginOperationError(
+        "TEMPORARY_CREDENTIALS_INPUT_INVALID",
+        "标准输入中的账号或密码为空。",
+      );
+    }
+    return { username: parsed.username, password: parsed.password };
+  } finally {
+    prompt.close();
+  }
+}
+
+
+async function runLoginCredentialsSubmit(operationId, authorization) {
+  requireTemporaryCredentialsSubmitAuthorization(authorization);
+  const credentials = await readTemporaryCredentials();
+  try {
+    const result = await sendLoginControl(operationId, "submit_credentials", {
+      credentials,
+    });
+    printJson(result);
+    return 0;
+  } finally {
+    credentials.username = "";
+    credentials.password = "";
+  }
 }
 
 
@@ -974,7 +1056,7 @@ async function main() {
       "login-auto-start",
       "login-agent-start",
       "login-auto-worker",
-      "login-credentials-ready",
+      "login-credentials-submit",
       "login-status",
       "login-sms-request",
       "login-sms-submit",
@@ -1055,10 +1137,10 @@ async function main() {
       return await runLoginAutoStart();
     }
     if (command === "login-agent-start") {
-      return await runLoginAutoStart("agent_gui");
+      return await runLoginAutoStart("agent_input");
     }
-    if (command === "login-credentials-ready") {
-      return await runLoginCredentialsReady(process.argv[3], process.argv[4]);
+    if (command === "login-credentials-submit") {
+      return await runLoginCredentialsSubmit(process.argv[3], process.argv[4]);
     }
     if (command === "login-status") {
       return await runLoginStatus(process.argv[3]);

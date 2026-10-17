@@ -6,10 +6,11 @@
 
 - 使用独立 Chrome 配置保存管易登录会话。
 - 默认由用户首次手动登录；也可从 macOS 钥匙串读取凭证自动登录。
-- Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 只通过私有 GUI 填入登录页。聊天平台仍可能保留原消息，项目无法代为删除。
+- Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 通过一次性`127.0.0.1`页面或私有stdin交给当前登录worker。聊天平台仍可能保留原消息，项目无法代为删除。
 - 云端可在 Xvfb 等私有显示环境中运行 headed Chromium，用户不需要看到浏览器窗口；几何与页面状态校验保持不变。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
+- Linux原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别；不使用全局20px宽容差。
 - 主框架与订单子框架统一按页面状态识别；首页加载、菜单展开和弹窗出现均使用有界等待，不依赖固定延时或坐标。
 - 截图只观察当前 viewport，截图前后验证页面尺寸和滚动位置不变；截图失败不覆盖原始业务结果。
 - 只在标题已登记的弹窗内部点击“知道了”或语义明确的关闭控件；不点击页面品牌、背景、“不再提醒”或“去授权”。点击后必须确认弹窗消失且页面地址未变化，否则停止。
@@ -46,7 +47,7 @@ npm run credential:status
 npm run login-auto
 npm run login-auto-start
 npm run login-agent-start
-npm run login-credentials-ready -- "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_FILLED"
+npm run login-credentials-submit -- "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_SUBMISSION"
 npm run login-status -- "<login-operation-id>"
 npm run login-sms-request -- "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
 npm run login-sms-submit -- "<login-operation-id>"
@@ -70,13 +71,13 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 
 Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；执行器只以参数 `get` 调用它，并从私有进程管道接收唯一一条 `{"username":"...","password":"..."}` JSON。助手不得把秘密输出到日志，执行器也不会写入或修改 Vault。
 
-平台没有安全入口时，先运行 `login-agent-start`。只有持久会话确实失效，它才返回 `waiting_for_credentials`。Agent 必须先说明“密码会留在平台对话历史中”，用户明确接受并发送本次账号密码后，Agent 使用平台 GUI 能力直接填入当前管易登录页；不得转存到文件、环境变量、剪贴板脚本或命令参数。填好后运行 `login-credentials-ready`，确定性执行器只检查两个输入框是否非空、勾选协议并点击登录，不读取或记录字段内容。这个入口扩展现有登录状态机，不建立第二套登录实现。
+平台没有安全入口时，先运行 `login-agent-start`。只有持久会话确实失效，它才返回 `waiting_for_credentials`、登录operation ID和单次`credentialInputUrl`。Agent必须先说明“密码会留在平台对话历史中”；用户明确接受并发送本次账号密码后，Agent用平台自带私有浏览器打开该`127.0.0.1`页面并填入。页面不保存凭据，POST后直接交给同一Playwright worker并立即失效；不得把凭据转存到临时脚本、文件、环境变量、剪贴板脚本或命令参数。平台具备私有标准输入时，也可运行`login-credentials-submit`并通过stdin提交单行JSON。两种入口共用同一个随机令牌控制通道和登录状态机，不建立第二套登录实现。
 
-不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent 通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
+不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持时也可通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
 
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
-正式 Skill 包装入口只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import` 和 `execute-import`。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
+正式 Skill 包装入口只接受清单一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区，并只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层。显式指定普通复制目录不能绕过`runtime-manifest.json`；规则回退、实现引用失效、临时修改或打包不一致都会结构性拒绝浏览器入口。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
 
 运行时会话和失败截图位于 `runtime/`，已排除出版本控制。截图可能包含后台信息，只用于本地故障诊断。
 

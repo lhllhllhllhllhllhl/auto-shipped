@@ -2,7 +2,7 @@
 
 本 Skill 内置 `runtime/auto-shipped`，包含订单转换源码、平台与来源配置、管易模板、当前商品资料快照和管易浏览器执行器。`runtime-manifest.json` 记录全部内置文件的 SHA-256；在新电脑运行前使用 `scripts/doctor.py` 校验。
 
-运行时发现顺序为：显式指定项目目录、当前目录中的开发项目、与当前Skill清单完全一致的状态运行时、Skill内置最新版。旧状态目录校验不一致时不会被静默使用，`doctor.py`会提示重新运行`bootstrap_runtime.py`；这样既能使用状态目录内安装好的依赖，也不会让旧规则覆盖新版Skill。
+运行时发现顺序为：显式指定项目目录、当前目录中的开发项目、与当前Skill清单完全一致的状态运行时、Skill内置最新版。旧状态目录校验不一致时不会被静默使用，`doctor.py`会提示重新运行`bootstrap_runtime.py`；普通复制目录即使通过`SHANGYU_AUTO_SHIPPED_ROOT`显式指定，也不能绕过浏览器入口的清单校验。这样既能使用状态目录内安装好的依赖，也不会让旧规则或临时修改覆盖新版Skill。
 
 ## 新电脑初始化
 
@@ -34,9 +34,11 @@
 
 6. 再运行 `doctor.py`、浏览器 `probe` 和只读 `navigate-import` 验收。
 
-运行时自动识别操作系统：macOS 使用 Keychain；Windows 使用当前 Windows 用户的 DPAPI 加密凭证文件。两者都必须在新电脑重新配置，不能回退到明文配置。Linux/云端优先由平台 Secret/Vault 配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；该助手接受 `get` 参数并通过私有标准输出返回账号密码 JSON，Skill 不负责写入 Vault。没有安全凭证入口时仍先复用已有浏览器会话；会话失效且用户明确接受对话历史会保留密码时，可使用 `login-agent-start`，由 Agent 通过私有 GUI 临时填入登录页。项目不得把聊天凭据复制到文件、环境变量、命令参数或日志。
+运行时自动识别操作系统：macOS 使用 Keychain；Windows 使用当前 Windows 用户的 DPAPI 加密凭证文件。两者都必须在新电脑重新配置，不能回退到明文配置。Linux/云端优先由平台 Secret/Vault 配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；该助手接受 `get` 参数并通过私有标准输出返回账号密码 JSON，Skill 不负责写入 Vault。没有安全凭证入口时仍先复用已有浏览器会话；会话失效且用户明确接受对话历史会保留密码时，可使用 `login-agent-start`。Agent用平台自带浏览器打开命令返回的单次`127.0.0.1`凭据页，把凭据直接交给仍在等待的Playwright worker；支持私有stdin的平台也可使用`login-credentials-submit`。项目不得把聊天凭据复制到临时脚本、文件、环境变量、命令参数或日志。
 
-云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口。跨消息短信验证使用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；验证码由用户临时提供，只保存在登录进程内存，不写文件或日志。
+云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口。跨消息凭据与短信验证共用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；单次凭据页提交成功后失效，验证码由用户临时提供，二者都只进入登录进程内存，不写文件或日志。
+
+默认状态目录不可写时，运行时会回退到当前系统用户独占的临时目录并在`doctor.py`中标记`persistent=false`；这能保证单次云端任务继续初始化，但不承诺跨云工作区保留profile。平台有明确的可写持久目录时，应通过`SHANGYU_SKILL_STATE_ROOT`指定该目录。`bootstrap_runtime.py`始终复制完整且经清单验证的运行时，不允许只复制`browser/guanyi`。
 
 macOS 已完成真实登录和导航验收。Windows 已实现路径选择、虚拟环境、Chrome 发现和 DPAPI 提供器，并通过平台路由单元测试；首次拿到真实 Windows 电脑时仍必须完成 `doctor → credential-web → probe → navigate-import` 实机验收后，才能启用自动登录。
 

@@ -6,19 +6,43 @@ from __future__ import annotations
 import os
 import hashlib
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_PROJECT_ROOT = SKILL_ROOT / "runtime" / "auto-shipped"
 BUNDLE_MANIFEST = SKILL_ROOT / "runtime-manifest.json"
-STATE_ROOT = Path(
-    os.environ.get(
-        "SHANGYU_SKILL_STATE_ROOT",
-        str(Path.home() / ".codex" / "runtime" / "shangyu-order-converter"),
-    )
-).expanduser()
+def _path_can_hold_runtime(path: Path) -> bool:
+    candidate = path.expanduser()
+    existing = candidate
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
+        return False
+    if candidate.exists() and not os.access(candidate, os.W_OK | os.X_OK):
+        return False
+    runtime = candidate / "runtime" / "auto-shipped"
+    if runtime.exists() and not os.access(runtime, os.W_OK | os.X_OK):
+        return False
+    return True
+
+
+def select_state_root() -> tuple[Path, str]:
+    configured = os.environ.get("SHANGYU_SKILL_STATE_ROOT")
+    if configured:
+        return Path(configured).expanduser(), "configured"
+    default = Path.home() / ".codex" / "runtime" / "shangyu-order-converter"
+    if _path_can_hold_runtime(default):
+        return default, "default"
+    user_suffix = str(getattr(os, "getuid", lambda: "user")())
+    fallback = Path(tempfile.gettempdir()) / f"shangyu-order-converter-{user_suffix}"
+    return fallback, "temporary_fallback"
+
+
+STATE_ROOT, STATE_ROOT_SOURCE = select_state_root()
 STATE_PROJECT_ROOT = STATE_ROOT / "runtime" / "auto-shipped"
 
 
@@ -96,9 +120,10 @@ def verify_runtime_against_manifest(project_root: Path) -> dict:
         if digest != expected:
             failures.append(relative)
     expected_count = int(manifest.get("file_count") or 0)
+    ready = not failures and expected_count == len(manifest.get("files", {}))
     return {
-        "ready": not failures and expected_count == len(manifest.get("files", {})),
-        "code": None if not failures else "BUNDLE_INTEGRITY_FAILED",
+        "ready": ready,
+        "code": None if ready else "BUNDLE_INTEGRITY_FAILED",
         "file_count": expected_count,
         "failures": failures[:20],
     }
@@ -106,3 +131,67 @@ def verify_runtime_against_manifest(project_root: Path) -> dict:
 
 def verify_bundled_runtime() -> dict:
     return verify_runtime_against_manifest(BUNDLED_PROJECT_ROOT)
+
+
+def state_root_status(path: Path = STATE_ROOT) -> dict:
+    ready = _path_can_hold_runtime(path)
+    return {
+        "ready": ready,
+        "path": str(path),
+        "source": STATE_ROOT_SOURCE if path == STATE_ROOT else "explicit_check",
+        "persistent": STATE_ROOT_SOURCE != "temporary_fallback",
+        "code": None if ready else "STATE_ROOT_NOT_WRITABLE",
+    }
+
+
+def runtime_trust_status(
+    project_root: Path,
+    *,
+    require_clean_development: bool = False,
+) -> dict:
+    resolved = project_root.expanduser().resolve()
+    if (resolved / ".git").exists():
+        try:
+            completed = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(resolved),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                    "--",
+                    "browser/guanyi",
+                    "skill/shangyu-order-converter/scripts/guanyi_browser.py",
+                    "skill/shangyu-order-converter/scripts/runtime_common.py",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return {
+                "ready": False,
+                "source": "external_development_checkout",
+                "path": str(resolved),
+                "development_clean": False,
+                "code": "DEVELOPMENT_RUNTIME_GIT_UNAVAILABLE",
+            }
+        clean = completed.returncode == 0 and not completed.stdout.strip()
+        return {
+            "ready": clean if require_clean_development else completed.returncode == 0,
+            "source": "external_development_checkout",
+            "path": str(resolved),
+            "development_clean": clean,
+            "code": (
+                "DEVELOPMENT_RUNTIME_DIRTY"
+                if require_clean_development and not clean
+                else None
+            ),
+        }
+    integrity = verify_runtime_against_manifest(resolved)
+    return {
+        **integrity,
+        "source": "verified_skill_runtime" if integrity.get("ready") else "unverified_runtime",
+        "path": str(resolved),
+    }

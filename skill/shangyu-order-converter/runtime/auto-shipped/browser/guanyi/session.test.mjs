@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   confirmStableAuthenticatedPage,
+  fillPreparedCredentialLogin,
   isAccessBlockedText,
   isAuthenticatedAppUrl,
   isLoginUrl,
@@ -136,6 +137,10 @@ function fakeCredentialPage(values) {
     },
     nth(index) {
       return {
+        async fill(value) {
+          values[index] = value;
+          actions.push([index === 0 ? "username" : "password", "filled"]);
+        },
         async evaluate(callback) {
           return callback({ value: values[index] || "" });
         },
@@ -194,6 +199,39 @@ test("submits Agent-filled credentials without returning their values", async ()
   ]);
   assert.equal(JSON.stringify(result).includes("cloud-user"), false);
   assert.equal(JSON.stringify(result).includes("test-secret"), false);
+});
+
+
+test("fills temporary credentials without returning or logging their values", async () => {
+  const values = ["", ""];
+  const fake = fakeCredentialPage(values);
+  const prepared = await fillPreparedCredentialLogin(fake.page, {
+    username: "cloud-user",
+    password: "one-time-secret",
+  });
+  assert.equal(prepared.inputs !== undefined, true);
+  assert.deepEqual(values, ["cloud-user", "one-time-secret"]);
+  assert.deepEqual(fake.actions, [
+    ["username", "filled"],
+    ["password", "filled"],
+  ]);
+  assert.equal(JSON.stringify(prepared).includes("cloud-user"), false);
+  assert.equal(JSON.stringify(prepared).includes("one-time-secret"), false);
+});
+
+
+test("rejects empty temporary credentials before filling the page", async () => {
+  const fake = fakeCredentialPage(["", ""]);
+  await assert.rejects(
+    fillPreparedCredentialLogin(fake.page, {
+      username: "cloud-user",
+      password: "",
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "TEMPORARY_CREDENTIALS_INVALID",
+  );
+  assert.deepEqual(fake.actions, []);
 });
 
 

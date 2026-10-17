@@ -30,7 +30,7 @@ python3 <skill-dir>/scripts/doctor.py
 python3 <skill-dir>/scripts/bootstrap_runtime.py
 ```
 
-新电脑不会继承管易账号密码、短信验证码、浏览器Cookie或飞书登录令牌。macOS/Windows都必须以实际员工身份重新建立凭证和登录会话；Linux/云端可复用持久浏览器会话，并优先接入平台 Secret/Vault。平台没有安全凭证入口时，用户明确接受对话留存风险后，可由同一 Agent 通过私有 GUI 临时填写本次凭据，项目仍不保存密码。详细步骤见 `skill/shangyu-order-converter/references/portability.md`。
+新电脑不会继承管易账号密码、短信验证码、浏览器Cookie或飞书登录令牌。macOS/Windows都必须以实际员工身份重新建立凭证和登录会话；Linux/云端可复用持久浏览器会话，并优先接入平台 Secret/Vault。平台没有安全凭证入口时，用户明确接受对话留存风险后，可由同一 Agent 通过一次性本机凭据页或私有stdin把本次凭据交给现有登录worker，项目仍不保存密码。详细步骤见 `skill/shangyu-order-converter/references/portability.md`。
 
 这个仓库包含公司内部业务规则和飞书工作簿绑定，应保持私有。真实订单、收件信息、转换结果、浏览器profile和运行日志不进入Git。
 

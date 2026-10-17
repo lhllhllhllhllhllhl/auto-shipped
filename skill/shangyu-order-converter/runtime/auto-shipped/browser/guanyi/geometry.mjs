@@ -8,6 +8,8 @@ import {
 
 
 const PAGE_GUARDS = new WeakMap();
+const GEOMETRY_EPSILON = 3;
+const MAX_NATIVE_SCROLLBAR_GUTTER = 24;
 const NAVIGATION_ERROR_MARKERS = [
   "execution context was destroyed",
   "most likely because of a navigation",
@@ -64,9 +66,32 @@ export function certifiedWindowFor(snapshot) {
 }
 
 
+export function nativeVerticalScrollbarGutter(snapshot) {
+  const documentGap = snapshot.innerWidth - snapshot.documentClientWidth;
+  const visualGap = snapshot.innerWidth - snapshot.visualViewportWidth;
+  const documentHeightGap = Math.abs(
+    snapshot.documentClientHeight - snapshot.innerHeight,
+  );
+  const visualHeightGap = Math.abs(
+    snapshot.visualViewportHeight - snapshot.innerHeight,
+  );
+  if (
+    documentGap < 0 ||
+    documentGap > MAX_NATIVE_SCROLLBAR_GUTTER ||
+    Math.abs(documentGap - visualGap) > GEOMETRY_EPSILON ||
+    documentHeightGap > GEOMETRY_EPSILON ||
+    visualHeightGap > GEOMETRY_EPSILON
+  ) {
+    return null;
+  }
+  return documentGap;
+}
+
+
 export function geometryMismatchReasons(snapshot) {
   const target = certifiedWindowFor(snapshot);
   const reasons = [];
+  const scrollbarGutter = nativeVerticalScrollbarGutter(snapshot);
   if (snapshot.playwrightViewport !== null) {
     reasons.push("headed_emulated_viewport_enabled");
   }
@@ -89,10 +114,18 @@ export function geometryMismatchReasons(snapshot) {
   ) {
     reasons.push("outer_height_mismatch");
   }
-  if (Math.abs(snapshot.documentClientWidth - snapshot.innerWidth) > 3) {
+  if (
+    scrollbarGutter === null &&
+    Math.abs(snapshot.documentClientWidth - snapshot.innerWidth) >
+      GEOMETRY_EPSILON
+  ) {
     reasons.push("document_client_width_mismatch");
   }
-  if (Math.abs(snapshot.visualViewportWidth - snapshot.innerWidth) > 3) {
+  if (
+    scrollbarGutter === null &&
+    Math.abs(snapshot.visualViewportWidth - snapshot.innerWidth) >
+      GEOMETRY_EPSILON
+  ) {
     reasons.push("visual_viewport_width_mismatch");
   }
   if (

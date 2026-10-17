@@ -137,9 +137,11 @@
 
 ## 2026-10-14 云端登录与多批上传
 
-- `DEC-USER-CLOUD-CREDENTIAL-001`：账号密码不进入 Skill、Git、普通配置、环境变量、命令参数或日志。本地继续使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 提供的只读外部凭证助手。豆包当前未确认有安全凭证入口，用户明确选择便利性优先并接受对话历史留存风险：持久会话失效时可把本次账号密码发给同一 Agent，由 Agent 仅通过私有 GUI 填入现有登录状态机；项目不保存、不复述、不跨任务复用凭据。此决策取代“普通聊天绝对禁用”的旧限制，但不把聊天描述为安全存储。
-- `DEC-USER-SMS-HANDOFF-001`：短信验证改为可跨消息恢复的短时登录操作。检测到验证时先询问用户，用户确认后才请求短信；验证码经标准输入和私有本机控制通道交给原浏览器进程，只存在于内存。
+- `DEC-USER-CLOUD-CREDENTIAL-001`：账号密码不进入 Skill、Git、普通配置、环境变量、命令参数或日志。本地继续使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 提供的只读外部凭证助手。豆包当前未确认有安全凭证入口，用户明确选择便利性优先并接受对话历史留存风险：持久会话失效时可把本次账号密码发给同一 Agent。Agent用平台自带私有浏览器打开当前登录operation返回的单次`127.0.0.1`凭据页，或在平台支持时通过私有stdin提交；二者都进入同一个随机令牌控制通道和Playwright worker，项目不保存、不复述、不跨任务复用凭据。此决策取代“普通聊天绝对禁用”的旧限制，但不把聊天描述为安全存储。
+- `DEC-USER-SMS-HANDOFF-001`：短信验证改为可跨消息恢复的短时登录操作。检测到验证时先询问用户，用户确认后才请求短信；验证码优先经同一个随机令牌本机控制服务上的单次页面交给原浏览器进程，平台支持时也可经标准输入提交，只存在于内存。
 - `DEC-USER-CLOUD-BROWSER-VISIBILITY-001`：云端浏览器允许在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口；Geometry Guard、状态回读和截图约束不变。
+- `DEC-USER-CLOUD-RUNTIME-INTEGRITY-001`：云端只读Skill副本必须完整复制到可写状态目录并保持`runtime-manifest.json`一致；显式`SHANGYU_AUTO_SHIPPED_ROOT`不能让普通临时副本绕过清单。默认状态目录不可写时允许回退到用户独占临时目录，但必须报告`persistent=false`，不能宣称跨工作区保留profile。
+- `DEC-USER-LINUX-GEOMETRY-001`：Linux headed Chromium允许稳定的原生垂直滚动条gutter，但只在三次采样一致、没有水平滚动、页面缩放正常且document/visual viewport宽度证据一致时放行；禁止把全部宽度容差从3px扩大到20px。
 - `DEC-USER-MULTI-BATCH-UPLOAD-001`：同一对话中“把这些都上传”可以授权多个已明确列出的 manifest。每批仍使用独立哈希、operation ID 和任务基线，并严格串行执行；前一批未核验成功时停止后续批次。隔离只防止串批，不限制自然语言选择全部或部分批次。
 - `DEC-USER-RECONCILING-001`：已经点击确定后，短时没有新增任务不直接判失败或人工结束，而是持久化为`reconciling`并允许稍后只读复查。只有文件暂存、未授权或点击确定，且任务中心确认无新增任务时进入`retryable_failed`；多条新增、任务ID证据不足、未知状态进入人工确认。
 - `DEC-USER-UPLOAD-RETRY-001`：防重复只永久阻止已`post_write_verified`的同哈希Excel；`reconciling`和`needs_manual_review`只作临时锁。`retryable_failed`与明确失败的关闭状态允许新尝试，新操作必须记录`retryOf`、递增`attemptNumber`、重建任务基线并重新取得用户上传授权。

@@ -1,14 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
-import net from "node:net";
+import http from "node:http";
 import path from "node:path";
 
 import { LOGIN_OPERATION_DIR, LOGIN_TIMEOUT_MS } from "./config.mjs";
 
 
 export const SMS_REQUEST_AUTHORIZATION = "CONFIRM_REQUEST_GUANYI_SMS";
-export const TEMPORARY_CREDENTIALS_READY_AUTHORIZATION =
-  "CONFIRM_TEMPORARY_CREDENTIALS_FILLED";
+export const TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION =
+  "CONFIRM_TEMPORARY_CREDENTIALS_SUBMISSION";
 
 
 export const LoginOperationState = Object.freeze({
@@ -138,18 +138,88 @@ export function publicLoginOperation(record) {
   }
   if (record.state === LoginOperationState.WAITING_FOR_CREDENTIALS) {
     payload.credentialMode = "temporary_agent_input";
+    if (record.control?.host && record.control?.port && record.control?.token) {
+      payload.credentialInputUrl =
+        `http://${record.control.host}:${record.control.port}` +
+        `/credentials/${record.control.token}`;
+    }
     payload.instruction =
-      "请先说明密码会保留在平台对话历史中；用户明确接受后，由 Agent 通过私有 GUI 填入当前管易登录页，再确认凭据已填好。";
+      "请先说明密码会保留在平台对话历史中；用户明确接受后，由 Agent 在一次性本机页面填入本次凭据，或通过标准输入交给当前登录进程。";
   } else if (record.state === LoginOperationState.NEEDS_VERIFICATION) {
     payload.verificationType = "sms";
     payload.instruction = "请询问用户现在是否方便接收短信验证码；尚未发送短信。";
   } else if (record.state === LoginOperationState.WAITING_FOR_USER_CODE) {
     payload.verificationType = "sms";
-    payload.instruction = "短信已请求，请用户把本次验证码提供给 Agent。";
+    if (record.control?.host && record.control?.port && record.control?.token) {
+      payload.smsInputUrl =
+        `http://${record.control.host}:${record.control.port}` +
+        `/sms/${record.control.token}`;
+    }
+    payload.instruction =
+      "短信请求已由说明弹窗确认；请用户把本次验证码提供给 Agent，再通过一次性本机页面或标准输入交给当前登录进程。";
   } else if (record.state === LoginOperationState.CODE_SUBMITTED) {
     payload.instruction = "验证码已提交，正在等待登录结果。";
   }
   return payload;
+}
+
+
+function controlHeaders(contentType) {
+  return {
+    "Cache-Control": "no-store, max-age=0",
+    "Content-Type": contentType,
+    "Content-Security-Policy":
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    Pragma: "no-cache",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  };
+}
+
+
+function temporaryCredentialHtml(route) {
+  return `<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>尚舆 · 本次管易登录</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#172033;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:520px;margin:8vh auto;padding:30px;background:#fff;border:1px solid #e4e8f0;border-radius:14px;box-shadow:0 12px 36px #1226501a}h1{margin:0 0 10px;font-size:24px}p{margin:8px 0 20px;color:#586174}.field{margin:16px 0}label{display:block;margin-bottom:6px;font-weight:650}input{width:100%;height:44px;padding:0 12px;border:1px solid #cfd6e4;border-radius:8px;font-size:16px}button{width:100%;height:46px;margin-top:12px;border:0;border-radius:8px;background:#1677ff;color:#fff;font-size:16px;font-weight:650}.safe{padding:10px 12px;border-radius:8px;background:#eef6ff;color:#24568f;font-size:13px}</style>
+<main><h1>本次管易登录</h1><p>账号密码只发送给当前正在等待的管易登录进程，用后即丢弃，不写入文件、环境变量、命令参数或日志。</p><div class="safe">地址必须以 <strong>http://127.0.0.1:</strong> 开头；页面只能提交一次，并随登录操作到期。</div><form method="post" action="${route}" autocomplete="off"><div class="field"><label for="username">管易登录账号</label><input id="username" name="username" required autocomplete="off"></div><div class="field"><label for="password">管易登录密码</label><input id="password" name="password" type="password" required autocomplete="off"></div><button type="submit">交给当前登录进程</button></form></main></html>`;
+}
+
+
+function temporaryCredentialSuccessHtml() {
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>凭据已交接</title><style>body{font:16px/1.6 -apple-system,sans-serif;background:#f5f7fb;color:#172033}main{max-width:520px;margin:12vh auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 12px 36px #12305018}h1{color:#15803d}</style><main><h1>凭据已交接</h1><p>当前管易登录进程已经接收。可以关闭此页面并等待登录状态；本页面没有保存账号密码。</p></main></html>`;
+}
+
+
+function temporarySmsHtml(route) {
+  return `<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>尚舆 · 本次短信验证码</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#172033;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:520px;margin:10vh auto;padding:30px;background:#fff;border:1px solid #e4e8f0;border-radius:14px;box-shadow:0 12px 36px #1226501a}h1{margin:0 0 10px;font-size:24px}p{color:#586174}label{display:block;margin:18px 0 6px;font-weight:650}input{width:100%;height:44px;padding:0 12px;border:1px solid #cfd6e4;border-radius:8px;font-size:18px}button{width:100%;height:46px;margin-top:18px;border:0;border-radius:8px;background:#1677ff;color:#fff;font-size:16px;font-weight:650}</style>
+<main><h1>本次短信验证码</h1><p>验证码只交给当前管易登录进程，提交后页面立即失效。</p><form method="post" action="${route}" autocomplete="off"><label for="code">短信验证码</label><input id="code" name="code" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" required autocomplete="off"><button type="submit">提交验证码</button></form></main></html>`;
+}
+
+
+function temporarySmsSuccessHtml() {
+  return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>验证码已交接</title><style>body{font:16px/1.6 -apple-system,sans-serif;background:#f5f7fb;color:#172033}main{max-width:520px;margin:12vh auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 12px 36px #12305018}h1{color:#15803d}</style><main><h1>验证码已交接</h1><p>当前管易登录进程正在验证，可以关闭此页面。</p></main></html>`;
+}
+
+
+async function readRequestBody(request, limit = 8192) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) {
+      throw new LoginOperationError(
+        "LOGIN_CONTROL_REQUEST_TOO_LARGE",
+        "登录控制请求过大。",
+      );
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 
@@ -314,11 +384,11 @@ export function requireSmsRequestAuthorization(authorization) {
 }
 
 
-export function requireTemporaryCredentialsReadyAuthorization(authorization) {
-  if (authorization !== TEMPORARY_CREDENTIALS_READY_AUTHORIZATION) {
+export function requireTemporaryCredentialsSubmitAuthorization(authorization) {
+  if (authorization !== TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION) {
     throw new LoginOperationError(
-      "TEMPORARY_CREDENTIALS_READY_AUTHORIZATION_REQUIRED",
-      "只有用户已在当前对话提供本次登录凭据且 Agent 已通过私有 GUI 填好后，才能继续登录。",
+      "TEMPORARY_CREDENTIALS_SUBMISSION_AUTHORIZATION_REQUIRED",
+      "只有用户已在当前对话提供本次登录凭据并接受对话历史风险后，才能提交临时凭据。",
     );
   }
 }
@@ -357,44 +427,141 @@ export async function createLoginControlServer(
 ) {
   const loaded = await loadLoginOperation(operationId, directory);
   const expectedToken = loaded.record.control.token;
-  const server = net.createServer((socket) => {
-    socket.setEncoding("utf8");
-    let input = "";
-    socket.on("data", (chunk) => {
-      input += chunk;
-      if (input.length > 2048) socket.destroy();
-      if (!input.includes("\n")) return;
-      const line = input.slice(0, input.indexOf("\n"));
-      Promise.resolve()
-        .then(async () => {
-          const message = JSON.parse(line);
-          if (
-            message.operationId !== operationId ||
-            message.token !== expectedToken
-          ) {
-            throw new LoginOperationError(
-              "LOGIN_CONTROL_UNAUTHORIZED",
-              "登录控制请求未通过校验。",
-            );
-          }
-          return await handler({
+  const credentialRoute = `/credentials/${expectedToken}`;
+  const smsRoute = `/sms/${expectedToken}`;
+  const controlRoute = `/control/${expectedToken}`;
+  let credentialsAccepted = false;
+  let smsAccepted = false;
+  const server = http.createServer(async (request, response) => {
+    const expectedOrigin = `http://${request.headers.host}`;
+    const localHost = String(request.headers.host || "").split(":")[0];
+    if (!new Set(["127.0.0.1", "localhost"]).has(localHost)) {
+      response.writeHead(403, controlHeaders("text/plain; charset=utf-8"));
+      response.end("Forbidden");
+      return;
+    }
+    try {
+      if (
+        request.method === "GET" &&
+        request.url === credentialRoute &&
+        !credentialsAccepted
+      ) {
+        response.writeHead(200, controlHeaders("text/html; charset=utf-8"));
+        response.end(temporaryCredentialHtml(credentialRoute));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        request.url === credentialRoute &&
+        !credentialsAccepted
+      ) {
+        if (
+          request.headers.origin &&
+          request.headers.origin !== expectedOrigin
+        ) {
+          throw new LoginOperationError(
+            "LOGIN_CONTROL_ORIGIN_INVALID",
+            "临时凭据页面来源无效。",
+          );
+        }
+        const form = new URLSearchParams(await readRequestBody(request));
+        const credentials = {
+          username: (form.get("username") || "").trim(),
+          password: form.get("password") || "",
+        };
+        try {
+          await handler({
+            action: "submit_credentials",
+            code: null,
+            credentials,
+          });
+        } finally {
+          credentials.username = "";
+          credentials.password = "";
+        }
+        credentialsAccepted = true;
+        response.writeHead(200, controlHeaders("text/html; charset=utf-8"));
+        response.end(temporaryCredentialSuccessHtml());
+        return;
+      }
+      if (
+        request.method === "GET" &&
+        request.url === smsRoute &&
+        !smsAccepted
+      ) {
+        response.writeHead(200, controlHeaders("text/html; charset=utf-8"));
+        response.end(temporarySmsHtml(smsRoute));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        request.url === smsRoute &&
+        !smsAccepted
+      ) {
+        if (
+          request.headers.origin &&
+          request.headers.origin !== expectedOrigin
+        ) {
+          throw new LoginOperationError(
+            "LOGIN_CONTROL_ORIGIN_INVALID",
+            "短信验证码页面来源无效。",
+          );
+        }
+        const form = new URLSearchParams(await readRequestBody(request));
+        let code = (form.get("code") || "").trim();
+        try {
+          await handler({
+            action: "submit_sms",
+            code,
+            credentials: null,
+          });
+        } finally {
+          code = "";
+        }
+        smsAccepted = true;
+        response.writeHead(200, controlHeaders("text/html; charset=utf-8"));
+        response.end(temporarySmsSuccessHtml());
+        return;
+      }
+      if (request.method === "POST" && request.url === controlRoute) {
+        const message = JSON.parse(await readRequestBody(request));
+        if (message.operationId !== operationId) {
+          throw new LoginOperationError(
+            "LOGIN_CONTROL_UNAUTHORIZED",
+            "登录控制请求未通过校验。",
+          );
+        }
+        let result;
+        try {
+          result = await handler({
             action: message.action,
             code: message.code,
+            credentials: message.credentials,
           });
-        })
-        .then((result) => {
-          socket.end(`${JSON.stringify({ ok: true, result })}\n`);
-        })
-        .catch((error) => {
-          socket.end(
-            `${JSON.stringify({
-              ok: false,
-              code: error?.code || "LOGIN_CONTROL_FAILED",
-              message: error?.message || "登录控制请求失败。",
-            })}\n`,
-          );
-        });
-    });
+        } finally {
+          if (message.credentials) {
+            message.credentials.username = "";
+            message.credentials.password = "";
+          }
+          message.code = null;
+        }
+        if (message.action === "submit_credentials") credentialsAccepted = true;
+        if (message.action === "submit_sms") smsAccepted = true;
+        response.writeHead(200, controlHeaders("application/json; charset=utf-8"));
+        response.end(JSON.stringify({ ok: true, result }));
+        return;
+      }
+      response.writeHead(404, controlHeaders("text/plain; charset=utf-8"));
+      response.end("Not found");
+    } catch (error) {
+      const payload = JSON.stringify({
+        ok: false,
+        code: error?.code || "LOGIN_CONTROL_FAILED",
+        message: error?.message || "登录控制请求失败。",
+      });
+      response.writeHead(400, controlHeaders("application/json; charset=utf-8"));
+      response.end(payload);
+    }
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -409,7 +576,12 @@ export async function createLoginControlServer(
 export async function sendLoginControl(
   operationId,
   action,
-  { code = null, directory = LOGIN_OPERATION_DIR, timeoutMs = 20_000 } = {},
+  {
+    code = null,
+    credentials = null,
+    directory = LOGIN_OPERATION_DIR,
+    timeoutMs = 20_000,
+  } = {},
 ) {
   const loaded = await loadLoginOperation(operationId, directory);
   const { host, port, token } = loaded.record.control;
@@ -420,9 +592,24 @@ export async function sendLoginControl(
     );
   }
   return await new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host, port });
+    const body = JSON.stringify({
+      operationId,
+      action,
+      code,
+      credentials,
+    });
+    const request = http.request({
+      hostname: host,
+      port,
+      path: `/control/${token}`,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+      },
+    });
     const timer = setTimeout(() => {
-      socket.destroy();
+      request.destroy();
       reject(
         new LoginOperationError(
           "LOGIN_CONTROL_TIMEOUT",
@@ -431,16 +618,38 @@ export async function sendLoginControl(
       );
     }, timeoutMs);
     let output = "";
-    socket.setEncoding("utf8");
-    socket.once("connect", () => {
-      socket.write(
-        `${JSON.stringify({ operationId, token, action, code })}\n`,
-      );
+    request.once("response", (response) => {
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        output += chunk;
+      });
+      response.once("end", () => {
+        clearTimeout(timer);
+        try {
+          const payload = JSON.parse(output.trim());
+          if (!payload.ok) {
+            reject(
+              new LoginOperationError(
+                payload.code || "LOGIN_CONTROL_FAILED",
+                payload.message || "登录控制操作失败。",
+              ),
+            );
+            return;
+          }
+          resolve(payload.result);
+        } catch (error) {
+          reject(
+            error instanceof LoginOperationError
+              ? error
+              : new LoginOperationError(
+                  "LOGIN_CONTROL_RESPONSE_INVALID",
+                  "登录控制进程返回了无效响应。",
+                ),
+          );
+        }
+      });
     });
-    socket.on("data", (chunk) => {
-      output += chunk;
-    });
-    socket.once("error", (error) => {
+    request.once("error", (error) => {
       clearTimeout(timer);
       reject(
         new LoginOperationError(
@@ -450,30 +659,6 @@ export async function sendLoginControl(
         ),
       );
     });
-    socket.once("end", () => {
-      clearTimeout(timer);
-      try {
-        const response = JSON.parse(output.trim());
-        if (!response.ok) {
-          reject(
-            new LoginOperationError(
-              response.code || "LOGIN_CONTROL_FAILED",
-              response.message || "登录控制操作失败。",
-            ),
-          );
-          return;
-        }
-        resolve(response.result);
-      } catch (error) {
-        reject(
-          error instanceof LoginOperationError
-            ? error
-            : new LoginOperationError(
-                "LOGIN_CONTROL_RESPONSE_INVALID",
-                "登录控制进程返回了无效响应。",
-              ),
-        );
-      }
-    });
+    request.end(body);
   });
 }

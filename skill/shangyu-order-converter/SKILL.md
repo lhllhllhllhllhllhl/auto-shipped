@@ -190,7 +190,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py login
 python3 <skill-dir>/scripts/guanyi_browser.py login-auto
 python3 <skill-dir>/scripts/guanyi_browser.py login-auto-start
 python3 <skill-dir>/scripts/guanyi_browser.py login-agent-start
-python3 <skill-dir>/scripts/guanyi_browser.py login-credentials-ready "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_FILLED"
+python3 <skill-dir>/scripts/guanyi_browser.py login-credentials-submit "<login-operation-id>" "CONFIRM_TEMPORARY_CREDENTIALS_SUBMISSION"
 python3 <skill-dir>/scripts/guanyi_browser.py login-status "<login-operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py login-sms-request "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
 python3 <skill-dir>/scripts/guanyi_browser.py login-sms-submit "<login-operation-id>"
@@ -215,9 +215,9 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 
 - `login` 使用专用 Chrome 配置，由用户手动登录。
 - `login-auto` 只读取安全凭证提供器：macOS Keychain、当前 Windows 用户的 DPAPI，或云端平台 Secret/Vault 提供的只读外部凭证助手。不得把凭证写入 Skill、源码、普通配置、环境变量、命令参数或日志。本地未配置时可运行 `credential-web` 产生一次性 `127.0.0.1` 页面。
-- 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，Agent 只通过私有 GUI 填入当前管易登录页，再运行 `login-credentials-ready`。不得转存、复述、写入剪贴板脚本或跨任务复用。执行器只检查字段是否非空并继续现有登录状态机，不读取或保存字段内容。
-- 登录会话只在当前浏览器进程内可靠复用；不把进程关闭后的 Cookie 当成稳定前提，不勾选管易“记住账户”，不启用 Chrome 保存密码。
-- 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，再通过 `login-sms-submit` 标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
+- 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，Agent优先用平台自带私有浏览器打开返回的单次`credentialInputUrl`并填入，页面只监听`127.0.0.1`且把凭据直接交给仍在等待的同一worker；平台支持私有标准输入时也可运行`login-credentials-submit`，把单行账号密码JSON通过stdin交给同一控制通道。不得转存、复述、写入临时脚本、文件、环境变量、剪贴板脚本或命令参数，也不得跨任务复用。一次性页面地址不含账号密码，成功提交后不能再次使用。
+- 登录会话只在当前浏览器进程内可靠复用；持久profile可以降低重复登录次数，但每次仍以页面状态回读为准。不勾选管易“记住账户”，不启用 Chrome 保存密码。
+- 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持私有标准输入时也可通过`login-sms-submit`交给仍在运行的原登录进程。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
 - `probe` 检查登录和页面状态，只关闭已登记的安全通知。
 - `navigate-import` 导航到“自定义导入”页面后停止，禁止选择文件。
 - `prepare-import-form` 导航到“订单导入 → 自定义导入”，只允许把订单状态设为“待审核”并回读确认；文件输入必须保持为空，禁止点击“确定”。
@@ -237,6 +237,8 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；它仍不代表上传授权，不得跳级到写入状态。
 - 返回 `popup_unknown` 或 `navigation_failed` 时停止并报告，不使用坐标或盲目重试。
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
+- Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。不得全局放宽几何容差。
+- 正式Skill入口只接受与`runtime-manifest.json`一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区；通过`SHANGYU_AUTO_SHIPPED_ROOT`指向的普通复制目录同样必须通过清单校验。修改后的临时副本不得登录、选择文件或提交。
 - 2026-10-14 已完成真实全量成功闭环验收：两段确定、48行字段映射核验、唯一新增任务识别和结果汇总回读均通过，任务 `705668612` 为总数2、成功2、失败0。生产使用只对当前对话中明确授权的具体批次开放；不要用其他临时浏览器步骤绕过门禁。审核、发货、作废和删除不在本模块能力范围内。
 
 ## 当前能力

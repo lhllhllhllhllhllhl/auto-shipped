@@ -11,11 +11,11 @@ import subprocess
 from pathlib import Path
 
 from runtime_common import (
-    BUNDLED_PROJECT_ROOT,
-    STATE_PROJECT_ROOT,
+    STATE_ROOT,
     resolve_project_root,
+    runtime_trust_status,
+    state_root_status,
     state_python_candidates,
-    verify_runtime_against_manifest,
 )
 
 
@@ -140,14 +140,8 @@ def main() -> int:
     )
     checks = {
         "runtime": {"ready": True, "path": str(project_root)},
-        "bundle_integrity": (
-            verify_runtime_against_manifest(project_root)
-            if project_root in {
-                BUNDLED_PROJECT_ROOT.resolve(),
-                STATE_PROJECT_ROOT.resolve(),
-            }
-            else {"ready": True, "source": "external_development_runtime"}
-        ),
+        "state_root": state_root_status(STATE_ROOT),
+        "bundle_integrity": runtime_trust_status(project_root),
         "python": python_status(project_root),
         "node": {"ready": shutil.which("node") is not None},
         "npm": {"ready": npm is not None},
@@ -188,11 +182,12 @@ def main() -> int:
                 else None
             ),
         },
-        "temporary_agent_gui": {
+        "temporary_agent_input": {
             "ready": chrome is not None,
             "mode": "current_conversation_only",
             "requires_explicit_user_risk_acceptance": True,
-            "warning": "密码会保留在平台对话历史中；项目不保存或跨任务复用。",
+            "transport": "one_time_loopback_page_or_stdin_to_tokenized_worker",
+            "warning": "密码会保留在平台对话历史中；项目只在当前登录进程内使用，不保存或跨任务复用。",
         },
     }
     required_checks = {

@@ -7,7 +7,10 @@ import test from "node:test";
 import { chromium } from "playwright-core";
 
 import { CHROME_EXECUTABLE } from "./config.mjs";
-import { geometryMismatchReasons } from "./geometry.mjs";
+import {
+  geometryMismatchReasons,
+  nativeVerticalScrollbarGutter,
+} from "./geometry.mjs";
 import { captureReadOnlyScreenshot } from "./screenshot.mjs";
 
 
@@ -53,6 +56,55 @@ test("accepts macOS restored window when outer height mirrors content height", (
   const snapshot = stableHeadedSnapshot();
   snapshot.outerHeight = snapshot.innerHeight;
   assert.deepEqual(geometryMismatchReasons(snapshot), []);
+});
+
+
+test("accepts a stable native Linux vertical scrollbar gutter", () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1432,
+    innerHeight: 759,
+    outerWidth: 1440,
+    documentClientWidth: 1417,
+    documentClientHeight: 759,
+    visualViewportWidth: 1417,
+    visualViewportHeight: 759,
+    devicePixelRatio: 1,
+  };
+  assert.equal(nativeVerticalScrollbarGutter(snapshot), 15);
+  assert.deepEqual(geometryMismatchReasons(snapshot), []);
+});
+
+
+test("rejects width mismatches that are not a native vertical scrollbar", () => {
+  const inconsistentWidths = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1432,
+    documentClientWidth: 1417,
+    visualViewportWidth: 1390,
+  };
+  assert.equal(nativeVerticalScrollbarGutter(inconsistentWidths), null);
+  assert.ok(
+    geometryMismatchReasons(inconsistentWidths).includes(
+      "document_client_width_mismatch",
+    ),
+  );
+
+  const horizontalScrollbar = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1432,
+    innerHeight: 759,
+    documentClientWidth: 1417,
+    documentClientHeight: 744,
+    visualViewportWidth: 1417,
+    visualViewportHeight: 744,
+  };
+  assert.equal(nativeVerticalScrollbarGutter(horizontalScrollbar), null);
+  assert.ok(
+    geometryMismatchReasons(horizontalScrollbar).includes(
+      "visual_viewport_width_mismatch",
+    ),
+  );
 });
 
 

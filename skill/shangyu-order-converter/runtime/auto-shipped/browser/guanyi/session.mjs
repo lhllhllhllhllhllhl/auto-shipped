@@ -230,7 +230,7 @@ export async function markDedicatedLoginWindow(page) {
     }
     const banner = document.createElement("div");
     banner.id = "shangyu-guanyi-login-banner";
-    banner.textContent = "尚舆自动化专用登录窗口（请在此窗口完成登录）";
+    banner.textContent = "尚舆自动化专用登录窗口";
     Object.assign(banner.style, {
       position: "fixed",
       top: "8px",
@@ -257,11 +257,32 @@ export async function loginWithCredentials(
   timeoutMs,
   options = {},
 ) {
-  const { panel, inputs } = await prepareCredentialLogin(page);
-  await inputs.nth(0).fill(credentials.username);
-  await inputs.nth(1).fill(credentials.password);
-  await submitPreparedCredentialLogin(page, { panel, inputs });
+  const prepared = await fillPreparedCredentialLogin(page, credentials);
+  await submitPreparedCredentialLogin(page, prepared);
   return await waitForAuthenticatedPage(context, page, timeoutMs, options);
+}
+
+
+export async function fillPreparedCredentialLogin(
+  page,
+  credentials,
+  prepared = null,
+) {
+  if (
+    typeof credentials?.username !== "string" ||
+    !credentials.username ||
+    typeof credentials?.password !== "string" ||
+    !credentials.password
+  ) {
+    throw new SessionError(
+      "TEMPORARY_CREDENTIALS_INVALID",
+      "临时账号或密码为空。",
+    );
+  }
+  const result = prepared || (await prepareCredentialLogin(page));
+  await result.inputs.nth(0).fill(credentials.username);
+  await result.inputs.nth(1).fill(credentials.password);
+  return result;
 }
 
 

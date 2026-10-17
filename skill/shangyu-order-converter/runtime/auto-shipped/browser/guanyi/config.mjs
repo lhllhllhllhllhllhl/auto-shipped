@@ -24,35 +24,55 @@ export const LOGIN_OPERATION_DIR = path.resolve(
     path.join(RUNTIME_ROOT, "guanyi-login-operations"),
 );
 export const CREDENTIAL_HELPER = process.env.GUANYI_CREDENTIAL_HELPER || "";
-function browserCandidates() {
-  const configured = process.env.GUANYI_CHROME_EXECUTABLE;
-  if (process.platform === "darwin") {
+function pathCandidates(names, environment = process.env) {
+  const directories = String(environment.PATH || "")
+    .split(path.delimiter)
+    .filter(Boolean);
+  return directories.flatMap((directory) =>
+    names.map((name) => path.join(directory, name)),
+  );
+}
+
+
+export function browserCandidates(
+  platform = process.platform,
+  environment = process.env,
+) {
+  const configured = environment.GUANYI_CHROME_EXECUTABLE;
+  if (platform === "darwin") {
     return [
       configured,
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       "/Applications/Chromium.app/Contents/MacOS/Chromium",
     ];
   }
-  if (process.platform === "win32") {
+  if (platform === "win32") {
     return [
       configured,
-      process.env.PROGRAMFILES
-        ? path.join(process.env.PROGRAMFILES, "Google/Chrome/Application/chrome.exe")
+      environment.PROGRAMFILES
+        ? path.join(environment.PROGRAMFILES, "Google/Chrome/Application/chrome.exe")
         : null,
-      process.env["PROGRAMFILES(X86)"]
-        ? path.join(process.env["PROGRAMFILES(X86)"], "Google/Chrome/Application/chrome.exe")
+      environment["PROGRAMFILES(X86)"]
+        ? path.join(environment["PROGRAMFILES(X86)"], "Google/Chrome/Application/chrome.exe")
         : null,
-      process.env.LOCALAPPDATA
-        ? path.join(process.env.LOCALAPPDATA, "Google/Chrome/Application/chrome.exe")
+      environment.LOCALAPPDATA
+        ? path.join(environment.LOCALAPPDATA, "Google/Chrome/Application/chrome.exe")
         : null,
     ];
   }
   return [
     configured,
+    "/usr/local/bin/chromium",
+    "/usr/local/bin/chromium-browser",
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
+    "/opt/browser/chrome",
+    ...pathCandidates(
+      ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"],
+      environment,
+    ),
   ];
 }
 

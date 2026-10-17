@@ -13,6 +13,8 @@ from runtime_common import (
     BUNDLED_PROJECT_ROOT,
     STATE_PROJECT_ROOT,
     STATE_ROOT,
+    STATE_ROOT_SOURCE,
+    state_root_status,
     state_python_candidates,
     verify_bundled_runtime,
 )
@@ -57,11 +59,25 @@ def main() -> int:
         print(json.dumps({"status": "failed", "code": "PYTHON_311_MISSING"}, ensure_ascii=False))
         return 1
 
-    STATE_ROOT.mkdir(parents=True, exist_ok=True)
-    if STATE_PROJECT_ROOT.exists():
-        shutil.rmtree(STATE_PROJECT_ROOT)
-    STATE_PROJECT_ROOT.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(BUNDLED_PROJECT_ROOT, STATE_PROJECT_ROOT)
+    writable = state_root_status(STATE_ROOT)
+    if not writable.get("ready"):
+        print(json.dumps({"status": "failed", **writable}, ensure_ascii=False))
+        return 1
+
+    try:
+        STATE_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if STATE_PROJECT_ROOT.exists():
+            shutil.rmtree(STATE_PROJECT_ROOT)
+        STATE_PROJECT_ROOT.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(BUNDLED_PROJECT_ROOT, STATE_PROJECT_ROOT)
+    except OSError as error:
+        print(json.dumps({
+            "status": "failed",
+            "code": "STATE_RUNTIME_COPY_FAILED",
+            "stateRoot": str(STATE_ROOT),
+            "error": error.__class__.__name__,
+        }, ensure_ascii=False))
+        return 1
     venv = STATE_ROOT / ".venv"
     venv_python = (
         venv / "Scripts" / "python.exe"
@@ -90,7 +106,13 @@ def main() -> int:
         cwd=STATE_PROJECT_ROOT / "browser" / "guanyi",
         check=True,
     )
-    print(json.dumps({"status": "configured", "runtime": str(STATE_PROJECT_ROOT), "stateRoot": str(STATE_ROOT)}, ensure_ascii=False, indent=2))
+    print(json.dumps({
+        "status": "configured",
+        "runtime": str(STATE_PROJECT_ROOT),
+        "stateRoot": str(STATE_ROOT),
+        "stateRootSource": STATE_ROOT_SOURCE,
+        "persistent": STATE_ROOT_SOURCE != "temporary_fallback",
+    }, ensure_ascii=False, indent=2))
     return 0
 
 

@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from runtime_common import STATE_ROOT, resolve_project_root
+from runtime_common import STATE_ROOT, resolve_project_root, runtime_trust_status
 
 
 COMMANDS = {
@@ -19,7 +19,7 @@ COMMANDS = {
     "login-auto": "login-auto",
     "login-auto-start": "login-auto-start",
     "login-agent-start": "login-agent-start",
-    "login-credentials-ready": "login-credentials-ready",
+    "login-credentials-submit": "login-credentials-submit",
     "login-status": "login-status",
     "login-sms-request": "login-sms-request",
     "login-sms-submit": "login-sms-submit",
@@ -63,6 +63,12 @@ def main() -> int:
     browser_root = project_root / "browser" / "guanyi"
     if not (browser_root / "package.json").is_file():
         return fail("BROWSER_RUNTIME_MISSING", "运行时缺少管易浏览器模块。")
+    trust = runtime_trust_status(project_root, require_clean_development=True)
+    if not trust.get("ready"):
+        return fail(
+            "BROWSER_RUNTIME_INTEGRITY_FAILED",
+            "管易浏览器运行时与正式 Skill 清单不一致；请重新运行 bootstrap_runtime.py，禁止使用临时修改副本。",
+        )
     npm = shutil.which("npm")
     if npm is None:
         return fail("NPM_MISSING", "找不到 npm，请先运行 Skill 环境初始化。")

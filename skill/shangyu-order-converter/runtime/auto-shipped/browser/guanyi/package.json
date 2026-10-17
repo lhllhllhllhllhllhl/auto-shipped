@@ -9,7 +9,7 @@
     "login-auto": "node cli.mjs login-auto",
     "login-auto-start": "node cli.mjs login-auto-start",
     "login-agent-start": "node cli.mjs login-agent-start",
-    "login-credentials-ready": "node cli.mjs login-credentials-ready",
+    "login-credentials-submit": "node cli.mjs login-credentials-submit",
     "login-status": "node cli.mjs login-status",
     "login-sms-request": "node cli.mjs login-sms-request",
     "login-sms-submit": "node cli.mjs login-sms-submit",
