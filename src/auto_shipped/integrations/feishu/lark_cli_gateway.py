@@ -3,13 +3,10 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os
 import re
-import shutil
-import subprocess
 from dataclasses import fields
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from .pending_mappings import (
     FeishuIdentity,
@@ -28,9 +25,14 @@ from .item_expansion_registry import (
     ItemExpansionComponentRecord,
 )
 from .correction_feedback import CorrectionFeedbackRecord
+from .lark_cli_client import (
+    CommandRunner,
+    LarkCliClient,
+    LarkCliClientError,
+)
 
 
-CommandRunner = Callable[[Sequence[str]], dict[str, Any]]
+LarkCliGatewayError = LarkCliClientError
 _ROW_PREFIX = re.compile(r"(?m)^\[row=(\d+)\] ")
 OFFICIAL_MAPPING_BASE_HEADERS = (
     "mapping_id",
@@ -59,10 +61,6 @@ OFFICIAL_MAPPING_HEADERS = (
     *OFFICIAL_MAPPING_BASE_HEADERS,
     *OFFICIAL_MAPPING_CANONICAL_HEADERS,
 )
-
-
-class LarkCliGatewayError(RuntimeError):
-    """Raised when the lark-cli adapter cannot prove a read or write result."""
 
 
 class LarkCliFeishuSheetGateway:
@@ -121,7 +119,7 @@ class LarkCliFeishuSheetGateway:
         self.feedback_sheet_id = str(feedback_sheet_id or "").strip()
         self.feedback_sheet_title = str(feedback_sheet_title or "").strip()
         self.executable = executable
-        self._runner = runner or self._subprocess_runner
+        self._client = LarkCliClient(executable=executable, runner=runner)
 
     @classmethod
     def from_config(
@@ -169,43 +167,8 @@ class LarkCliFeishuSheetGateway:
             raise LarkCliGatewayError(f"飞书配置缺少{field_name}")
         return cleaned
 
-    def _subprocess_runner(self, command: Sequence[str]) -> dict[str, Any]:
-        executable = shutil.which(command[0])
-        if executable is None:
-            raise LarkCliGatewayError(
-                "未找到lark-cli；请安装并用飞书用户身份登录后重试。"
-            )
-        env = dict(os.environ)
-        env["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] = "1"
-        env["LARKSUITE_CLI_NO_SKILLS_NOTIFIER"] = "1"
-        completed = subprocess.run(
-            [executable, *command[1:]],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=False,
-        )
-        if completed.returncode != 0:
-            message = completed.stderr.strip() or completed.stdout.strip()
-            raise LarkCliGatewayError(
-                f"lark-cli执行失败（{completed.returncode}）：{message}"
-            )
-        try:
-            payload = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
-            raise LarkCliGatewayError("lark-cli未返回有效JSON。") from exc
-        if isinstance(payload, dict) and payload.get("ok") is False:
-            raise LarkCliGatewayError(str(payload.get("error") or payload))
-        return payload
-
     def _run(self, *args: str) -> dict[str, Any]:
-        payload = self._runner([self.executable, *args])
-        if not isinstance(payload, dict):
-            raise LarkCliGatewayError("lark-cli适配器返回值不是对象。")
-        if payload.get("ok") is False:
-            raise LarkCliGatewayError(str(payload.get("error") or payload))
-        data = payload.get("data")
-        return data if isinstance(data, dict) else payload
+        return self._client.run(*args)
 
     def _read_rows(
         self,
@@ -294,119 +257,18 @@ class LarkCliFeishuSheetGateway:
         return start
 
     def get_current_identity(self) -> FeishuIdentity:
-        try:
-            data = self._run("auth", "status", "--json", "--verify")
-        except LarkCliGatewayError as auth_error:
-            if not self._is_unknown_auth_command(auth_error):
-                raise
-            return self._get_current_identity_from_whoami(auth_error)
-        user = (data.get("identities") or {}).get("user") or {}
-        if not user.get("available") or user.get("status") != "ready":
+        identity = self._client.get_current_user_identity()
+        if identity.identity_type != "user" or not identity.user_id:
             return FeishuIdentity(user_id="", identity_type="unavailable")
-        return FeishuIdentity(
-            user_id=str(user.get("openId") or ""),
-            identity_type="user",
-            display_name=str(user.get("userName") or ""),
-        )
-
-    @staticmethod
-    def _is_unknown_auth_command(error: LarkCliGatewayError) -> bool:
-        message = str(error).lower()
-        return "unknown command" in message and "auth" in message
-
-    def _get_current_identity_from_whoami(
-        self,
-        auth_error: LarkCliGatewayError,
-    ) -> FeishuIdentity:
-        try:
-            data = self._run("whoami", "--as", "user")
-        except LarkCliGatewayError as whoami_error:
-            if not self._is_unknown_whoami_command(whoami_error):
-                raise LarkCliGatewayError(
-                    "当前lark-cli不支持auth status，whoami兼容身份探针也失败："
-                    f"auth={auth_error}; whoami={whoami_error}"
-                ) from whoami_error
-            return self._get_current_identity_from_user_info(
-                auth_error=auth_error,
-                whoami_error=whoami_error,
-            )
-
-        delegated = data.get("onBehalfOf") or data.get("on_behalf_of") or {}
-        identity_type = str(data.get("identity") or "").strip().lower()
-        token_status = str(
-            data.get("tokenStatus") or data.get("token_status") or ""
-        ).strip().lower()
-        available = data.get("available") is True
-        user_id = str(
-            delegated.get("openId") or delegated.get("open_id") or ""
-        ).strip()
-        if (
-            identity_type != "user"
-            or not available
-            or token_status != "ready"
-            or not user_id
-        ):
-            return FeishuIdentity(user_id="", identity_type="unavailable")
-
-        # Older lark-cli releases can expose whoami without auth status.  Verify
-        # the reported user token against the configured workbook before that
-        # identity is allowed to participate in a governed write.
         self._read_rows(
             spreadsheet_token=self.official_spreadsheet_token,
             sheet_id=self.official_metadata_sheet_id,
             cell_range="A1:B2",
         )
         return FeishuIdentity(
-            user_id=user_id,
+            user_id=identity.user_id,
             identity_type="user",
-            display_name=str(
-                delegated.get("userName") or delegated.get("user_name") or ""
-            ),
-        )
-
-    @staticmethod
-    def _is_unknown_whoami_command(error: LarkCliGatewayError) -> bool:
-        message = str(error).lower()
-        return "unknown command" in message and "whoami" in message
-
-    def _get_current_identity_from_user_info(
-        self,
-        *,
-        auth_error: LarkCliGatewayError,
-        whoami_error: LarkCliGatewayError,
-    ) -> FeishuIdentity:
-        try:
-            data = self._run(
-                "api",
-                "GET",
-                "/open-apis/authen/v1/user_info",
-                "--as",
-                "user",
-                "--json",
-            )
-        except LarkCliGatewayError as user_info_error:
-            raise LarkCliGatewayError(
-                "当前lark-cli不支持auth status和whoami，user_info兼容身份探针也失败："
-                f"auth={auth_error}; whoami={whoami_error}; "
-                f"user_info={user_info_error}"
-            ) from user_info_error
-
-        user_id = str(data.get("open_id") or data.get("openId") or "").strip()
-        if not user_id:
-            return FeishuIdentity(user_id="", identity_type="unavailable")
-
-        # Some legacy releases expose neither auth nor whoami but can still
-        # execute authenticated user OpenAPI calls.  Prove both a stable user
-        # identity and access to the governed workbook before accepting it.
-        self._read_rows(
-            spreadsheet_token=self.official_spreadsheet_token,
-            sheet_id=self.official_metadata_sheet_id,
-            cell_range="A1:B2",
-        )
-        return FeishuIdentity(
-            user_id=user_id,
-            identity_type="user",
-            display_name=str(data.get("name") or data.get("en_name") or ""),
+            display_name=identity.display_name,
         )
 
     def _require_feedback_binding(self) -> tuple[str, str, str]:

@@ -60,6 +60,10 @@ class FakeLarkRunner:
         if "+csv-get" in command:
             sheet_id = self._arg(command, "--sheet-id")
             cell_range = self._arg(command, "--range")
+            if sheet_id == "meta" and cell_range == "A1:B2":
+                return self._csv_payload(
+                    [(1, ["key", "value"]), (2, ["mapping_revision", "7"])]
+                )
             if sheet_id == "meta" and cell_range == "A1:B50":
                 return self._csv_payload(
                     [(1, ["key", "value"]), (2, ["mapping_revision", "7"])]

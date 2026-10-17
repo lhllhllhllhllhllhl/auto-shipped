@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import replace
+from typing import Any, Sequence
 
 from auto_shipped.integrations.feishu.daily_sequence_ledger import (
     DAILY_SEQUENCE_HEADERS,
@@ -12,6 +13,7 @@ from auto_shipped.integrations.feishu.daily_sequence_ledger import (
     DailySequenceLedgerRecord,
     LarkCliDailySequenceLedgerGateway,
 )
+from auto_shipped.integrations.feishu.lark_cli_client import LarkCliClientError
 from auto_shipped.services.order_number_allocations import (
     OrderNumberAllocationError,
     reserve_daily_sequence,
@@ -314,6 +316,46 @@ class DailySequenceAllocationTests(unittest.TestCase):
         self.assertEqual(len(gateway.calls), 1)
         self.assertIn("--allow-overwrite=false", gateway.calls[0])
         self.assertIn("A2:U2", gateway.calls[0])
+
+    def test_daily_ledger_uses_shared_legacy_identity_fallback(self) -> None:
+        commands: list[list[str]] = []
+
+        def runner(command: Sequence[str]) -> dict[str, Any]:
+            commands.append(list(command))
+            if list(command[1:3]) == ["auth", "status"]:
+                raise LarkCliClientError(
+                    'lark-cli执行失败（1）：Error: unknown command "auth" for "lark-cli"'
+                )
+            if command[1] == "whoami":
+                raise LarkCliClientError(
+                    'lark-cli执行失败（1）：Error: unknown command "whoami" for "lark-cli"'
+                )
+            if command[1:4] == [
+                "api",
+                "GET",
+                "/open-apis/authen/v1/user_info",
+            ]:
+                return {
+                    "ok": True,
+                    "data": {"open_id": "ou-legacy-ledger", "name": "台账用户"},
+                }
+            if "+workbook-info" in command:
+                return {"ok": True, "data": {"sheets": []}}
+            raise AssertionError(f"unexpected command: {command}")
+
+        gateway = LarkCliDailySequenceLedgerGateway(
+            DailySequenceLedgerConfig(
+                spreadsheet_token="sheet-token",
+                annual_sheet_title_pattern="日序号_{year}",
+                annual_sheet_row_count=10,
+                annual_sheet_column_count=len(DAILY_SEQUENCE_HEADERS),
+                auto_provision_annual_sheet=True,
+            ),
+            runner=runner,
+        )
+
+        self.assertEqual(gateway.current_user_id(), "ou-legacy-ledger")
+        self.assertTrue(any("+workbook-info" in command for command in commands))
 
 
 if __name__ == "__main__":

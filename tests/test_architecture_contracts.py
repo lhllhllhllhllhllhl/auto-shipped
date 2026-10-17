@@ -34,6 +34,25 @@ def load_guanyi_rules(file_name: str) -> dict:
 
 
 class ArchitectureContractTests(unittest.TestCase):
+    def test_python_feishu_gateways_share_one_lark_cli_client(self):
+        integration_root = (
+            PROJECT_ROOT / "src" / "auto_shipped" / "integrations" / "feishu"
+        )
+        shared = (integration_root / "lark_cli_client.py").read_text(encoding="utf-8")
+        mapping = (integration_root / "lark_cli_gateway.py").read_text(
+            encoding="utf-8"
+        )
+        ledger = (integration_root / "daily_sequence_ledger.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("subprocess.run", shared)
+        self.assertIn("LARKSUITE_CLI_NO_UPDATE_NOTIFIER", shared)
+        for gateway in (mapping, ledger):
+            self.assertIn("LarkCliClient", gateway)
+            self.assertNotIn("subprocess.run", gateway)
+            self.assertNotIn("LARKSUITE_CLI_NO_UPDATE_NOTIFIER", gateway)
+
     def test_parsed_order_keeps_platform_fields_outside_common_contract(self):
         schema = load_json("contracts/parsed_order.schema.json")
         self.assertEqual(schema["properties"]["schema_version"]["const"], "1.0")
