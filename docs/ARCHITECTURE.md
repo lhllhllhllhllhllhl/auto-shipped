@@ -430,7 +430,7 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 待确认工作簿按当前飞书`user_id`自动路由到个人Sheet。路由表由Agent自动创建和修复；路由表缺失时通过个人Sheet的`owner_user_id`元数据重建。没有Sheet时复制模板创建；同一用户出现多个Sheet时阻断，不自动合并或删除。
 
-飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。直接新增要求当前用户身份、确定性`mapping_key`、公司/来源登记、唯一目标、版本锁、两阶段失败关闭、发布日志和写后精确回读；完全重复幂等，同键不同目标阻断。待确认写入仍要求幂等`proposal_id`，所有者发布器处理全局冲突和例外。转换器本身没有正式表写权限。详细合同见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
+飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。CLI身份探针依次使用`auth status`、`whoami`和用户身份`user_info`只读接口，并在接受身份前读取正式库元数据；不得靠Agent临时命令垫片改变运行环境。直接新增要求当前用户身份、确定性`mapping_key`、公司/来源登记、唯一目标、版本锁、两阶段失败关闭、发布日志和写后精确回读；完全重复幂等，同键不同目标阻断。待确认写入仍要求幂等`proposal_id`，所有者发布器处理全局冲突和例外。转换器本身没有正式表写权限。详细合同见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
 
 ### 4.2 飞书中央日序号
 
