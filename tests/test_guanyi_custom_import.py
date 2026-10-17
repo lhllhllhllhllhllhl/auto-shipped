@@ -11,6 +11,9 @@ from openpyxl import load_workbook
 
 from auto_shipped.catalog import WhiteLabelLibrary
 from auto_shipped.catalog.product_catalog import ProductCatalog, ProductRecord
+from auto_shipped.integrations.feishu.daily_sequence_ledger import (
+    DailySequenceLedgerRecord,
+)
 from auto_shipped.domain import (
     ParsedItem,
     ParsedOrder,
@@ -22,6 +25,20 @@ from auto_shipped.platforms.guanyi import build_custom_import_lines, render_cust
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class _MemoryDailySequenceGateway:
+    def __init__(self) -> None:
+        self.records: list[DailySequenceLedgerRecord] = []
+
+    def current_user_id(self) -> str:
+        return "ou_sam_test"
+
+    def list_records(self) -> list[DailySequenceLedgerRecord]:
+        return list(self.records)
+
+    def append_record(self, record: DailySequenceLedgerRecord) -> None:
+        self.records.append(record)
 
 
 def confirmed_rules() -> dict:
@@ -938,13 +955,14 @@ class GuanyiCustomImportTests(unittest.TestCase):
         )
         rules["buyer_member_policy"].update(
             {
-                "on_missing_group_number": "generate_minute_sequence",
-                "fallback_stamp_format": "%y%m%d%H%M",
+                "on_missing_group_number": "generate_daily_sequence",
+                "fallback_stamp_format": "%y%m%d",
                 "fallback_sequence_separator": "_",
                 "fallback_sequence_start": 1,
-                "fallback_sequence_width": 2,
+                "fallback_sequence_width": 3,
             }
         )
+        daily_gateway = _MemoryDailySequenceGateway()
         with tempfile.TemporaryDirectory() as state_dir:
             generated = build_custom_import_lines(
                 [order],
@@ -960,6 +978,7 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
+                buyer_member_sequence_gateway=daily_gateway,
                 official_mapping_ready=True,
             )
             repeated = build_custom_import_lines(
@@ -976,18 +995,19 @@ class GuanyiCustomImportTests(unittest.TestCase):
                     tzinfo=ZoneInfo("Asia/Shanghai"),
                 ),
                 buyer_member_sequence_state_dir=state_dir,
+                buyer_member_sequence_gateway=daily_gateway,
                 official_mapping_ready=True,
             )
         self.assertEqual(generated.status, "ready")
         self.assertTrue(
             all(
-                line["买家会员"] == "samYM2610121430_01"
+                line["买家会员"] == "samYM261012_001"
                 for line in generated.lines
             )
         )
         self.assertTrue(
             all(
-                line["买家会员"] == "samYM2610121430_01"
+                line["买家会员"] == "samYM261012_001"
                 for line in repeated.lines
             )
         )

@@ -31,6 +31,7 @@
         "guanyi.platform_order.preferred_order_identity",
         "guanyi.platform_order.purchase_order_no",
         "guanyi.platform_order.prefix_date_sequence",
+        "guanyi.platform_order.prefix_daily_sequence",
         "guanyi.platform_order.prefix_minute_sequence",
         "guanyi.platform_order.affixed_preferred_order_identity"
       ]

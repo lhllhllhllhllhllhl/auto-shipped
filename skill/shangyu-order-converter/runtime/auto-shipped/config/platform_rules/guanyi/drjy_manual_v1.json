@@ -3,7 +3,7 @@
   "profile_id": "guanyi_drjy_manual_v1",
   "source_profile_id": "drjy_manual_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 1,
+  "version": 2,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.manual_linked_routes.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
@@ -15,7 +15,7 @@
   "platform_order_number": {
     "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "用户确认：优先使用订单编号、缺失时回退来源单号；两者均无时使用DRJY+YYMMDDHHmm+最少两位弹性序号；不追加A。"
+    "source": "用户确认：优先使用订单编号、缺失时回退来源单号；两者均无时使用DRJY+YYYYMMDD+最少三位飞书中央日序号；不追加A。"
   },
   "field_output_policy": {
     "product_name": {"strategy": "catalog_product_name", "confirmed": true, "source": "使用有效商品目录名称"},
@@ -29,7 +29,7 @@
     "scope_id": "drjy_manual_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_manual_route", "evidence": "商品映射完成后读取独立SKU—店铺关联表；同单多店铺追问。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "DRJY分钟弹性序号，不追加A。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_daily_sequence", "evidence": "DRJY按飞书中央台账生成日期日序号，不追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通手工订单金额规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},

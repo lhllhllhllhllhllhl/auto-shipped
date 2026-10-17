@@ -5,22 +5,22 @@
   "source_kind": "text_or_image",
   "order_type": "manual_channel_order",
   "adapter": "adaptive_excel_parsed",
-  "version": 5,
+  "version": 6,
   "enabled": true,
   "detection": {},
   "text_intake": {
     "source_channel_markers": ["RZD", "rzd", "荣之达"],
     "product_identity": "corn_variety_plus_registered_package_semantics",
     "order_number_policy": {
-      "strategy": "current_datetime_sequence",
+      "strategy": "current_date_sequence",
       "prefix_source": "company_abbreviation",
-      "datetime_format": "%Y%m%d%H%M",
+      "date_format": "%Y%m%d",
       "sequence_start": 1,
-      "minimum_sequence_width": 2,
+      "minimum_sequence_width": 3,
       "timezone": "Asia/Shanghai",
-      "sequence_scope": "single_computer_local_minute_ledger",
+      "sequence_scope": "feishu_central_daily_namespace",
       "confirmed": true
     },
-    "evidence": "用户于2026-10-08确认RZD为荣之达公司及分钟编号；2026-10-09确认包装语义；2026-10-12确认只有订单编号和来源单号均缺失时才生成分钟编号。"
+    "evidence": "用户于2026-10-08确认RZD为荣之达公司；2026-10-09确认包装语义；2026-10-12确认只有订单编号和来源单号均缺失时才生成编号；2026-10-17确认改为RZD+YYYYMMDD+最少三位飞书中央日序号。"
   }
 }

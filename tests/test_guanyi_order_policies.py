@@ -294,6 +294,47 @@ class GuanyiOrderPolicyTests(unittest.TestCase):
             "samYM2610121430_01",
         )
 
+    def test_sam_buyer_member_without_group_uses_daily_sequence(self) -> None:
+        sam_order = order()
+        policy = {
+            "buyer_member_policy": {
+                "strategy": "sam_product_type_date_group",
+                "platform_prefix": "sam",
+                "group_number_field": "sam_group_number",
+                "timezone": "Asia/Shanghai",
+                "on_missing_group_number": "generate_daily_sequence",
+                "fallback_stamp_format": "%y%m%d",
+                "fallback_sequence_separator": "_",
+                "product_type_rules": [
+                    {
+                        "type_code": "YM",
+                        "match": {"product_name_contains_all": ["玉米"]},
+                        "confirmed": True,
+                    }
+                ],
+            }
+        }
+        items = [
+            ResolvedOrderItem(
+                1,
+                "JTW8E1",
+                "6974768564811",
+                "光明满元气 黄糯玉米8棒家庭装",
+                "8袋/箱",
+            )
+        ]
+        self.assertEqual(
+            select_buyer_member(
+                sam_order,
+                policy,
+                items,
+                generated_stamp="261012",
+                generated_sequence="001",
+                generated_separator="-",
+            ),
+            "samYM261012-001",
+        )
+
     def test_sam_buyer_member_blocks_unknown_product_type(self) -> None:
         sam_order = order()
         sam_order.source_extensions["sam_group_number"] = "841"

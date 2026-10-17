@@ -50,6 +50,7 @@ def select_buyer_member(
     business_datetime: datetime | None = None,
     generated_stamp: str | None = None,
     generated_sequence: str | None = None,
+    generated_separator: str | None = None,
 ) -> str:
     """Resolve buyer member using a source-level deterministic policy."""
 
@@ -95,10 +96,13 @@ def select_buyer_member(
             ) from exc
 
         if not group_number:
-            if policy.get("on_missing_group_number") != "generate_minute_sequence":
+            if policy.get("on_missing_group_number") not in {
+                "generate_daily_sequence",
+                "generate_minute_sequence",
+            }:
                 raise GuanyiOrderPolicyError("SAM订单缺少跟团号，无法生成买家会员")
             if not generated_sequence:
-                raise GuanyiOrderPolicyError("SAM无跟团号订单缺少已分配的分钟序号")
+                raise GuanyiOrderPolicyError("SAM无跟团号订单缺少已分配的序号")
             stamp = str(generated_stamp or "").strip()
             if not stamp:
                 current_datetime = business_datetime or datetime.now(timezone)
@@ -110,7 +114,11 @@ def select_buyer_member(
                     policy.get("fallback_stamp_format") or "%y%m%d%H%M"
                 )
                 stamp = current_datetime.strftime(stamp_format)
-            separator = str(policy.get("fallback_sequence_separator") or "_")
+            separator = (
+                generated_separator
+                if generated_separator is not None
+                else str(policy.get("fallback_sequence_separator") or "_")
+            )
             return f"{prefix}{type_code}{stamp}{separator}{generated_sequence}"
 
         current_date = business_date

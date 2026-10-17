@@ -3,7 +3,7 @@
   "profile_id": "guanyi_rongzhida_text_v1",
   "source_profile_id": "rongzhida_text_v1",
   "target_profile_id": "guanyi_order_import_v1",
-  "version": 6,
+  "version": 7,
   "policy_module_refs": {
     "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.corn_to_guangming_manyuanqi.v1"},
     "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
@@ -15,7 +15,7 @@
   "platform_order_number": {
     "strategy": "preferred_order_identity",
     "confirmed": true,
-    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成RZD+整批生成分钟YYYYMMDDHHmm+最少两位序号；2026-10-15起不再追加A。"
+    "source": "优先使用订单编号、缺失时回退来源单号；两者均无时才生成RZD+YYYYMMDD+最少三位飞书中央日序号；不追加A；2026-10-17。"
   },
   "field_output_policy": {
     "product_name": {"strategy": "catalog_product_name", "confirmed": true, "source": "商品名称使用管易商品资料"},
@@ -29,7 +29,7 @@
     "scope_id": "rongzhida_text_to_guanyi_v1",
     "rules": {
       "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_product", "evidence": "共享玉米店铺模块把已确认玉米商品分配到光明满元气。"},
-      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_minute_sequence", "evidence": "用户确认RZD+上海时间整批生成分钟+最少两位弹性序号，不追加A；本机分钟占号记录处理同一分钟第二批与重跑复用。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_daily_sequence", "evidence": "用户确认RZD+YYYYMMDD+最少三位飞书中央日序号；按用途、前缀和日期隔离，同一来源重跑复用。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通文字销售订单金额规则。"},
       "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},
