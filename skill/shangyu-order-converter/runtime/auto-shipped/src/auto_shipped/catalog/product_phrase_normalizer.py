@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
+CANONICAL_COMPONENT_SEPARATOR = "|"
+
+
 def _clean(value: Any) -> str:
     return str(value or "").strip()
 
@@ -17,7 +20,8 @@ def _normalized(value: Any) -> str:
     return "".join(
         character
         for character in text
-        if not character.isspace()
+        if character != CANONICAL_COMPONENT_SEPARATOR
+        and not character.isspace()
         and not unicodedata.category(character).startswith("P")
     )
 
@@ -230,7 +234,9 @@ class ProductPhraseNormalizer:
         residual = working
         if residual:
             spec_values.append(residual)
-        spec = "|".join(dict.fromkeys(value for value in spec_values if value))
+        spec = CANONICAL_COMPONENT_SEPARATOR.join(
+            dict.fromkeys(value for value in spec_values if value)
+        )
         if not product:
             issues.append("canonical_product_missing")
         return CanonicalSourceIdentity(

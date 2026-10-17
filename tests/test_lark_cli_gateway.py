@@ -187,6 +187,62 @@ class LarkCliGatewayTests(unittest.TestCase):
             )
         )
 
+    def test_identity_falls_back_to_user_info_when_auth_and_whoami_are_unavailable(self) -> None:
+        commands: list[list[str]] = []
+
+        def runner(command: Sequence[str]) -> dict[str, Any]:
+            commands.append(list(command))
+            if list(command[1:3]) == ["auth", "status"]:
+                raise LarkCliGatewayError(
+                    'lark-cli执行失败（1）：Error: unknown command "auth" for "lark-cli"'
+                )
+            if command[1] == "whoami":
+                raise LarkCliGatewayError(
+                    'lark-cli执行失败（1）：Error: unknown command "whoami" for "lark-cli"'
+                )
+            if command[1:4] == [
+                "api",
+                "GET",
+                "/open-apis/authen/v1/user_info",
+            ]:
+                return {
+                    "ok": True,
+                    "identity": "user",
+                    "data": {
+                        "open_id": "ou-api-user",
+                        "name": "API兼容用户",
+                    },
+                }
+            if "+csv-get" in command:
+                return FakeLarkRunner._csv_payload(
+                    [(1, ["key", "value"]), (2, ["mapping_revision", "23"])]
+                )
+            raise AssertionError(f"unexpected command: {command}")
+
+        identity = gateway(runner).get_current_identity()  # type: ignore[arg-type]
+
+        self.assertEqual(identity.user_id, "ou-api-user")
+        self.assertEqual(identity.identity_type, "user")
+        self.assertEqual(identity.display_name, "API兼容用户")
+        self.assertIn(
+            [
+                "lark-cli",
+                "api",
+                "GET",
+                "/open-apis/authen/v1/user_info",
+                "--as",
+                "user",
+                "--json",
+            ],
+            commands,
+        )
+        self.assertTrue(
+            any(
+                "+csv-get" in command and "A1:B2" in command
+                for command in commands
+            )
+        )
+
     def test_identity_fallback_does_not_accept_user_without_stable_open_id(self) -> None:
         def runner(command: Sequence[str]) -> dict[str, Any]:
             if list(command[1:3]) == ["auth", "status"]:

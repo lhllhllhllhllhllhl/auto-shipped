@@ -406,7 +406,7 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 商品映射和目标商品目录是两个不同模块：映射回答“这个来源商品指向哪个管易商品代码/规格代码”，目录回答“这个目标代码是否存在、叫什么、有没有规格和仓库等属性”。正式映射不保存目录来源，也不因为目录分层而改变表结构。
 
-正式名称映射除原始`source_value/source_spec`外，由程序维护`canonical_source_brand`、`canonical_source_product`、`canonical_source_spec`和`canonical_schema_version`。`product_name`行必须得到规范商品主体；品牌与规格按来源事实可空。商品代码/条码行以代码为身份，来源没有可靠名称时规范字段允许为空，禁止从目标管易商品名称反推来源身份。运行时先兼容旧15列表并在快照中派生规范字段；迁移到19列表必须先只读计划、检查规范身份冲突，再由所有者确认写入并递增正式库版本。
+正式名称映射除原始`source_value/source_spec`外，由程序维护`canonical_source_brand`、`canonical_source_product`、`canonical_source_spec`和`canonical_schema_version`。`product_name`行必须得到规范商品主体；品牌与规格按来源事实可空。商品代码/条码行以代码为身份，来源没有可靠名称时规范字段允许为空，禁止从目标管易商品名称反推来源身份。规范规格使用`|`分隔多个维度；该符号只表示结构边界，不是残余规格文本，规范身份重复处理必须保持幂等。运行时先兼容旧15列表并在快照中派生规范字段；迁移到19列表必须先只读计划、检查规范身份冲突，再由所有者确认写入并递增正式库版本。
 
 转换结果保留批次级`mapping_evidence`：商品原文、Agent初始拆分、规范身份、命中的映射ID、目标SKU、正式库版本与快照哈希。该证据不含收件信息，只跟随本批结果/报告，不写回Skill或正式库，因此不会随订单积累扩大运行时。
 
@@ -430,7 +430,7 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 待确认工作簿按当前飞书`user_id`自动路由到个人Sheet。路由表由Agent自动创建和修复；路由表缺失时通过个人Sheet的`owner_user_id`元数据重建。没有Sheet时复制模板创建；同一用户出现多个Sheet时阻断，不自动合并或删除。
 
-飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。直接新增要求当前用户身份、确定性`mapping_key`、公司/来源登记、唯一目标、版本锁、两阶段失败关闭、发布日志和写后精确回读；完全重复幂等，同键不同目标阻断。待确认写入仍要求幂等`proposal_id`，所有者发布器处理全局冲突和例外。转换器本身没有正式表写权限。详细合同见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
+飞书工具通过`FeishuSheetGateway`适配层接入，优先使用Agent原生能力，CLI只作备用。CLI身份探针依次使用`auth status`、`whoami`和用户身份`user_info`只读接口，并在接受身份前读取正式库元数据；不得靠Agent临时命令垫片改变运行环境。直接新增要求当前用户身份、确定性`mapping_key`、公司/来源登记、唯一目标、版本锁、两阶段失败关闭、发布日志和写后精确回读；完全重复幂等，同键不同目标阻断。待确认写入仍要求幂等`proposal_id`，所有者发布器处理全局冲突和例外。转换器本身没有正式表写权限。详细合同见`docs/FEISHU_MAPPING_GOVERNANCE.md`。
 
 ### 4.2 飞书中央日序号
 

@@ -321,10 +321,15 @@ class LarkCliFeishuSheetGateway:
         try:
             data = self._run("whoami", "--as", "user")
         except LarkCliGatewayError as whoami_error:
-            raise LarkCliGatewayError(
-                "当前lark-cli不支持auth status，whoami兼容身份探针也失败："
-                f"auth={auth_error}; whoami={whoami_error}"
-            ) from whoami_error
+            if not self._is_unknown_whoami_command(whoami_error):
+                raise LarkCliGatewayError(
+                    "当前lark-cli不支持auth status，whoami兼容身份探针也失败："
+                    f"auth={auth_error}; whoami={whoami_error}"
+                ) from whoami_error
+            return self._get_current_identity_from_user_info(
+                auth_error=auth_error,
+                whoami_error=whoami_error,
+            )
 
         delegated = data.get("onBehalfOf") or data.get("on_behalf_of") or {}
         identity_type = str(data.get("identity") or "").strip().lower()
@@ -357,6 +362,51 @@ class LarkCliFeishuSheetGateway:
             display_name=str(
                 delegated.get("userName") or delegated.get("user_name") or ""
             ),
+        )
+
+    @staticmethod
+    def _is_unknown_whoami_command(error: LarkCliGatewayError) -> bool:
+        message = str(error).lower()
+        return "unknown command" in message and "whoami" in message
+
+    def _get_current_identity_from_user_info(
+        self,
+        *,
+        auth_error: LarkCliGatewayError,
+        whoami_error: LarkCliGatewayError,
+    ) -> FeishuIdentity:
+        try:
+            data = self._run(
+                "api",
+                "GET",
+                "/open-apis/authen/v1/user_info",
+                "--as",
+                "user",
+                "--json",
+            )
+        except LarkCliGatewayError as user_info_error:
+            raise LarkCliGatewayError(
+                "当前lark-cli不支持auth status和whoami，user_info兼容身份探针也失败："
+                f"auth={auth_error}; whoami={whoami_error}; "
+                f"user_info={user_info_error}"
+            ) from user_info_error
+
+        user_id = str(data.get("open_id") or data.get("openId") or "").strip()
+        if not user_id:
+            return FeishuIdentity(user_id="", identity_type="unavailable")
+
+        # Some legacy releases expose neither auth nor whoami but can still
+        # execute authenticated user OpenAPI calls.  Prove both a stable user
+        # identity and access to the governed workbook before accepting it.
+        self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_metadata_sheet_id,
+            cell_range="A1:B2",
+        )
+        return FeishuIdentity(
+            user_id=user_id,
+            identity_type="user",
+            display_name=str(data.get("name") or data.get("en_name") or ""),
         )
 
     def _require_feedback_binding(self) -> tuple[str, str, str]:

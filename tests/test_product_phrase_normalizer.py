@@ -63,6 +63,32 @@ class ProductPhraseNormalizerTests(unittest.TestCase):
         self.assertEqual(identity.residual, "加长版")
         self.assertEqual(identity.spec, "黄色|超软|加长版")
 
+    def test_canonical_identity_is_idempotent_for_multi_part_specs(self) -> None:
+        originals = [
+            self.normalizer.normalize(
+                source_product_name="搓澡巾",
+                source_spec="kikulon超软黄色",
+            ),
+            self.normalizer.normalize(
+                source_product_name="玉米",
+                source_spec="白糯彩袋单棒装",
+            ),
+            self.normalizer.normalize(
+                source_product_name="kikulon搓澡巾",
+                source_spec="超软黄色加长版",
+            ),
+        ]
+
+        for original in originals:
+            with self.subTest(signature=original.signature):
+                repeated = self.normalizer.normalize(
+                    source_brand=original.brand,
+                    source_product_name=original.product,
+                    source_spec=original.spec,
+                )
+                self.assertEqual(repeated.signature, original.signature)
+                self.assertNotIn("|", repeated.residual)
+
 
 if __name__ == "__main__":
     unittest.main()

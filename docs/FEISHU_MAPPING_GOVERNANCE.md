@@ -57,7 +57,7 @@ list_pending_proposals / append_pending_proposal
 
 待确认写入必须使用当前员工的飞书`user`身份。共享`bot`身份无法区分员工，必须返回`FEISHU_USER_IDENTITY_REQUIRED`。
 
-备用适配器优先用`lark-cli auth status --verify`取得稳定用户身份。部分旧版CLI（已见`v1.0.93`）没有`auth`子命令，但提供`whoami --as user`；此时适配器读取`onBehalfOf.openId`，并用同一user身份真实读取正式库元数据后才接受该身份。只从dry-run看到`identity=user`不足以证明稳定用户ID，不能放行正式写入。两个身份接口都不可用时返回准确网关错误，不得笼统描述成“版本不兼容”后继续声称长期复用成功。
+备用适配器优先用`lark-cli auth status --verify`取得稳定用户身份。部分旧版CLI（已见`v1.0.93`）没有`auth`子命令；适配器先尝试`whoami --as user`读取`onBehalfOf.openId`，若该命令同样不存在，再通过用户身份调用只读`/open-apis/authen/v1/user_info`取得`open_id`。任一兼容路径都必须用同一user身份真实读取正式库元数据后才接受该身份。Agent不得临时创建命令垫片或改写`PATH`绕过探针。只从dry-run看到`identity=user`不足以证明稳定用户ID，不能放行正式写入；三条身份路径都不可用时返回准确网关错误，不得继续声称长期复用成功。
 
 正式映射只读同步额外支持Agent原生载荷桥：Agent从固定Sheet ID读取后，必须提交以下结构给确定性校验器，不能直接把模型理解结果交给转换器：
 
