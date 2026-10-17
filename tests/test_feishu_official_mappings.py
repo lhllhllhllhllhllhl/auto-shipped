@@ -175,6 +175,7 @@ class FeishuOfficialMappingTests(unittest.TestCase):
         self.assertEqual(mapping["canonical_source_product"], "搓澡巾")
         self.assertEqual(mapping["canonical_source_spec"], "黄色|超软")
         self.assertEqual(mapping["canonical_schema_version"], "1.0")
+        validate_official_mapping_snapshot(snapshot, normalized_catalog)
 
     def test_code_row_keeps_optional_canonical_fields_blank(self) -> None:
         snapshot = build_official_mapping_snapshot(
