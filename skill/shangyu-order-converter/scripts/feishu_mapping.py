@@ -23,6 +23,8 @@ COMMANDS = {
     "submit-feedback": "submit-correction-feedback",
     "collect-feedback": "collect-correction-feedback",
     "plan-publish": "plan-pending-mapping-publish",
+    "plan-canonical": "plan-canonical-mapping-migration",
+    "migrate-canonical": "migrate-canonical-mapping-schema",
     "publish": "publish-pending-mappings",
     "add": "direct-add-official-mapping",
     "add-store-route": "direct-add-manual-store-route",
@@ -37,7 +39,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|publish|add|add-store-route|add-expansion [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|plan-canonical|migrate-canonical|publish|add|add-store-route|add-expansion [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -57,6 +59,8 @@ def main() -> int:
         "sync",
         "sync-native",
         "plan-publish",
+        "plan-canonical",
+        "migrate-canonical",
         "publish",
         "add",
         "add-store-route",
@@ -97,7 +101,12 @@ def main() -> int:
         if sys.argv[1] in {"sync", "sync-native"} and "--output" not in forwarded:
             snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
             forwarded.extend(["--output", str(snapshot)])
-        if sys.argv[1] in {"add", "add-store-route", "add-expansion"} and "--output" not in forwarded:
+        if sys.argv[1] in {
+            "migrate-canonical",
+            "add",
+            "add-store-route",
+            "add-expansion",
+        } and "--output" not in forwarded:
             snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
             forwarded.extend(["--output", str(snapshot)])
     command = [

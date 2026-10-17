@@ -1,0 +1,98 @@
+{
+  "registry_id": "product_phrase_lexicon_v1",
+  "schema_version": "1.0",
+  "canonical_schema_version": "1.0",
+  "status": "active",
+  "brand_aliases": [
+    {
+      "canonical": "kikulon",
+      "aliases": ["kikulon"]
+    },
+    {
+      "canonical": "revo",
+      "aliases": ["revo"]
+    },
+    {
+      "canonical": "zalala",
+      "aliases": ["zalala"]
+    },
+    {
+      "canonical": "showa",
+      "aliases": ["showa", "尚和"]
+    }
+  ],
+  "product_subjects": [
+    {
+      "canonical": "搓澡巾",
+      "aliases": ["搓澡巾", "搓背巾"]
+    },
+    {
+      "canonical": "海绵",
+      "aliases": ["沐浴海绵", "洗澡海绵", "海绵"]
+    },
+    {
+      "canonical": "橘宝宝沐浴海绵",
+      "aliases": ["橘宝宝沐浴海绵", "橘宝宝"]
+    },
+    {
+      "canonical": "玉米",
+      "aliases": ["鲜糯玉米", "糯玉米", "玉米"]
+    },
+    {
+      "canonical": "手套",
+      "aliases": ["手套"]
+    }
+  ],
+  "specification_dimensions": [
+    {
+      "dimension": "variety",
+      "values": [
+        {"canonical": "黄糯", "aliases": ["黄糯"]},
+        {"canonical": "花糯", "aliases": ["花糯"]},
+        {"canonical": "白糯", "aliases": ["白糯"]}
+      ]
+    },
+    {
+      "dimension": "color",
+      "values": [
+        {"canonical": "深蓝色", "aliases": ["深蓝色", "darkblue"]},
+        {"canonical": "牛仔蓝", "aliases": ["牛仔蓝", "denimblue"]},
+        {"canonical": "浅黄色", "aliases": ["浅黄色", "lightyellow", "gold"]},
+        {"canonical": "黄色", "aliases": ["黄色", "yellow"]},
+        {"canonical": "蓝色", "aliases": ["蓝色", "blue"]},
+        {"canonical": "绿色", "aliases": ["绿色", "green"]},
+        {"canonical": "橘色", "aliases": ["橘色", "桔色", "orange"]},
+        {"canonical": "粉色", "aliases": ["粉色", "粉红色", "pink"]},
+        {"canonical": "黑色", "aliases": ["黑色", "black"]}
+      ]
+    },
+    {
+      "dimension": "hardness",
+      "values": [
+        {"canonical": "超软", "aliases": ["超超软", "超软"]},
+        {"canonical": "超硬", "aliases": ["超硬"]},
+        {"canonical": "硬款", "aliases": ["硬款", "硬"]},
+        {"canonical": "软款", "aliases": ["软款", "软"]}
+      ]
+    },
+    {
+      "dimension": "size",
+      "values": [
+        {"canonical": "s", "aliases": ["s码"]},
+        {"canonical": "m", "aliases": ["m码"]},
+        {"canonical": "l", "aliases": ["l码"]}
+      ]
+    },
+    {
+      "dimension": "package",
+      "values": [
+        {"canonical": "10根礼盒装", "aliases": ["10根礼盒装", "10棒礼盒装"]},
+        {"canonical": "8棒家庭装", "aliases": ["8棒家庭装", "8根家庭装"]},
+        {"canonical": "彩袋单棒装", "aliases": ["彩袋单棒装", "单根装"]}
+      ]
+    }
+  ],
+  "quantity_unit_patterns": [
+    "[0-9]+(?:\\.[0-9]+)?(?:条|个|根|棒|袋|盒|份|套|件|箱)"
+  ]
+}

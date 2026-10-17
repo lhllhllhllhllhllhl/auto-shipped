@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -13,6 +13,10 @@ from .product_candidates import (
     RankedProductCandidate,
     rank_alias_family_candidates,
     rank_product_candidates,
+)
+from .product_phrase_normalizer import (
+    CanonicalSourceIdentity,
+    ProductPhraseNormalizer,
 )
 
 
@@ -72,6 +76,9 @@ class ProductResolution:
     reuse_scope: str = ""
     confidence_tier: str = ""
     candidate_evidence: tuple[RankedProductCandidate, ...] = ()
+    canonical_identity: CanonicalSourceIdentity | None = None
+    mapping_ids: tuple[str, ...] = ()
+    review_warnings: tuple[dict[str, str], ...] = ()
 
 
 class ProductCatalog:
@@ -84,6 +91,9 @@ class ProductCatalog:
         batch_mapping_replacements: list[dict[str, Any]] | None = None,
         manual_store_routes: list[dict[str, Any]] | None = None,
         item_expansion_rules: list[dict[str, Any]] | None = None,
+        phrase_normalizer: ProductPhraseNormalizer | None = None,
+        mapping_revision: str = "",
+        mapping_snapshot_sha256: str = "",
     ) -> None:
         self.records = records
         self.source_policies = source_policies or {}
@@ -94,6 +104,9 @@ class ProductCatalog:
         self.item_expansion_rules = tuple(
             dict(rule) for rule in (item_expansion_rules or [])
         )
+        self.phrase_normalizer = phrase_normalizer or ProductPhraseNormalizer()
+        self.mapping_revision = clean_identifier(mapping_revision)
+        self.mapping_snapshot_sha256 = clean_identifier(mapping_snapshot_sha256)
         self._forbidden_shipping_products = {
             (
                 clean_identifier(item.get("product_code")),
@@ -240,6 +253,15 @@ class ProductCatalog:
         ]
         documents = [json.loads(Path(mappings_json).read_text(encoding="utf-8"))]
         package_semantics_registry: dict[str, Any] = {}
+        phrase_normalizer: ProductPhraseNormalizer | None = None
+        default_phrase_lexicon = (
+            Path(__file__).resolve().parents[3]
+            / "config/catalog/product_phrase_lexicon_v1.json"
+        )
+        if default_phrase_lexicon.is_file():
+            phrase_normalizer = ProductPhraseNormalizer.from_file(
+                default_phrase_lexicon
+            )
         for policy_path in policy_paths:
             policy = Path(policy_path)
             if not policy.is_file():
@@ -247,6 +269,8 @@ class ProductCatalog:
             document = json.loads(policy.read_text(encoding="utf-8"))
             if document.get("registry_id") == "package_semantics_v1":
                 package_semantics_registry = document
+            elif document.get("registry_id") == "product_phrase_lexicon_v1":
+                phrase_normalizer = ProductPhraseNormalizer(document)
         for overlay_path in mapping_overlay_paths:
             overlay = Path(overlay_path)
             if overlay.is_file():
@@ -274,7 +298,14 @@ class ProductCatalog:
         manual_store_routes: list[dict[str, Any]] = []
         item_expansion_rules: list[dict[str, Any]] = []
         source_policies: dict[str, dict[str, Any]] = {}
+        mapping_revision = ""
+        mapping_snapshot_sha256 = ""
         for document in documents:
+            if document.get("source") == "feishu_official_mapping_repository":
+                mapping_revision = clean_identifier(document.get("mapping_revision"))
+                mapping_snapshot_sha256 = clean_identifier(
+                    document.get("snapshot_sha256")
+                )
             source_policies.update(document.get("source_policies") or {})
             mapping_records.extend(
                 cls._normalize_mapping_records(document.get("mappings") or {})
@@ -293,7 +324,86 @@ class ProductCatalog:
             batch_mapping_replacements,
             manual_store_routes,
             item_expansion_rules,
+            phrase_normalizer,
+            mapping_revision,
+            mapping_snapshot_sha256,
         )
+
+    def canonicalize_source_identity(
+        self,
+        *,
+        source_item_text: Any = "",
+        source_brand: Any = "",
+        source_product_name: Any = "",
+        source_spec: Any = "",
+        unit: Any = "",
+    ) -> CanonicalSourceIdentity:
+        return self.phrase_normalizer.normalize(
+            source_item_text=source_item_text,
+            source_brand=source_brand,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+            unit=unit,
+        )
+
+    def _mapping_canonical_identity(
+        self,
+        mapping: dict[str, Any],
+    ) -> CanonicalSourceIdentity:
+        canonical_product = clean_identifier(
+            mapping.get("canonical_source_product")
+        )
+        if canonical_product:
+            return self.canonicalize_source_identity(
+                source_brand=mapping.get("canonical_source_brand"),
+                source_product_name=canonical_product,
+                source_spec=mapping.get("canonical_source_spec"),
+            )
+        return self.canonicalize_source_identity(
+            source_product_name=mapping.get("source_value"),
+            source_spec=mapping.get("source_spec"),
+        )
+
+    def _canonical_name_mapping_candidates(
+        self,
+        *,
+        source_profile_id: str,
+        source_item_text: Any,
+        source_brand: Any,
+        source_product_name: Any,
+        source_spec: Any,
+        unit: Any,
+    ) -> tuple[CanonicalSourceIdentity, list[dict[str, Any]]]:
+        identity = self.canonicalize_source_identity(
+            source_item_text=source_item_text,
+            source_brand=source_brand,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+            unit=unit,
+        )
+        if not identity.product or any(
+            issue.endswith("_ambiguous") for issue in identity.issues
+        ):
+            return identity, []
+        profile = clean_identifier(source_profile_id)
+        for candidate_profile in dict.fromkeys((profile, "*")):
+            candidates = [
+                mapping
+                for mapping in self.mapping_records
+                if clean_identifier(mapping.get("identifier_type"))
+                == "product_name"
+                and clean_identifier(
+                    mapping.get("source_profile_id")
+                    or mapping.get("source_profile")
+                    or "*"
+                )
+                == candidate_profile
+                and self._mapping_canonical_identity(mapping).signature
+                == identity.signature
+            ]
+            if candidates:
+                return identity, candidates
+        return identity, []
 
     @staticmethod
     def _highest_priority_candidates(
@@ -399,8 +509,11 @@ class ProductCatalog:
         self,
         *,
         source_profile_id: str,
+        source_item_text: Any = "",
+        source_brand: Any = "",
         source_product_name: Any,
         source_spec: Any = "",
+        unit: Any = "",
     ) -> ProductResolution | None:
         """Return a read-only candidate learned from another source's exact alias.
 
@@ -414,6 +527,13 @@ class ProductCatalog:
         normalized_spec = normalize_product_text(source_spec)
         if not normalized_name:
             return None
+        canonical_identity = self.canonicalize_source_identity(
+            source_item_text=source_item_text,
+            source_brand=source_brand,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+            unit=unit,
+        )
         current_forms = (
             {normalized_name + normalized_spec, normalized_spec + normalized_name}
             if normalized_spec
@@ -447,7 +567,17 @@ class ProductCatalog:
                 if mapping_spec
                 else {mapping_name}
             )
-            if not current_forms.intersection(mapping_forms):
+            mapping_identity = self._mapping_canonical_identity(mapping)
+            raw_match = bool(current_forms.intersection(mapping_forms))
+            canonical_match = (
+                bool(canonical_identity.product)
+                and not any(
+                    issue.endswith("_ambiguous")
+                    for issue in canonical_identity.issues
+                )
+                and mapping_identity.signature == canonical_identity.signature
+            )
+            if not raw_match and not canonical_match:
                 continue
             target = self.resolve_unique_target(
                 mapping.get("product_code"), mapping.get("spec_code")
@@ -469,6 +599,7 @@ class ProductCatalog:
                 identifier_type="product_name",
                 candidates=(product,),
                 confidence_tier="preview_safe",
+                canonical_identity=canonical_identity,
             )
         if targets:
             return ProductResolution(
@@ -480,6 +611,7 @@ class ProductCatalog:
                 match_method="cross_source_exact_alias_candidates",
                 identifier_type="product_name",
                 candidates=tuple(targets.values()),
+                canonical_identity=canonical_identity,
             )
         return None
 
@@ -944,6 +1076,15 @@ class ProductCatalog:
             identifier_type=identifier_type,
             mapping_authority=mapping_authority,
             reuse_scope=reuse_scope,
+            mapping_ids=tuple(
+                sorted(
+                    {
+                        clean_identifier(mapping.get("mapping_id"))
+                        for mapping, _ in resolved
+                        if clean_identifier(mapping.get("mapping_id"))
+                    }
+                )
+            ),
         )
 
     def _mapping_identity_guard_reason(
@@ -952,10 +1093,23 @@ class ProductCatalog:
         source_profile_id: str,
         identifier_type: str,
         source_value: Any,
+        source_item_text: Any,
+        source_brand: Any,
         source_product_name: Any,
         source_spec: Any,
+        unit: Any,
+        source_fingerprint: str,
         mappings: list[dict[str, Any]],
     ) -> str:
+        if source_fingerprint and any(
+            clean_identifier(mapping.get("reuse_scope")) == "current_batch"
+            and clean_identifier(mapping.get("mapping_authority"))
+            == "user_batch_confirmation"
+            and clean_identifier(mapping.get("source_fingerprint"))
+            == clean_identifier(source_fingerprint)
+            for mapping in mappings
+        ):
+            return ""
         policy = self.source_policies.get(source_profile_id) or {}
         normalized_value = self._normalize_source_value(identifier_type, source_value)
         matching_guards = [
@@ -976,15 +1130,24 @@ class ProductCatalog:
             policy.get("require_identity_guard_for_blank_source_spec", False)
             and not mapping_has_source_spec
         )
+        normalized_name = normalize_product_text(source_product_name)
         if not matching_guards:
             return (
                 "来源编码命中正式映射，但该无规格映射缺少已登记的来源品名保护规则"
-                if guard_required
+                if guard_required and normalized_name
                 else ""
             )
 
-        normalized_name = normalize_product_text(source_product_name)
+        if not normalized_name:
+            return ""
         normalized_spec = normalize_product_text(source_spec)
+        current_identity = self.canonicalize_source_identity(
+            source_item_text=source_item_text,
+            source_brand=source_brand,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+            unit=unit,
+        )
         for guard in matching_guards:
             allowed_names = {
                 normalize_product_text(value)
@@ -1000,6 +1163,17 @@ class ProductCatalog:
             spec_matches = not allowed_specs or normalized_spec in allowed_specs
             if name_matches and spec_matches:
                 return ""
+            for allowed_name in allowed_names or {normalized_name}:
+                for allowed_spec in allowed_specs or {normalized_spec}:
+                    guarded_identity = self.canonicalize_source_identity(
+                        source_product_name=allowed_name,
+                        source_spec=allowed_spec,
+                    )
+                    if (
+                        current_identity.product
+                        and current_identity.signature == guarded_identity.signature
+                    ):
+                        return ""
         return "来源编码命中正式映射，但来源商品名称或规格与该映射的已确认身份不一致"
 
     def _resolve_semantic_catalog_match(
@@ -1218,8 +1392,11 @@ class ProductCatalog:
         external_sku: Any,
         *,
         source_profile_id: str = "",
+        source_item_text: Any = "",
+        source_brand: Any = "",
         source_product_name: Any = "",
         source_spec: Any = "",
+        unit: Any = "",
         source_fingerprint: str = "",
     ) -> ProductResolution:
         key = clean_identifier(external_sku)
@@ -1246,20 +1423,25 @@ class ProductCatalog:
                     source_profile_id=source_profile_id,
                     identifier_type=identifier_type,
                     source_value=key,
+                    source_item_text=source_item_text,
+                    source_brand=source_brand,
                     source_product_name=source_product_name,
                     source_spec=source_spec,
+                    unit=unit,
+                    source_fingerprint=source_fingerprint,
                     mappings=mappings,
                 )
                 if guard_reason and resolved.product is not None:
-                    return ProductResolution(
-                        status="unconfirmed",
-                        external_sku=resolved.external_sku,
-                        product=resolved.product,
-                        confirmed=False,
+                    return replace(
+                        resolved,
                         reason=guard_reason,
-                        match_method="source_mapping_identity_guard",
-                        identifier_type=resolved.identifier_type,
-                        candidates=resolved.candidates,
+                        review_warnings=(
+                            {
+                                "code": "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
+                                "severity": "review_required",
+                                "message": guard_reason,
+                            },
+                        ),
                     )
                 return resolved
 
@@ -1360,10 +1542,37 @@ class ProductCatalog:
                     source_profile_id,
                 )
 
+            canonical_identity, canonical_mappings = (
+                self._canonical_name_mapping_candidates(
+                    source_profile_id=source_profile_id,
+                    source_item_text=source_item_text,
+                    source_brand=source_brand,
+                    source_product_name=name,
+                    source_spec=source_spec,
+                    unit=unit,
+                )
+            )
+            if canonical_mappings:
+                resolution = self._resolve_mappings(
+                    canonical_mappings,
+                    key or name,
+                    "product_name",
+                    "confirmed_name_alias_canonical_identity",
+                    source_fingerprint,
+                    source_profile_id,
+                )
+                return replace(
+                    resolution,
+                    canonical_identity=canonical_identity,
+                )
+
             cross_source_alias = self._cross_source_exact_alias_resolution(
                 source_profile_id=source_profile_id,
+                source_item_text=source_item_text,
+                source_brand=source_brand,
                 source_product_name=name,
                 source_spec=source_spec,
+                unit=unit,
             )
             if cross_source_alias is not None:
                 return cross_source_alias

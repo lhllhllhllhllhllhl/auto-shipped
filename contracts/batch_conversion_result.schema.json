@@ -14,6 +14,7 @@
     "clarifications",
     "decision_bundle",
     "mapping_reuse_bundle",
+    "mapping_evidence",
     "errors"
   ],
   "properties": {
@@ -62,6 +63,11 @@
     "clarifications": { "type": "array", "items": { "type": "object" } },
     "decision_bundle": {"$ref": "decision_bundle.schema.json"},
     "mapping_reuse_bundle": {"$ref": "mapping_reuse_bundle.schema.json"},
+    "mapping_evidence": {
+      "type": "array",
+      "description": "本批商品匹配证据；不含收件人、电话或地址。",
+      "items": {"type": "object"}
+    },
     "errors": { "type": "array", "items": { "type": "object" } }
   },
   "additionalProperties": false

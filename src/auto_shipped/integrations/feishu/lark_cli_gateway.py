@@ -32,6 +32,33 @@ from .correction_feedback import CorrectionFeedbackRecord
 
 CommandRunner = Callable[[Sequence[str]], dict[str, Any]]
 _ROW_PREFIX = re.compile(r"(?m)^\[row=(\d+)\] ")
+OFFICIAL_MAPPING_BASE_HEADERS = (
+    "mapping_id",
+    "mapping_key",
+    "company_id",
+    "source_profile_id",
+    "identifier_type",
+    "source_value",
+    "source_spec",
+    "target_platform",
+    "product_code",
+    "spec_code",
+    "status",
+    "mapping_version",
+    "confirmed_by",
+    "confirmed_at",
+    "evidence",
+)
+OFFICIAL_MAPPING_CANONICAL_HEADERS = (
+    "canonical_source_brand",
+    "canonical_source_product",
+    "canonical_source_spec",
+    "canonical_schema_version",
+)
+OFFICIAL_MAPPING_HEADERS = (
+    *OFFICIAL_MAPPING_BASE_HEADERS,
+    *OFFICIAL_MAPPING_CANONICAL_HEADERS,
+)
 
 
 class LarkCliGatewayError(RuntimeError):
@@ -772,37 +799,114 @@ class LarkCliFeishuSheetGateway:
         rows = self._read_rows(
             spreadsheet_token=self.official_spreadsheet_token,
             sheet_id=self.official_mapping_sheet_id,
-            cell_range="A1:O5000",
+            cell_range="A1:S5000",
         )
         if not rows:
             raise LarkCliGatewayError("正式映射Sheet为空。")
-        expected = [
-            "mapping_id",
-            "mapping_key",
-            "company_id",
-            "source_profile_id",
-            "identifier_type",
-            "source_value",
-            "source_spec",
-            "target_platform",
-            "product_code",
-            "spec_code",
-            "status",
-            "mapping_version",
-            "confirmed_by",
-            "confirmed_at",
-            "evidence",
-        ]
-        header = (rows[0][1] + [""] * len(expected))[: len(expected)]
-        if header != expected:
+        raw_header = list(rows[0][1])
+        while raw_header and not raw_header[-1].strip():
+            raw_header.pop()
+        if tuple(raw_header) == OFFICIAL_MAPPING_BASE_HEADERS:
+            active_headers = OFFICIAL_MAPPING_BASE_HEADERS
+        elif tuple(raw_header) == OFFICIAL_MAPPING_HEADERS:
+            active_headers = OFFICIAL_MAPPING_HEADERS
+        else:
             raise LarkCliGatewayError("正式映射Sheet表头与合同不一致。")
         records: list[dict[str, str]] = []
         for _, values in rows[1:]:
-            padded = (values + [""] * len(expected))[: len(expected)]
+            padded = (values + [""] * len(OFFICIAL_MAPPING_HEADERS))[
+                : len(OFFICIAL_MAPPING_HEADERS)
+            ]
             if not padded[0].strip():
                 continue
-            records.append(dict(zip(expected, padded)))
+            record = dict(zip(OFFICIAL_MAPPING_HEADERS, padded))
+            if active_headers == OFFICIAL_MAPPING_BASE_HEADERS:
+                for field in OFFICIAL_MAPPING_CANONICAL_HEADERS:
+                    record[field] = ""
+            records.append(record)
         return records
+
+    def official_mapping_schema_version(self) -> str:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            cell_range="A1:S1",
+        )
+        if not rows:
+            raise LarkCliGatewayError("正式映射Sheet为空。")
+        header = list(rows[0][1])
+        while header and not header[-1].strip():
+            header.pop()
+        if tuple(header) == OFFICIAL_MAPPING_HEADERS:
+            return "2.0"
+        if tuple(header) == OFFICIAL_MAPPING_BASE_HEADERS:
+            return "1.0"
+        raise LarkCliGatewayError("正式映射Sheet表头与合同不一致。")
+
+    def migrate_official_mapping_canonical_fields(
+        self,
+        updates: Sequence[dict[str, str]],
+    ) -> None:
+        rows = self._read_rows(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            cell_range="A1:S5000",
+        )
+        if not rows:
+            raise LarkCliGatewayError("正式映射Sheet为空。")
+        row_by_mapping_id = {
+            values[0].strip(): row_number
+            for row_number, values in rows[1:]
+            if values and values[0].strip()
+        }
+        update_ids = [str(item.get("mapping_id") or "").strip() for item in updates]
+        if not update_ids or len(update_ids) != len(set(update_ids)):
+            raise LarkCliGatewayError("规范字段迁移记录为空或mapping_id重复。")
+        if set(update_ids) != set(row_by_mapping_id):
+            raise LarkCliGatewayError("规范字段迁移记录与正式映射行集合不一致。")
+
+        self._write_row(
+            spreadsheet_token=self.official_spreadsheet_token,
+            sheet_id=self.official_mapping_sheet_id,
+            row_number=1,
+            end_column="S",
+            values=list(OFFICIAL_MAPPING_HEADERS),
+        )
+        for update in updates:
+            mapping_id = str(update.get("mapping_id") or "").strip()
+            row_number = row_by_mapping_id[mapping_id]
+            self._run(
+                "sheets",
+                "+cells-set",
+                "--as",
+                "user",
+                "--spreadsheet-token",
+                self.official_spreadsheet_token,
+                "--sheet-id",
+                self.official_mapping_sheet_id,
+                "--range",
+                f"P{row_number}:S{row_number}",
+                "--cells",
+                json.dumps(
+                    [[
+                        {"value": str(update.get(field) or "")}
+                        for field in OFFICIAL_MAPPING_CANONICAL_HEADERS
+                    ]],
+                    ensure_ascii=False,
+                ),
+                "--json",
+            )
+        readback = {
+            item["mapping_id"]: item
+            for item in self.list_official_mapping_records()
+        }
+        for update in updates:
+            actual = readback.get(str(update.get("mapping_id") or "")) or {}
+            if any(
+                str(actual.get(field) or "") != str(update.get(field) or "")
+                for field in OFFICIAL_MAPPING_CANONICAL_HEADERS
+            ):
+                raise LarkCliGatewayError("正式映射规范字段迁移后回读不一致。")
 
     def list_manual_store_route_records(self) -> list[dict[str, str]]:
         if not self.official_manual_store_sheet_id:
@@ -1030,13 +1134,26 @@ class LarkCliFeishuSheetGateway:
 
     def upsert_official_mapping_record(self, record: OfficialMappingRecord) -> None:
         existing = self.list_official_mapping_records()
+        schema_version = self.official_mapping_schema_version()
+        active_headers = (
+            OFFICIAL_MAPPING_HEADERS
+            if schema_version == "2.0"
+            else OFFICIAL_MAPPING_BASE_HEADERS
+        )
         same_key = [
             item for item in existing
             if item.get("mapping_key", "").strip() == record.mapping_key
         ]
         if same_key:
-            expected = record.to_dict()
-            if same_key == [expected]:
+            expected = {
+                key: record.to_dict()[key]
+                for key in active_headers
+            }
+            actual = [
+                {key: item.get(key, "") for key in active_headers}
+                for item in same_key
+            ]
+            if actual == [expected]:
                 return
             raise LarkCliGatewayError(
                 f"正式映射mapping_key已存在不同内容，拒绝覆盖：{record.mapping_key}"
@@ -1051,14 +1168,22 @@ class LarkCliFeishuSheetGateway:
             spreadsheet_token=self.official_spreadsheet_token,
             sheet_id=self.official_mapping_sheet_id,
             row_number=row_number,
-            end_column="O",
-            values=[str(getattr(record, field.name)) for field in fields(record)],
+            end_column="S" if schema_version == "2.0" else "O",
+            values=[str(getattr(record, name)) for name in active_headers],
         )
         readback = [
             item for item in self.list_official_mapping_records()
             if item.get("mapping_key") == record.mapping_key
         ]
-        if readback != [record.to_dict()]:
+        expected_readback = {
+            key: record.to_dict()[key]
+            for key in active_headers
+        }
+        actual_readback = [
+            {key: item.get(key, "") for key in active_headers}
+            for item in readback
+        ]
+        if actual_readback != [expected_readback]:
             raise LarkCliGatewayError("正式映射写入后回读不一致。")
 
     def update_official_mapping_status(self, mapping_key: str, status: str) -> None:

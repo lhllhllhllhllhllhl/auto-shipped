@@ -8,7 +8,9 @@
     "mapping_id", "mapping_key", "company_id", "source_profile_id",
     "identifier_type", "source_value", "source_spec", "target_platform",
     "product_code", "spec_code", "status", "mapping_version",
-    "confirmed_by", "confirmed_at", "evidence"
+    "confirmed_by", "confirmed_at", "evidence",
+    "canonical_source_brand", "canonical_source_product",
+    "canonical_source_spec", "canonical_schema_version"
   ],
   "properties": {
     "mapping_id": {"type": "string", "minLength": 1},
@@ -25,7 +27,11 @@
     "mapping_version": {"type": "string", "minLength": 1},
     "confirmed_by": {"type": "string"},
     "confirmed_at": {"type": "string"},
-    "evidence": {"type": "string"}
+    "evidence": {"type": "string"},
+    "canonical_source_brand": {"type": "string"},
+    "canonical_source_product": {"type": "string"},
+    "canonical_source_spec": {"type": "string"},
+    "canonical_schema_version": {"type": "string"}
   },
   "allOf": [
     {
@@ -39,6 +45,26 @@
       },
       "else": {
         "not": {"properties": {"source_profile_id": {"const": "*"}}, "required": ["source_profile_id"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"identifier_type": {"const": "product_name"}},
+        "required": ["identifier_type"]
+      },
+      "then": {
+        "properties": {
+          "canonical_source_product": {"type": "string", "minLength": 1},
+          "canonical_schema_version": {"type": "string", "minLength": 1}
+        }
+      },
+      "else": {
+        "properties": {
+          "canonical_source_brand": {"const": ""},
+          "canonical_source_product": {"const": ""},
+          "canonical_source_spec": {"const": ""},
+          "canonical_schema_version": {"const": ""}
+        }
       }
     }
   ],

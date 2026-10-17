@@ -76,6 +76,7 @@ class BatchConversionResult:
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
+    mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -96,6 +97,7 @@ class BatchConversionResult:
                 if self.status == "ready"
                 else []
             ).to_dict(),
+            "mapping_evidence": self.mapping_evidence,
             "errors": self.errors,
         }
 
@@ -315,6 +317,7 @@ def convert_order_batch(
             result.mapping_reuse_candidates.extend(
                 conversion.mapping_reuse_candidates
             )
+            result.mapping_evidence.extend(conversion.mapping_evidence)
             if conversion.status == "needs_input":
                 result.clarifications.extend(
                     _with_source_file(source.name, summary.clarifications)
@@ -403,6 +406,24 @@ def convert_order_batch(
         result.mapping_reuse_candidates = deduplicate_mapping_reuse_candidates(
             result.mapping_reuse_candidates
         )
+        unique_mapping_evidence: dict[str, dict[str, Any]] = {}
+        for evidence in result.mapping_evidence:
+            identity = evidence.get("canonical_identity") or {}
+            target = evidence.get("target") or {}
+            key = json.dumps(
+                {
+                    "source_item_text": evidence.get("source_item_text"),
+                    "initial_split": evidence.get("initial_split"),
+                    "canonical_identity": identity,
+                    "mapping_ids": evidence.get("mapping_ids"),
+                    "match_method": evidence.get("match_method"),
+                    "target": target,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            unique_mapping_evidence[key] = evidence
+        result.mapping_evidence = list(unique_mapping_evidence.values())
 
         route_keys = {
             (item.target_platform, item.target_profile_id) for item in result.sources

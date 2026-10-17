@@ -126,6 +126,8 @@ def _logical_order_source_sha256(materialized: dict[str, Any]) -> str:
                 "items": [
                     {
                         "source_product_code": item["source_product_code"],
+                        "source_item_text": item["source_item_text"],
+                        "source_brand": item["source_brand"],
                         "source_product_name": item["source_product_name"],
                         "source_spec": item["source_spec"],
                         "quantity": item["quantity"],
@@ -1003,6 +1005,8 @@ def _validate_single_text_order_draft(
             if not isinstance(raw_item, dict):
                 continue
             code = _text(raw_item.get("source_product_code"))
+            source_item_text = _text(raw_item.get("source_item_text"))
+            source_brand = _text(raw_item.get("source_brand"))
             name = _text(raw_item.get("source_product_name"))
             quantity = _positive_number(raw_item.get("quantity"))
             unit = _text(raw_item.get("unit"))
@@ -1036,6 +1040,8 @@ def _validate_single_text_order_draft(
             valid_items.append(
                 {
                     "source_product_code": code,
+                    "source_item_text": source_item_text,
+                    "source_brand": source_brand,
                     "source_product_name": name,
                     "source_spec": source_spec,
                     "quantity": quantity or 0,
@@ -1355,6 +1361,8 @@ def _prepare_single_text_order_materialized(
         "区",
         "完整地址",
         "商品编码",
+        "商品原文",
+        "商品品牌",
         "商品名称",
         "商品规格",
         "数量",
@@ -1383,6 +1391,8 @@ def _prepare_single_text_order_materialized(
                     recipient["district"],
                     recipient["address"],
                     item["source_product_code"],
+                    item["source_item_text"],
+                    item["source_brand"],
                     item["source_product_name"],
                     item["source_spec"],
                     item["quantity"],
@@ -1420,6 +1430,8 @@ def _prepare_single_text_order_materialized(
         "district": "区",
         "address": "完整地址",
         "product_code": "商品编码",
+        "source_item_text": "商品原文",
+        "source_brand": "商品品牌",
         "product_name": "商品名称",
         "source_spec": "商品规格",
         "quantity": "数量",

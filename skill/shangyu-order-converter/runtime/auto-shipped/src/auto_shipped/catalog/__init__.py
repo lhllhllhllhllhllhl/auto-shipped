@@ -18,6 +18,10 @@ from .product_catalog import (
     normalize_product_text,
     mapping_match_mode,
 )
+from .product_phrase_normalizer import (
+    CanonicalSourceIdentity,
+    ProductPhraseNormalizer,
+)
 from .package_semantics_store import (
     PACKAGE_SEMANTICS_REUSE_CONFIRMATION,
     PackageSemanticsStoreError,
@@ -48,6 +52,8 @@ __all__ = [
     "BatchMappingReplacementError",
     "PackageSemanticsStoreError",
     "ProductResolution",
+    "CanonicalSourceIdentity",
+    "ProductPhraseNormalizer",
     "clean_identifier",
     "mapping_match_mode",
     "normalize_product_text",
