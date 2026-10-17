@@ -528,7 +528,12 @@ class TextOrderIntakeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "draft.json"
-            _write(path, _draft())
+            payload = _draft()
+            payload["orders"][0]["items"][0]["source_item_text"] = (
+                "kikulon超软黄色搓澡巾2条"
+            )
+            payload["orders"][0]["items"][0]["source_brand"] = "kikulon"
+            _write(path, payload)
 
             result = prepare_text_order_draft(
                 path,
@@ -562,6 +567,12 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(len(parsed.orders), 1)
             self.assertEqual(len(parsed.orders[0].items), 2)
             self.assertEqual([item.unit for item in parsed.orders[0].items], ["根", "袋"])
+            self.assertEqual(
+                parsed.orders[0].items[0].source_item_text,
+                "kikulon超软黄色搓澡巾2条",
+            )
+            self.assertEqual(parsed.orders[0].items[0].source_brand, "kikulon")
+            self.assertEqual(parsed.orders[0].items[0].quantity, 2)
             self.assertEqual(parsed.orders[0].source_extensions["source_channel"], "天猫")
             self.assertEqual(
                 parsed.orders[0].source.file_fingerprint,

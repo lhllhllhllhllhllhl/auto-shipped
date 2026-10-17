@@ -40,6 +40,8 @@ class ParsedRecipient:
 class ParsedItem:
     quantity: float
     source_product_code: str = ""
+    source_item_text: str = ""
+    source_brand: str = ""
     source_product_name: str = ""
     source_spec: str = ""
     source_display_spec: str = ""

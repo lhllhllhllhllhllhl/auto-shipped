@@ -55,6 +55,10 @@ class OfficialMappingRecord:
     confirmed_by: str
     confirmed_at: str
     evidence: str
+    canonical_source_brand: str = ""
+    canonical_source_product: str = ""
+    canonical_source_spec: str = ""
+    canonical_schema_version: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -268,6 +272,38 @@ def _candidate(record: Mapping[str, Any]) -> tuple[str, str]:
         clean_identifier(record.get("product_code")),
         clean_identifier(record.get("spec_code")),
     )
+
+
+def _canonical_source_fields(
+    catalog: ProductCatalog,
+    *,
+    identifier_type: str,
+    source_value: str,
+    source_spec: str,
+) -> dict[str, str]:
+    if clean_identifier(identifier_type) != "product_name":
+        return {
+            "canonical_source_brand": "",
+            "canonical_source_product": "",
+            "canonical_source_spec": "",
+            "canonical_schema_version": "",
+        }
+    identity = catalog.canonicalize_source_identity(
+        source_product_name=source_value,
+        source_spec=source_spec,
+    )
+    if not identity.product or any(
+        issue.endswith("_ambiguous") for issue in identity.issues
+    ):
+        raise OwnerMappingPublishError(
+            "商品名称映射无法生成唯一规范商品主体，拒绝写入正式映射。"
+        )
+    return {
+        "canonical_source_brand": identity.brand,
+        "canonical_source_product": identity.product,
+        "canonical_source_spec": identity.spec,
+        "canonical_schema_version": identity.schema_version,
+    }
 
 
 def _proposal_candidate(proposal: PendingMappingProposal) -> tuple[str, str]:
@@ -574,6 +610,12 @@ def add_confirmed_mapping_direct(
         confirmed_by=identity.user_id,
         confirmed_at=written_at,
         evidence=evidence,
+        **_canonical_source_fields(
+            catalog,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+        ),
     )
     try:
         build_official_mapping_snapshot(
@@ -1584,6 +1626,12 @@ def plan_pending_mapping_publish(
             confirmed_by=identity.user_id,
             confirmed_at=published_at,
             evidence=proposal.evidence,
+            **_canonical_source_fields(
+                catalog,
+                identifier_type=proposal.identifier_type,
+                source_value=proposal.source_value,
+                source_spec=proposal.source_spec,
+            ),
         )
         items.append(
             MappingPublishItem(

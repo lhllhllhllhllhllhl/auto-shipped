@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from auto_shipped.catalog import ProductCatalog, ProductRecord
+from auto_shipped.catalog import (
+    ProductCatalog,
+    ProductPhraseNormalizer,
+    ProductRecord,
+)
 from auto_shipped.catalog.catalog_layers import CatalogLayer, build_effective_catalog
 
 
@@ -183,6 +187,100 @@ class ProductCatalogTests(unittest.TestCase):
 
         self.assertEqual(result.match_method, "cross_source_exact_alias_candidate")
         self.assertEqual(result.product, product)
+
+    def test_current_source_name_mapping_ignores_agent_field_boundary(self) -> None:
+        product = ProductRecord(
+            product_code="KKAW0290",
+            product_name="Yellow超软",
+            spec_code="4548404200290",
+            spec_name="超软",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        normalizer = ProductPhraseNormalizer.from_file(
+            PROJECT_ROOT / "config/catalog/product_phrase_lexicon_v1.json"
+        )
+        catalog = ProductCatalog(
+            [product],
+            [
+                {
+                    "mapping_id": "mapping-yellow-soft",
+                    "source_profile_id": "taojuzi_kqyd_text_v1",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "kikulon超软黄色",
+                    "product_code": "KKAW0290",
+                    "spec_code": "4548404200290",
+                    "mapping_authority": "feishu_official",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                }
+            ],
+            {"taojuzi_kqyd_text_v1": {"source_identifier_type": "product_name"}},
+            phrase_normalizer=normalizer,
+            mapping_revision="23",
+            mapping_snapshot_sha256="sha256:test",
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="taojuzi_kqyd_text_v1",
+            source_item_text="kikulon超软黄色搓澡巾1条",
+            source_product_name="kikulon搓澡巾",
+            source_spec="超软黄色",
+            unit="条",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.match_method, "confirmed_name_alias_canonical_identity")
+        self.assertEqual(result.product, product)
+        self.assertEqual(result.mapping_ids, ("mapping-yellow-soft",))
+        self.assertEqual(result.canonical_identity.brand, "kikulon")
+        self.assertEqual(result.canonical_identity.product, "搓澡巾")
+        self.assertEqual(result.canonical_identity.spec, "黄色|超软")
+
+    def test_unknown_extra_spec_does_not_reuse_canonical_name_mapping(self) -> None:
+        product = ProductRecord(
+            product_code="KKAW0290",
+            product_name="Yellow超软",
+            spec_code="4548404200290",
+            spec_name="超软",
+            weight_grams=None,
+            default_warehouse="测试仓",
+        )
+        normalizer = ProductPhraseNormalizer.from_file(
+            PROJECT_ROOT / "config/catalog/product_phrase_lexicon_v1.json"
+        )
+        catalog = ProductCatalog(
+            [product],
+            [
+                {
+                    "source_profile_id": "source-a",
+                    "identifier_type": "product_name",
+                    "source_value": "搓澡巾",
+                    "source_spec": "kikulon超软黄色",
+                    "product_code": "KKAW0290",
+                    "spec_code": "4548404200290",
+                    "mapping_authority": "feishu_official",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                }
+            ],
+            {"source-a": {"source_identifier_type": "product_name"}},
+            phrase_normalizer=normalizer,
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="source-a",
+            source_item_text="kikulon超软黄色加长版搓澡巾1条",
+            source_product_name="kikulon搓澡巾",
+            source_spec="超软黄色加长版",
+            unit="条",
+        )
+
+        self.assertNotEqual(result.status, "confirmed")
+        self.assertNotEqual(result.match_method, "confirmed_name_alias_canonical_identity")
     def test_preferred_catalog_overrides_and_enriches_guanyi_pair(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1262,8 +1360,16 @@ class ProductCatalogTests(unittest.TestCase):
             source_product_name="完全不同的新商品",
         )
         self.assertEqual(matched.status, "confirmed")
-        self.assertEqual(changed.status, "unconfirmed")
-        self.assertEqual(changed.match_method, "source_mapping_identity_guard")
+        self.assertFalse(matched.review_warnings)
+        self.assertEqual(changed.status, "confirmed")
+        self.assertEqual(
+            changed.match_method,
+            "confirmed_source_mapping_code_only",
+        )
+        self.assertEqual(
+            changed.review_warnings[0]["code"],
+            "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
+        )
 
     def test_blank_spec_mapping_without_required_guard_is_unconfirmed(self) -> None:
         product_catalog = ProductCatalog(
@@ -1290,8 +1396,12 @@ class ProductCatalogTests(unittest.TestCase):
             source_profile_id="company_a",
             source_product_name="任意商品",
         )
-        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.status, "confirmed")
         self.assertIn("缺少已登记", result.reason)
+        self.assertEqual(
+            result.review_warnings[0]["code"],
+            "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
+        )
 
     def test_confirmed_semantic_name_and_unit_match_unique_catalog_product(self) -> None:
         records = [

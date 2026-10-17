@@ -28,6 +28,61 @@ class OfficialMappingSyncError(ValueError):
     pass
 
 
+def _canonical_source_fields(
+    catalog: ProductCatalog,
+    source: Mapping[str, Any],
+    *,
+    mapping_id: str,
+    identifier_type: str,
+    source_value: str,
+    source_spec: str,
+) -> dict[str, str]:
+    stored = {
+        "brand": clean_identifier(source.get("canonical_source_brand")),
+        "product": clean_identifier(source.get("canonical_source_product")),
+        "spec": clean_identifier(source.get("canonical_source_spec")),
+        "schema_version": clean_identifier(source.get("canonical_schema_version")),
+    }
+    if identifier_type != "product_name":
+        if any(stored.values()):
+            raise OfficialMappingSyncError(
+                f"正式映射{mapping_id}是代码/条码映射，规范名称字段必须留空。"
+            )
+        return {
+            "canonical_source_brand": "",
+            "canonical_source_product": "",
+            "canonical_source_spec": "",
+            "canonical_schema_version": "",
+        }
+
+    derived = catalog.canonicalize_source_identity(
+        source_product_name=source_value,
+        source_spec=source_spec,
+    )
+    if not derived.product or any(
+        issue.endswith("_ambiguous") for issue in derived.issues
+    ):
+        raise OfficialMappingSyncError(
+            f"正式映射{mapping_id}无法生成唯一规范商品主体。"
+        )
+    if stored["product"]:
+        stored_identity = catalog.canonicalize_source_identity(
+            source_brand=stored["brand"],
+            source_product_name=stored["product"],
+            source_spec=stored["spec"],
+        )
+        if stored_identity.signature != derived.signature:
+            raise OfficialMappingSyncError(
+                f"正式映射{mapping_id}的规范字段与来源名称/规格不一致。"
+            )
+    return {
+        "canonical_source_brand": derived.brand,
+        "canonical_source_product": derived.product,
+        "canonical_source_spec": derived.spec,
+        "canonical_schema_version": derived.schema_version,
+    }
+
+
 def build_official_mapping_snapshot(
     records: Iterable[Mapping[str, Any]],
     metadata: Mapping[str, Any],
@@ -151,6 +206,14 @@ def build_official_mapping_snapshot(
             "mapping_version": mapping_version,
             "reuse_scope": "future",
             "mapping_authority": "feishu_official",
+            **_canonical_source_fields(
+                catalog,
+                source,
+                mapping_id=mapping_id,
+                identifier_type=identifier_type,
+                source_value=source_value,
+                source_spec=source_spec,
+            ),
         }
         mappings.append(mapping)
 
@@ -177,6 +240,7 @@ def build_official_mapping_snapshot(
         "source": "feishu_official_mapping_repository",
         "mapping_revision": revision,
         "repository_status": repository_status,
+        "canonical_schema_version": catalog.phrase_normalizer.schema_version,
         "synced_at": timestamp,
         "mappings": mappings,
         "manual_store_routes": manual_store_routes,
@@ -208,6 +272,13 @@ def validate_official_mapping_snapshot(
     revision = clean_identifier(document.get("mapping_revision"))
     if not revision:
         raise OfficialMappingSyncError("正式映射快照缺少mapping_revision。")
+    canonical_schema_version = clean_identifier(
+        document.get("canonical_schema_version")
+    )
+    if canonical_schema_version and (
+        canonical_schema_version != catalog.phrase_normalizer.schema_version
+    ):
+        raise OfficialMappingSyncError("正式映射快照规范商品Schema版本不受支持。")
     records = document.get("mappings")
     if not isinstance(records, list):
         raise OfficialMappingSyncError("正式映射快照mappings不是列表。")
@@ -245,6 +316,14 @@ def validate_official_mapping_snapshot(
         product_code = clean_identifier(source.get("product_code"))
         spec_code = clean_identifier(source.get("spec_code"))
         mapping_version = clean_identifier(source.get("mapping_version"))
+        canonical_fields = _canonical_source_fields(
+            catalog,
+            source,
+            mapping_id=mapping_id,
+            identifier_type=identifier_type,
+            source_value=source_value,
+            source_spec=source_spec,
+        )
         required = {
             "mapping_id": mapping_id,
             "company_id": company_id,
@@ -329,6 +408,11 @@ def validate_official_mapping_snapshot(
             if int(mapping_version) > int(revision):
                 raise OfficialMappingSyncError(
                     f"正式映射快照记录{mapping_id}版本高于库版本。"
+                )
+        for field, expected in canonical_fields.items():
+            if canonical_schema_version and clean_identifier(source.get(field)) != expected:
+                raise OfficialMappingSyncError(
+                    f"正式映射快照记录{mapping_id}的{field}未规范化。"
                 )
     try:
         normalized_routes = normalize_manual_store_routes(

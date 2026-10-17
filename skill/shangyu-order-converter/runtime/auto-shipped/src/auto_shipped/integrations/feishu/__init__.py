@@ -66,6 +66,13 @@ from .owner_publisher import (
     plan_pending_mapping_publish,
     publish_pending_mappings,
 )
+from .canonical_mapping_migration import (
+    CANONICAL_MAPPING_MIGRATION_CONFIRMATION,
+    CanonicalMappingMigrationError,
+    CanonicalMappingMigrationPlan,
+    migrate_canonical_mapping_schema,
+    plan_canonical_mapping_migration,
+)
 
 __all__ = [
     "FeishuIdentity",
@@ -125,4 +132,9 @@ __all__ = [
     "add_confirmed_mapping_direct",
     "plan_pending_mapping_publish",
     "publish_pending_mappings",
+    "CANONICAL_MAPPING_MIGRATION_CONFIRMATION",
+    "CanonicalMappingMigrationError",
+    "CanonicalMappingMigrationPlan",
+    "migrate_canonical_mapping_schema",
+    "plan_canonical_mapping_migration",
 ]

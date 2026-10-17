@@ -51,6 +51,8 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "detail": ("详细地址", "收货详细地址"),
     "address": ("完整地址", "收货地址", "省市区详细地址"),
     "product_code": ("商品编码", "商品代码", "来源商品编码"),
+    "source_item_text": ("商品原文", "原始商品短语"),
+    "source_brand": ("商品品牌", "品牌"),
     "product_name": ("商品名称", "礼品名称", "套餐名称", "商品", "品名"),
     "source_spec": ("规格编码", "规格代码", "商品规格", "礼品规格", "规格"),
     "quantity": ("数量", "商品数量", "件数"),
@@ -641,6 +643,12 @@ class AdaptiveExcelParsedAdapter:
                         items=[
                             ParsedItem(
                                 source_product_code=product_code,
+                                source_item_text=_mapping_value(
+                                    sheet, row_no, mapping.get("source_item_text")
+                                ),
+                                source_brand=_mapping_value(
+                                    sheet, row_no, mapping.get("source_brand")
+                                ),
                                 source_product_name=product_name,
                                 source_spec=_mapping_value(
                                     sheet, row_no, mapping.get("source_spec")
