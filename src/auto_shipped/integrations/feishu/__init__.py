@@ -26,6 +26,12 @@ from .correction_feedback import (
     submit_correction_feedback,
 )
 from .lark_cli_gateway import LarkCliFeishuSheetGateway, LarkCliGatewayError
+from .lark_cli_client import (
+    CommandRunner,
+    LarkCliClient,
+    LarkCliClientError,
+    LarkCliUserIdentity,
+)
 from .daily_sequence_ledger import (
     DAILY_SEQUENCE_HEADERS,
     DAILY_SEQUENCE_SCHEMA_VERSION,
@@ -109,6 +115,10 @@ __all__ = [
     "submit_correction_feedback",
     "LarkCliFeishuSheetGateway",
     "LarkCliGatewayError",
+    "CommandRunner",
+    "LarkCliClient",
+    "LarkCliClientError",
+    "LarkCliUserIdentity",
     "DAILY_SEQUENCE_HEADERS",
     "DAILY_SEQUENCE_SCHEMA_VERSION",
     "DailySequenceLedgerConfig",

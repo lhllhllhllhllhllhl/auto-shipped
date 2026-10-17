@@ -3,13 +3,12 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os
 import re
-import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, Sequence
+
+from .lark_cli_client import CommandRunner, LarkCliClient, LarkCliClientError
 
 
 DAILY_SEQUENCE_SCHEMA_VERSION = "shangyu-daily-sequence-ledger/1.0"
@@ -249,9 +248,11 @@ class LarkCliDailySequenceLedgerGateway:
         config: DailySequenceLedgerConfig,
         *,
         executable: str = "lark-cli",
+        runner: CommandRunner | None = None,
     ) -> None:
         self.config = config
         self.executable = executable
+        self._client = LarkCliClient(executable=executable, runner=runner)
 
     @classmethod
     def from_config(
@@ -259,57 +260,33 @@ class LarkCliDailySequenceLedgerGateway:
         path: str | Path,
         *,
         executable: str = "lark-cli",
+        runner: CommandRunner | None = None,
     ) -> "LarkCliDailySequenceLedgerGateway":
-        return cls(DailySequenceLedgerConfig.load(path), executable=executable)
+        return cls(
+            DailySequenceLedgerConfig.load(path),
+            executable=executable,
+            runner=runner,
+        )
 
     def _run(self, *args: str) -> dict[str, Any]:
-        executable = shutil.which(self.executable)
-        if executable is None:
-            raise DailySequenceLedgerError(
-                "未找到lark-cli，无法从飞书中央台账分配新日序号。"
-            )
-        environment = dict(os.environ)
-        environment["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] = "1"
-        environment["LARKSUITE_CLI_NO_SKILLS_NOTIFIER"] = "1"
-        completed = subprocess.run(
-            [executable, *args],
-            capture_output=True,
-            text=True,
-            env=environment,
-            check=False,
-        )
-        if completed.returncode != 0:
-            message = completed.stderr.strip() or completed.stdout.strip()
-            raise DailySequenceLedgerError(
-                f"lark-cli执行失败（{completed.returncode}）：{message}"
-            )
         try:
-            payload = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
-            raise DailySequenceLedgerError("lark-cli未返回有效JSON。") from exc
-        if not isinstance(payload, dict):
-            raise DailySequenceLedgerError("lark-cli返回值不是对象。")
-        if payload.get("ok") is False:
-            raise DailySequenceLedgerError(str(payload.get("error") or payload))
-        data = payload.get("data")
-        return data if isinstance(data, dict) else payload
+            return self._client.run(*args)
+        except LarkCliClientError as exc:
+            raise DailySequenceLedgerError(str(exc)) from exc
 
     def current_user_id(self) -> str:
-        data = self._run("whoami", "--as", "user")
-        delegated = data.get("onBehalfOf") or data.get("on_behalf_of") or {}
-        user_id = str(
-            delegated.get("openId") or delegated.get("open_id") or ""
-        ).strip()
-        if (
-            str(data.get("identity") or "").strip().lower() != "user"
-            or data.get("available") is not True
-            or str(data.get("tokenStatus") or "").strip().lower() != "ready"
-            or not user_id
-        ):
+        try:
+            identity = self._client.get_current_user_identity()
+        except LarkCliClientError as exc:
+            raise DailySequenceLedgerError(str(exc)) from exc
+        if identity.identity_type != "user" or not identity.user_id:
             raise DailySequenceLedgerError(
                 "飞书用户身份不可用，不能用机器人或未知身份占用日序号。"
             )
-        return user_id
+        # Identity alone is not sufficient.  Prove that the same user token can
+        # read the configured central ledger before allowing it to reserve IDs.
+        self._workbook_info()
+        return identity.user_id
 
     def _workbook_info(self) -> dict[str, Any]:
         return self._run(
