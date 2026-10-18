@@ -215,15 +215,13 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 
 - `login` 使用专用 Chrome 配置，由用户手动登录。
 - `login-auto` 只读取安全凭证提供器：macOS Keychain、当前 Windows 用户的 DPAPI，或云端平台 Secret/Vault 提供的只读外部凭证助手。不得把凭证写入 Skill、源码、普通配置、环境变量、命令参数或日志。本地未配置时可运行 `credential-web` 产生一次性 `127.0.0.1` 页面。
-- 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，Agent优先用平台自带私有浏览器打开返回的单次`credentialInputUrl`并填入，页面只监听`127.0.0.1`且把凭据直接交给仍在等待的同一worker；平台支持私有标准输入时也可运行`login-credentials-submit`，把单行账号密码JSON通过stdin交给同一控制通道。不得转存、复述、写入临时脚本、文件、环境变量、剪贴板脚本或命令参数，也不得跨任务复用。一次性页面地址不含账号密码，成功提交后不能再次使用。
+- 云端没有安全凭证入口且用户明确选择便利性优先时，运行 `login-agent-start`。只有返回 `waiting_for_credentials` 后，才向用户说明密码会保留在平台对话历史；用户明确接受并提供本次账号密码后，优先运行`login-credentials-submit`，把单行账号密码JSON通过私有stdin交给同一控制通道。平台没有私有stdin时才打开operation返回的一次性`127.0.0.1`页面。不得转存、复述、写入临时脚本、文件、环境变量、剪贴板脚本或命令参数，也不得跨任务复用。
 - 登录会话只在当前浏览器进程内可靠复用；持久profile可以降低重复登录次数，但每次仍以页面状态回读为准。不勾选管易“记住账户”，不启用 Chrome 保存密码。
-- 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持私有标准输入时也可通过`login-sms-submit`交给仍在运行的原登录进程。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
-- 浏览器业务核心只有一套，Playwright负责统一控制DOM和状态机；浏览器来源由接入层决定。macOS/Windows默认使用项目持久profile启动Chrome/Chromium。Linux检测到可信的`127.0.0.1:9222`平台CDP端点时，连接平台已有浏览器的唯一context，新增或复用管易标签页但不关闭其他平台标签；CDP不可用、context不唯一或连接中断时失败关闭，禁止静默另启第二个浏览器继续同一次操作。
-- 豆包工作云电脑必须先阅读并执行[豆包平台浏览器接入](references/doubao-browser-takeover.md)。正常路径直接使用豆包工作的Browser/云浏览器面板，不打开AIO Sandbox或VNC；运行`doctor.py`时必须看到`browser_backend.selected=platform_cdp`后才开始登录或上传。平台浏览器既是用户可见页面，也是同一Playwright worker回读的页面，不再只是一张凭据中转页。
-- 管易页面始终由原Playwright worker回读；验证码提交后，它会把成功、验证码被拒、账号密码被拒、登录风控、未登记弹窗/额外步骤或结果超时转换为脱敏结构化状态，不把页面原文、手机号或URL查询参数写入回执。`code_submitted`只表示仍在等待结果，不代表失败，也不得据此重发短信或重启登录。
-- 验证码提交后只有精确登记的阿里云账号验证页可进入`waiting_for_human_verification`；未知域名、路径或弹窗仍失败关闭。豆包CDP模式返回`userAction.target=existing_platform_builtin_browser`和`presentation=platform_browser_panel`。Agent必须立刻调用平台真实的`browserControl`把当前页直接交给用户，不能只发文字，不能打开验证URL、VNC或占位页面。用户完成点击、输入或拖动后，同一worker自动等待稳定管易首页；不得自动破解或代做验证。
-- 人工接管期间如果worker或平台浏览器会话中断，`login-status`返回失败状态并停止；不得盲目重发短信或重启登录。新的进程只能先只读检查当前平台浏览器/持久会话是否已登录。Agent不得清理、重建或删除本地`guanyi-browser-profile`；豆包CDP模式也不得关闭平台默认context或清理平台浏览器profile。
-- 同一浏览器会话在任意时刻只允许一个执行器操作持有。登录worker运行期间只能查询同一`login-status`，不得另启`probe`、导航或第二个登录；冲突会返回`browser_session_busy`。等待凭据、等待用户确认短信和等待验证码各自刷新为默认10分钟，验证码提交后的普通页面判定窗口默认45秒，登记人工验证最长等待15分钟。
+- 本地同一终端可以继续使用 `login-auto-sms`。云端或跨消息场景使用 `login-auto-start`；使用临时对话凭据时则从 `login-agent-start` 进入同一个 operation：出现短信验证时返回短时登录操作 ID 和 `needs_verification`，但不发送短信。只有用户当次明确确认可以接收后，才运行 `login-sms-request`；用户随后把本次验证码提供给 Agent，优先通过`login-sms-submit`的私有stdin交给原登录进程，平台没有该能力时才使用一次性`smsInputUrl`页面。验证码只存在于进程内存，不写入凭证库、Skill、配置、命令参数、日志或处理报告。
+- 浏览器业务核心只有一套，Playwright负责统一控制DOM和状态机；接入层只决定连接哪个浏览器。macOS/Windows使用项目持久profile，可信Linux平台可连接唯一的本机CDP context。连接异常时失败关闭，禁止在同一次操作中静默另启浏览器。
+- 豆包工作云电脑必须先阅读并执行[豆包平台浏览器接入](references/doubao-browser-takeover.md)。它是豆包登录顺序、人工验证和故障恢复的唯一操作指引；本文件不再重复这些平台细节。
+- 登录结果只接受结构化状态：`code_submitted`是等待态；`authenticated`后仍须只读`probe`得到`home_ready`。未知页面、未知弹窗、连接中断或结果不明确都停止，禁止重发短信、重启登录、清理profile或关闭平台默认context。
+- 同一浏览器会话任意时刻只允许一个执行器所有者。登录worker运行期间只能查询同一`login-status`，不得另启`probe`、导航或第二个登录；冲突必须返回`browser_session_busy`。
 - `probe` 检查登录和页面状态，只关闭已登记的安全通知。
 - `navigate-import` 导航到“自定义导入”页面后停止，禁止选择文件。
 - `prepare-import-form` 导航到“订单导入 → 自定义导入”，只允许把订单状态设为“待审核”并回读确认；文件输入必须保持为空，禁止点击“确定”。

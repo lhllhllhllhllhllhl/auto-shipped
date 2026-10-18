@@ -72,13 +72,15 @@ npm run prepare-operation -- "/path/to/上传预检.json"
 
 Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUANYI_CREDENTIAL_HELPER`；执行器只以参数 `get` 调用它，并从私有进程管道接收唯一一条 `{"username":"...","password":"..."}` JSON。助手不得把秘密输出到日志，执行器也不会写入或修改 Vault。
 
-平台没有安全入口时，先运行 `login-agent-start`。只有持久会话确实失效，它才返回 `waiting_for_credentials`、登录operation ID和单次`credentialInputUrl`。Agent必须先说明“密码会留在平台对话历史中”；用户明确接受并发送本次账号密码后，Agent用平台自带私有浏览器打开该`127.0.0.1`页面并填入。页面不保存凭据，POST后直接交给同一Playwright worker并立即失效；不得把凭据转存到临时脚本、文件、环境变量、剪贴板脚本或命令参数。平台具备私有标准输入时，也可运行`login-credentials-submit`并通过stdin提交单行JSON。两种入口共用同一个随机令牌控制通道和登录状态机，不建立第二套登录实现。
+平台没有安全入口时，先运行 `login-agent-start`。只有持久会话确实失效，它才返回 `waiting_for_credentials`、登录operation ID和单次`credentialInputUrl`。Agent必须先说明“密码会留在平台对话历史中”；用户明确接受并发送本次账号密码后，平台具备私有标准输入时优先运行`login-credentials-submit`并通过stdin提交单行JSON。没有私有stdin时才用平台私有浏览器打开该`127.0.0.1`页面；页面POST后直接交给同一Playwright worker并立即失效。不得把凭据转存到临时脚本、文件、环境变量、剪贴板脚本或命令参数。两种入口共用同一个随机令牌控制通道和登录状态机，不建立第二套登录实现。
 
-不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持时也可通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
+不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，平台支持私有标准输入时优先通过 `login-sms-submit` 交给仍在运行的原登录进程，否则才使用返回的单次`smsInputUrl`页面。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
 
 豆包工作云电脑中，平台自带浏览器就是项目Playwright通过`connectOverCDP`控制的同一个页面会话。Skill只允许`http://127.0.0.1:9222`等无凭据loopback端点，并要求唯一context；已有管易标签时复用，没有时新建标签，但不关闭其他平台标签。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
 
 精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。豆包CDP模式还会输出`target=existing_platform_builtin_browser`和`presentation=platform_browser_panel`；Agent必须主动调用平台`browserControl`，把当前Browser页面直接交给用户，不能只发文字，也不能打开VNC、验证URL或本地占位网址。用户在同一页面完成点击、输入或拖动后，原worker只读等待稳定管易首页并继续。
+
+若豆包工作中的人工验证完成后仍回调失败、重复进入阿里云验证页或无法建立管易会话，停止云端重试并提示用户/管理员在可信本机浏览器完整登录同一账号，完成阿里云二次验证直至进入管易首页。用户确认本机登录成功后，云端先只读探测平台浏览器，再最多重试一次正常登录。2026-10-19实测该步骤曾解除当次账号风控并使豆包工作随后登录成功；它不是永久豁免，不涉及VPN切换，也不允许在本机与云端之间复制Cookie、profile或验证码。
 
 独立headed Linux浏览器使用专用window class和可选`xdotool`精确置前；平台CDP浏览器只调用Playwright `bringToFront`，不做VNC窗口搜索。未知验证URL、未知弹窗、人工等待超时、worker或浏览器连接中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查当前浏览器是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`，CDP清理也不得关闭平台默认context或平台profile。
 
@@ -121,5 +123,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 2026-10-14 在所有者逐步授权下完成第一次真实写入链路观测：文件暂存后第一次“确定”只读取自定义模板并打开“自定义字段对应”；虚拟滚动表格共核对 48 行，系统字段与 Excel 字段全部同名对应；第二次“确定”才调用最终导入接口。任务中心回读到唯一任务 ID `705662035`，结果为总数 2、成功 1、格式错误 1、非法数据 0。失败原因属于店铺无法匹配；原始结果行含收件信息，因此执行器只允许返回来源行号、错误代码和脱敏说明，不保存或输出原文。该批次证明了两段确认、最终请求、任务 ID 和结果窗口的真实结构，同时暴露了店铺名称配置问题。
 
 2026-10-18 豆包云工作区实测确认：平台Chrome以`--remote-debugging-port=9222`运行，项目Node `playwright-core`可通过`connectOverCDP`读取用户正在看的同一测试页，正式`browserControl`交接后用户点击产生`SAME_BROWSER_CONFIRMED`。另一轮VNC测试也确认键盘和拖动能力，但VNC现仅保留为历史证据，不再是豆包生产路径。长时间等待期间平台可能重置云会话，因此生产worker必须事件驱动回读并在CDP断开时停止。
+
+2026-10-19 豆包工作按正式`platform_cdp`流程完成真实登录验收：doctor确认后先只读探测为`needs_login`，单一`login-agent-start` operation经私有stdin接收临时凭据，未重复发送短信或进入额外验证，最终同时得到`authenticated`与`home_ready`。此前账号在阿里云二次验证后无法建立会话时，由用户先在可信本机浏览器完整验证并进入管易首页，随后云端一次重试成功；该恢复步骤不代表永久免验证。
 
 同日修正店铺名称后，用新 operation、重新建立任务基线并重新取得用户授权完成第二次真实验收。执行器核对同一套 48 行字段对应，任务中心回读唯一任务 ID `705668612`，结果为总数 2、成功 2、格式错误 0、非法数据 0，状态进入 `post_write_verified`。这条证据解锁 `GY-UPLOAD-SUBMISSION` 的生产规则门禁，但不会取消“转换后先交付确认”“当前对话明确指定批次”“仅待审核”“写后禁止盲目重试”等运行时边界。

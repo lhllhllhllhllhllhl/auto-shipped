@@ -156,6 +156,7 @@
 - `DEC-USER-DOUBAO-DIRECT-HANDOFF-001`：豆包CDP模式的人工动作目标为`existing_platform_builtin_browser`，展示面为`platform_browser_panel`。Agent必须直接交出当前Browser页，禁止打开AIO Sandbox、VNC、验证URL或占位URL。原VNC方案降级为历史POC证据，不再是生产路径。
 - `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动；后续CDP POC又确认Node Playwright与正式Browser面板可以控制同一平台页面。两项证据都不授权自动处理阿里云验证或订单写入。
 - `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或CDP连接重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查当前会话。Skill更新与bootstrap不得删除独立profile，Agent也不得清理平台浏览器profile。
+- `DEC-USER-LOCAL-RISK-RELEASE-001`：2026-10-19实测确认，当豆包工作无法在阿里云二次验证后建立管易会话时，用户先在可信本机浏览器用同一账号完整完成人工验证并进入管易首页，随后豆包工作能够正常登录。该路径登记为账号风控的人工恢复步骤：云端失败后停止循环并提示用户/管理员在本机完成验证；用户确认成功后云端先只读探测并最多重试一次。不得承诺永久免验证，不归因于VPN，也不得在设备间迁移Cookie、profile或验证码。
 
 ## 2026-10-17 商品短语规范身份
 
