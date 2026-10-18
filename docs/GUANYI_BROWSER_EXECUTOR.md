@@ -7,7 +7,7 @@
 - 使用独立 Chrome 配置保存管易登录会话。
 - 默认由用户首次手动登录；也可从 macOS 钥匙串读取凭证自动登录。
 - Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 通过一次性`127.0.0.1`页面或私有stdin交给当前登录worker。聊天平台仍可能保留原消息，项目无法代为删除。
-- 云端可在 Xvfb 等私有显示环境中运行 headed Chromium，用户不需要看到浏览器窗口；几何与页面状态校验保持不变。
+- 云端可在 Xvfb 等私有显示环境中运行 headed Chromium；正常自动步骤不要求用户看到窗口。出现精确登记的额外验证时，可通过平台VNC把同一Playwright窗口交给用户，几何与页面状态校验保持不变。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
 - Linux原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别；不使用全局20px宽容差。
@@ -20,6 +20,7 @@
 ## 模块
 
 - `session.mjs`：专用 Chrome 会话、单一profile进程锁与登录状态；验证码提交后只返回脱敏结果分类。
+- `human-verification.mjs`：额外验证页白名单、脱敏URL分类和可替换的Linux窗口置前适配；不执行验证动作。
 - `login-operation.mjs`：跨消息凭据/短信验证的短时登录操作、分阶段有效期、私有控制通道和状态回执；不保存账号密码或验证码。
 - `geometry.mjs`：原生窗口策略、页面几何快照、稳定性检测与写后 fail-close 接口。
 - `screenshot.mjs`：不改变 viewport、缩放和滚动的只读截图。
@@ -77,7 +78,11 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 平台自带/CDP浏览器与项目Playwright浏览器不是同一个页面会话。平台浏览器只作为一次性本机交接入口；管易登录页由Playwright worker自己持续检查。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
 
-同一profile同时只允许一个Playwright所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`，防止并发probe关闭登录浏览器。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的结果窗口默认45秒。
+精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`和`userAction.kind=browser_control`。Agent必须主动调用平台的浏览器控制/请求用户协助能力；在豆包工作伙伴中使用`interaction.request_action`的`browserControl`，不能只发文字提示。项目Chromium仍由原Node Playwright worker持有，用户在VNC中完成点击、输入或拖动后，worker只读等待稳定的管易首页并继续。浏览器核心只认识通用动作合同，豆包工具名只存在于Skill/平台适配说明中。
+
+Linux窗口使用专用window class。执行器先调用Playwright `bringToFront`，若环境已有`xdotool`，再要求唯一class匹配后置前；不存在或匹配不唯一时不猜测窗口。未知验证URL、未知弹窗、人工等待超时、worker或VNC中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查持久会话是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`。
+
+同一profile同时只允许一个Playwright所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`，防止并发probe关闭登录浏览器。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的普通结果窗口默认45秒，登记的人工验证阶段默认15分钟。
 
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
@@ -89,7 +94,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 1. 登录失效时返回 `needs_login`。
 2. 用户登录后返回可识别的已认证状态。
-3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。云端提交验证码后必须在同一operation返回`authenticated`或明确的脱敏失败分类；等待中的`code_submitted`不得触发重发短信。登录worker运行期间启动第二个浏览器命令必须返回`browser_session_busy`，不能抢占或关闭profile。
+3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。云端提交验证码后必须在同一operation返回`authenticated`、`waiting_for_human_verification`或明确的脱敏失败分类；等待中的`code_submitted`不得触发重发短信。进入人工验证时Agent必须实际发起浏览器控制交接，用户操作后仍由同一worker续跑；中断时不得盲目重启。登录worker运行期间启动第二个浏览器命令必须返回`browser_session_busy`，不能抢占或关闭profile。
 4. 已知公告可以安全关闭；关闭未生效、页面地址变化或出现未知弹窗时返回 `popup_unknown`。
 5. 侧栏展开或折叠时都能进入订单查询。
 6. 能打开订单导入并切换到自定义导入。
@@ -114,5 +119,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 2026-09-28 已在专用 Chrome 配置完成以下只读验收：钥匙串凭证登录、短信验证码请求、短信说明弹窗“知道了”、验证码提交、浏览器重启后的持久会话复用、Geometry Guard、订单查询子框架识别、已知通知关闭、进入“订单导入 → 自定义导入”、把订单状态设为“待审核”并回读确认，以及“常用页面 → 任务中心”真实页面结构和任务记录 ID 探针。真实页面的 `data-recordid` 与 ExtJS 记录模型 `id` 一致。
 
 2026-10-14 在所有者逐步授权下完成第一次真实写入链路观测：文件暂存后第一次“确定”只读取自定义模板并打开“自定义字段对应”；虚拟滚动表格共核对 48 行，系统字段与 Excel 字段全部同名对应；第二次“确定”才调用最终导入接口。任务中心回读到唯一任务 ID `705662035`，结果为总数 2、成功 1、格式错误 1、非法数据 0。失败原因属于店铺无法匹配；原始结果行含收件信息，因此执行器只允许返回来源行号、错误代码和脱敏说明，不保存或输出原文。该批次证明了两段确认、最终请求、任务 ID 和结果窗口的真实结构，同时暴露了店铺名称配置问题。
+
+2026-10-18 在豆包云工作区用独立临时profile和无外网data URL完成同浏览器人工接管验收：用户通过AIO Sandbox的VNC入口在原Playwright Chromium中亲自输入`HUMAN42`并拖动滑块，原worker回读到键盘、输入、pointerdown/move/up和最终确认状态，`same_context=true`。该证据只验证平台VNC可见性与键鼠通道，不代表自动处理阿里云验证；生产流程仍只允许用户人工完成登记验证页。
 
 同日修正店铺名称后，用新 operation、重新建立任务基线并重新取得用户授权完成第二次真实验收。执行器核对同一套 48 行字段对应，任务中心回读唯一任务 ID `705668612`，结果为总数 2、成功 2、格式错误 0、非法数据 0，状态进入 `post_write_verified`。这条证据解锁 `GY-UPLOAD-SUBMISSION` 的生产规则门禁，但不会取消“转换后先交付确认”“当前对话明确指定批次”“仅待审核”“写后禁止盲目重试”等运行时边界。

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   ARTIFACT_DIR,
+  HUMAN_VERIFICATION_TIMEOUT_MS,
   LOGIN_RESULT_TIMEOUT_MS,
   LOGIN_TIMEOUT_MS,
 } from "./config.mjs";
@@ -21,12 +22,14 @@ import { GeometryError } from "./geometry.mjs";
 import {
   createLoginControlServer,
   createLoginOperation,
+  isLoginWorkerAlive,
   loadLoginOperation,
   LoginOperationError,
   LoginOperationState,
   publicLoginOperation,
   requireSmsRequestAuthorization,
   requireTemporaryCredentialsSubmitAuthorization,
+  setLoginWorkerProcess,
   sendLoginControl,
   SMS_REQUEST_AUTHORIZATION,
   TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION,
@@ -71,6 +74,7 @@ import {
   submitSmsCode,
   waitForAuthenticatedPage,
 } from "./session.mjs";
+import { focusHumanVerificationWindow } from "./human-verification.mjs";
 import { detectState } from "./states.mjs";
 import { captureReadOnlyScreenshot } from "./screenshot.mjs";
 import {
@@ -96,6 +100,8 @@ const LOGIN_SESSION_ERROR_CODES = new Set([
   "LOGIN_RISK_CONTROLLED",
   "LOGIN_CREDENTIALS_REJECTED",
   "LOGIN_ADDITIONAL_STEP_REQUIRED",
+  "LOGIN_HUMAN_VERIFICATION_INTERRUPTED",
+  "LOGIN_HUMAN_VERIFICATION_TIMEOUT",
   "LOGIN_OUTCOME_UNCONFIRMED",
 ]);
 
@@ -305,6 +311,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
       operationId,
       async (message) => await mailbox.handle(message),
     );
+    await setLoginWorkerProcess(operationId);
     await transitionLoginOperation(
       operationId,
       LoginOperationState.AUTHENTICATING,
@@ -323,6 +330,24 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     await session.page.bringToFront();
     await markDedicatedLoginWindow(session.page);
     const loginOptions = {
+      onHumanVerificationRequired: async (candidate, observation) => {
+        const focus = await focusHumanVerificationWindow(candidate);
+        await transitionLoginOperation(
+          operationId,
+          LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+          {
+            reason: "registered_human_verification_required",
+            expiresInMs: HUMAN_VERIFICATION_TIMEOUT_MS,
+            humanVerification: {
+              type: observation.humanVerificationType,
+              safeUrl: observation.safeUrl,
+              focusReady: focus.focusReady,
+              focusMethod: focus.method,
+              focusCode: focus.code || null,
+            },
+          },
+        );
+      },
       onVerificationRequired: async (candidate) => {
         const verification = await transitionLoginOperation(
           operationId,
@@ -589,6 +614,32 @@ async function runLoginCredentialsSubmit(operationId, authorization) {
 
 async function runLoginStatus(operationId) {
   let loaded = await loadLoginOperation(operationId);
+  const workerAlive = isLoginWorkerAlive(loaded.record);
+  if (
+    workerAlive === false &&
+    ![
+      LoginOperationState.AUTHENTICATED,
+      LoginOperationState.FAILED,
+      LoginOperationState.EXPIRED,
+    ].includes(loaded.record.state)
+  ) {
+    const interruptedHumanVerification =
+      loaded.record.state ===
+      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION;
+    loaded = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.FAILED,
+      {
+        reason: "login_worker_not_alive",
+        code: interruptedHumanVerification
+          ? "LOGIN_HUMAN_VERIFICATION_INTERRUPTED"
+          : "LOGIN_WORKER_EXITED",
+        message: interruptedHumanVerification
+          ? "人工验证期间原登录worker已中断；禁止盲目重试。请先只读检查持久会话是否已经登录。"
+          : "管易登录worker已中断。",
+      },
+    );
+  }
   if (
     Date.parse(loaded.record.expiresAt) <= Date.now() &&
     ![
@@ -628,12 +679,17 @@ async function runLoginSmsSubmit(operationId) {
     timeoutMs: LOGIN_RESULT_TIMEOUT_MS + 5_000,
     states: new Set([
       LoginOperationState.AUTHENTICATED,
+      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
       LoginOperationState.FAILED,
       LoginOperationState.EXPIRED,
     ]),
   });
   printJson(publicLoginOperation(loaded.record));
   if (loaded.record.state === LoginOperationState.AUTHENTICATED) return 0;
+  if (
+    loaded.record.state ===
+    LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
+  ) return 0;
   if (loaded.record.state === LoginOperationState.CODE_SUBMITTED) return 0;
   return 2;
 }

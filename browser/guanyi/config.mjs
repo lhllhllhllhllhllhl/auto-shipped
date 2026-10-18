@@ -114,6 +114,10 @@ export const LOGIN_TIMEOUT_MS = Number(
 export const LOGIN_RESULT_TIMEOUT_MS = Number(
   process.env.GUANYI_LOGIN_RESULT_TIMEOUT_MS || 45_000,
 );
+export const HUMAN_VERIFICATION_TIMEOUT_MS = Number(
+  process.env.GUANYI_HUMAN_VERIFICATION_TIMEOUT_MS || 15 * 60_000,
+);
+export const BROWSER_WINDOW_CLASS = "shangyu-guanyi-browser";
 export const KEYCHAIN_SERVICE =
   process.env.GUANYI_KEYCHAIN_SERVICE || "com.shangyu.auto-shipped.guanyi";
 export const WINDOWS_CREDENTIAL_FILE = path.resolve(

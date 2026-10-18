@@ -22,6 +22,7 @@ export const LoginOperationState = Object.freeze({
   SMS_REQUESTING: "sms_requesting",
   WAITING_FOR_USER_CODE: "waiting_for_user_code",
   CODE_SUBMITTED: "code_submitted",
+  WAITING_FOR_HUMAN_VERIFICATION: "waiting_for_human_verification",
   AUTHENTICATED: "authenticated",
   FAILED: "failed",
   EXPIRED: "expired",
@@ -69,6 +70,12 @@ const TRANSITIONS = Object.freeze({
     LoginOperationState.EXPIRED,
   ]),
   [LoginOperationState.CODE_SUBMITTED]: new Set([
+    LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+    LoginOperationState.AUTHENTICATED,
+    LoginOperationState.FAILED,
+    LoginOperationState.EXPIRED,
+  ]),
+  [LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION]: new Set([
     LoginOperationState.AUTHENTICATED,
     LoginOperationState.FAILED,
     LoginOperationState.EXPIRED,
@@ -163,6 +170,20 @@ export function publicLoginOperation(record) {
       "短信请求已由说明弹窗确认；请用户把本次验证码提供给 Agent，再通过一次性本机页面或标准输入交给当前登录进程。";
   } else if (record.state === LoginOperationState.CODE_SUBMITTED) {
     payload.instruction = "验证码已提交，正在等待登录结果。";
+  } else if (
+    record.state === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
+  ) {
+    payload.verificationType = "same_browser_human_takeover";
+    payload.requiresUserAction = true;
+    payload.userAction = {
+      kind: "browser_control",
+      sameBrowserContext: true,
+      agentMustInvokeInteractiveControl: true,
+      workerContinuesAutomatically: true,
+    };
+    payload.humanVerification = record.humanVerification || null;
+    payload.instruction =
+      "必须主动调用当前平台的浏览器控制/请求用户协助入口，把同一个Playwright窗口交给用户；不能只发文字提示。用户完成验证后原worker会自动继续。";
   }
   return payload;
 }
@@ -300,6 +321,8 @@ export async function createLoginOperation(
       port: null,
       token: randomBytes(32).toString("hex"),
     },
+    worker: null,
+    humanVerification: null,
     error: null,
     history: [
       {
@@ -313,6 +336,49 @@ export async function createLoginOperation(
   const receiptPath = operationPath(operationId, directory);
   await writeAtomic(receiptPath, record);
   return { record, receiptPath };
+}
+
+
+export async function setLoginWorkerProcess(
+  operationId,
+  processId = process.pid,
+  directory = LOGIN_OPERATION_DIR,
+) {
+  if (!Number.isInteger(processId) || processId < 1) {
+    throw new LoginOperationError(
+      "LOGIN_WORKER_PROCESS_INVALID",
+      "登录worker进程信息无效。",
+    );
+  }
+  const loaded = await loadLoginOperation(operationId, directory);
+  const updated = {
+    ...loaded.record,
+    updatedAt: new Date().toISOString(),
+    worker: {
+      processId,
+      startedAt: loaded.record.worker?.startedAt || new Date().toISOString(),
+    },
+  };
+  await writeAtomic(loaded.receiptPath, updated);
+  return { record: updated, receiptPath: loaded.receiptPath };
+}
+
+
+export function isLoginWorkerAlive(
+  record,
+  processAlive = (processId) => {
+    try {
+      process.kill(processId, 0);
+      return true;
+    } catch (error) {
+      return error?.code !== "ESRCH";
+    }
+  },
+) {
+  const processId = record?.worker?.processId;
+  return Number.isInteger(processId) && processId > 0
+    ? processAlive(processId)
+    : null;
 }
 
 
@@ -346,6 +412,7 @@ export async function transitionLoginOperation(
     code = null,
     message = null,
     details = null,
+    humanVerification = undefined,
     expiresInMs = null,
   } = {},
   directory = LOGIN_OPERATION_DIR,
@@ -379,6 +446,18 @@ export async function transitionLoginOperation(
             details,
           }
         : loaded.record.error,
+    humanVerification:
+      nextState === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
+        ? {
+            type: humanVerification?.type || "registered_external_verification",
+            safeUrl: humanVerification?.safeUrl || "unknown",
+            focusReady: Boolean(humanVerification?.focusReady),
+            focusMethod: humanVerification?.focusMethod || "playwright",
+            focusCode: humanVerification?.focusCode || null,
+          }
+        : current === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
+          ? null
+          : loaded.record.humanVerification || null,
     history: [
       ...loaded.record.history,
       { at: now, from: current, to: nextState, reason },
@@ -419,6 +498,7 @@ export async function waitForLoginOperation(
       LoginOperationState.NEEDS_VERIFICATION,
       LoginOperationState.WAITING_FOR_USER_CODE,
       LoginOperationState.CODE_SUBMITTED,
+      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
       LoginOperationState.AUTHENTICATED,
       LoginOperationState.FAILED,
       LoginOperationState.EXPIRED,

@@ -148,6 +148,13 @@
 - `DEC-USER-RECONCILING-001`：已经点击确定后，短时没有新增任务不直接判失败或人工结束，而是持久化为`reconciling`并允许稍后只读复查。只有文件暂存、未授权或点击确定，且任务中心确认无新增任务时进入`retryable_failed`；多条新增、任务ID证据不足、未知状态进入人工确认。
 - `DEC-USER-UPLOAD-RETRY-001`：防重复只永久阻止已`post_write_verified`的同哈希Excel；`reconciling`和`needs_manual_review`只作临时锁。`retryable_failed`与明确失败的关闭状态允许新尝试，新操作必须记录`retryOf`、递增`attemptNumber`、重建任务基线并重新取得用户上传授权。
 
+## 2026-10-18 同浏览器人工验证
+
+- `DEC-USER-HUMAN-VERIFICATION-CORE-001`：额外安全验证复用现有Node Playwright登录worker，不建立第二套Linux上传或登录脚本。核心只允许精确登记的验证URL进入`waiting_for_human_verification`，保持同一context/profile并等待稳定管易首页；未知URL和弹窗继续失败关闭，执行器不自动破解或代做验证。
+- `DEC-USER-PLATFORM-TAKEOVER-001`：人工接管采用通用`browser_control`动作合同；平台工具名不进入登录业务状态机。Skill调度层负责主动调用实际入口，豆包使用`interaction.request_action(browserControl)`。仅发送文字而未弹出可交互入口不算完成交接。
+- `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动，原worker回读`same_context=true`。该证据只解锁人工交互通道，不授权自动处理阿里云验证或订单写入。
+- `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或VNC重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查持久会话。Skill更新与bootstrap不得删除独立profile，Agent也不得自行清理profile。
+
 ## 2026-10-17 商品短语规范身份
 
 - `DEC-USER-PRODUCT-PHRASE-CANONICAL-001`：非结构化商品保留原文，并允许Agent初拆品牌、商品主体、规格、数量和单位；确定性词典把不同字段边界整理为版本化`品牌+商品主体+规格`身份。数量和单位不参与身份且不被改写，未知附加词必须保留为残余规格。

@@ -384,7 +384,9 @@ ParsedOrder
 
 Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入总数、成功数、失败分类、需要人工处理的来源行号和下一步建议。浏览器执行器不得把任务结果中的收件人、手机号、详细地址、原始失败行或页面响应正文写入状态、日志或对话。
 
-账号密码属于运行环境凭证，不属于 Skill 或订单数据合同。本地使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 的只读凭证助手。没有安全入口且用户明确接受对话留存风险时，现有登录 operation 可进入 `waiting_for_credentials`：worker在同一个随机令牌`127.0.0.1`控制通道上提供单次凭据页，Agent用平台自带浏览器填入后直接交给worker；支持私有stdin时也可通过同一通道提交。平台自带/CDP浏览器仅承担交接，不与专用Playwright浏览器共享页面；Playwright worker必须自行观察管易DOM并返回脱敏结构化结果。执行器在内存中填入专用Playwright浏览器，不把字段内容写入状态、文件、环境变量、命令或日志。短信验证码继续使用同一短时 operation ID 交接，只存在于仍在运行的浏览器进程内存。单一profile进程锁禁止probe或第二个登录抢占当前worker。浏览器可在云端私有显示环境运行，用户无需查看窗口。
+账号密码属于运行环境凭证，不属于 Skill 或订单数据合同。本地使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 的只读凭证助手。没有安全入口且用户明确接受对话留存风险时，现有登录 operation 可进入 `waiting_for_credentials`：worker在同一个随机令牌`127.0.0.1`控制通道上提供单次凭据页，Agent用平台自带浏览器填入后直接交给worker；支持私有stdin时也可通过同一通道提交。平台自带/CDP浏览器仅承担凭据与验证码交接，不与专用Playwright浏览器共享页面；Playwright worker必须自行观察管易DOM并返回脱敏结构化结果。执行器在内存中填入专用Playwright浏览器，不把字段内容写入状态、文件、环境变量、命令或日志。短信验证码继续使用同一短时 operation ID 交接，只存在于仍在运行的浏览器进程内存。单一profile进程锁禁止probe或第二个登录抢占当前worker。
+
+额外安全验证采用“通用核心 + 平台交接适配”两层。浏览器核心只对白名单URL进入`waiting_for_human_verification`，保持原Playwright context/profile/worker并输出通用`browser_control`动作合同；未知页面仍失败关闭。Skill调度层负责把该合同映射为平台真实交互入口，例如豆包的`interaction.request_action(browserControl)`，并强制主动发起而非仅文字提示。Linux窗口class/`xdotool`只属于显示适配层，不进入业务状态机。用户操作后原worker回读稳定首页继续；平台重置或worker中断时停止，禁止盲目重登、重发短信或删除profile。
 
 ## 4. 商品映射
 

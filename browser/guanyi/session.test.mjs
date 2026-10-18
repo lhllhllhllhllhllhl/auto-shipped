@@ -69,6 +69,7 @@ test("returns a redacted post-SMS observation", async () => {
     verificationVisible: true,
     feedbackCategory: "sms_code_rejected",
     dialogVisible: false,
+    humanVerificationType: null,
   });
   assert.equal(JSON.stringify(result).includes("13800000000"), false);
   assert.equal(JSON.stringify(result).includes("account=private"), false);
@@ -217,9 +218,7 @@ test("allows a brief redirect page after SMS before authenticated app", async ()
     },
     async bringToFront() {},
     async waitForLoadState() {},
-    async waitForTimeout() {
-      url = "https://www.guanyierp.com/index";
-    },
+    async waitForTimeout() {},
     async waitForURL() {
       throw new Error("Timeout");
     },
@@ -246,10 +245,163 @@ test("allows a brief redirect page after SMS before authenticated app", async ()
     postVerificationTimeoutMs: 100,
     async onVerificationRequired() {
       url = "https://login.guanyierp.com/redirect";
+      setTimeout(() => {
+        url = "https://www.guanyierp.com/index";
+      }, 0);
       return { verificationSubmitted: true };
     },
+    pollIntervalMs: 1,
   });
   assert.equal(result, page);
+});
+
+
+test("pauses on the registered Aliyun page and resumes the same page after human verification", async () => {
+  let url = "https://login.guanyierp.com/login";
+  let humanObservation = null;
+  const page = {
+    url() {
+      return url;
+    },
+    frames() {
+      return [this];
+    },
+    async bringToFront() {},
+    async waitForLoadState() {},
+    async waitForTimeout() {},
+    async waitForURL() {
+      throw new Error("Timeout");
+    },
+    getByPlaceholder() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    getByText() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return {
+          async innerText() {
+            return isAuthenticatedAppUrl(url) ? "菜单 首页 我的工单" : "";
+          },
+        };
+      }
+      return {
+        async evaluateAll() {
+          return { texts: [], dialogVisible: false };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  const result = await waitForAuthenticatedPage(context, page, 1_000, {
+    postVerificationTimeoutMs: 100,
+    humanVerificationTimeoutMs: 1_000,
+    pollIntervalMs: 1,
+    async onVerificationRequired() {
+      url = "http://account.ose.aliyun.com/verify.html?private=value";
+      return { verificationSubmitted: true };
+    },
+    async onHumanVerificationRequired(candidate, observation) {
+      assert.equal(candidate, page);
+      humanObservation = observation;
+      url = "https://www.guanyierp.com/index";
+    },
+  });
+
+  assert.equal(result, page);
+  assert.equal(humanObservation.humanVerificationType, "aliyun_account_verification");
+  assert.equal(humanObservation.safeUrl, "http://account.ose.aliyun.com/verify.html");
+  assert.equal(JSON.stringify(humanObservation).includes("private=value"), false);
+});
+
+
+test("still fails closed on an unregistered external page after SMS", async () => {
+  let url = "https://login.guanyierp.com/login";
+  const page = {
+    url() {
+      return url;
+    },
+    frames() {
+      return [this];
+    },
+    async bringToFront() {},
+    getByPlaceholder() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    getByText() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    locator(selector) {
+      if (selector === "body") {
+        return { async innerText() { return ""; } };
+      }
+      return {
+        async evaluateAll() {
+          return { texts: [], dialogVisible: false };
+        },
+      };
+    },
+  };
+  const context = { pages() { return [page]; } };
+
+  await assert.rejects(
+    waitForAuthenticatedPage(context, page, 1_000, {
+      additionalStepStabilityMs: 0,
+      pollIntervalMs: 1,
+      async onVerificationRequired() {
+        url = "https://example.com/unknown-verification";
+        return { verificationSubmitted: true };
+      },
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "LOGIN_ADDITIONAL_STEP_REQUIRED",
+  );
+});
+
+
+test("fails closed when the registered human-verification page disappears", async () => {
+  let url = "https://login.guanyierp.com/login";
+  let closed = false;
+  const page = {
+    url() { return url; },
+    frames() { return [this]; },
+    async bringToFront() {},
+    getByPlaceholder() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    getByText() {
+      return { async isVisible() { return isLoginUrl(url); } };
+    },
+    locator(selector) {
+      if (selector === "body") return { async innerText() { return ""; } };
+      return {
+        async evaluateAll() {
+          return { texts: [], dialogVisible: false };
+        },
+      };
+    },
+  };
+  const context = { pages() { return closed ? [] : [page]; } };
+
+  await assert.rejects(
+    waitForAuthenticatedPage(context, page, 1_000, {
+      humanVerificationTimeoutMs: 1_000,
+      pollIntervalMs: 1,
+      async onVerificationRequired() {
+        url = "https://account.ose.aliyun.com/verify.html";
+        return { verificationSubmitted: true };
+      },
+      async onHumanVerificationRequired() {
+        closed = true;
+      },
+    }),
+    (error) =>
+      error instanceof SessionError &&
+      error.code === "LOGIN_HUMAN_VERIFICATION_INTERRUPTED",
+  );
 });
 
 

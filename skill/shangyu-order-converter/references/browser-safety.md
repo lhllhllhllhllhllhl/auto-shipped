@@ -19,6 +19,14 @@
 - `select-import-file`：当前用户明确授权后，使用精确授权口令选择一次文件，不点“确定”；动作前后持久化状态并记录脱敏网络元数据。
 - `verify-manifest`：校验 Excel 的路径、大小和 SHA-256，不打开文件选择器。
 
+## 登录人工验证
+
+- 自动登录提交短信验证码后，只有精确登记的外部验证URL可以进入同浏览器人工接管；当前登记项是`account.ose.aliyun.com/verify.html`。查询串不会进入回执，未知域名、相似域名、其他路径和未知弹窗仍失败关闭。
+- 人工接管只暂停原Playwright worker并保持同一个context/profile，不启动第二个浏览器。状态回执必须包含`requiresUserAction=true`和`userAction.kind=browser_control`，供Agent主动调用平台的浏览器控制入口；仅发送文字提示不算完成交接。
+- 平台允许时，用户可通过VNC/远程桌面完成点击、键盘输入和拖动。执行器不读取验证内容、不代做验证，也不把验证页面文本、截图、Cookie或查询参数写入日志。
+- Linux窗口置前属于可替换的显示适配层：Playwright先`bringToFront`，已有`xdotool`时再按唯一专用window class精确置前；工具不存在、零个或多个匹配窗口时不猜测。
+- 默认等待15分钟。worker、浏览器或VNC会话中断时停止并返回人工验证中断；禁止自动重发短信、重启登录或删除持久profile。恢复时先只读检查登录状态。
+
 ## 上传状态机
 
 在上传模块实现前，禁止选择文件和提交。实现后至少区分：

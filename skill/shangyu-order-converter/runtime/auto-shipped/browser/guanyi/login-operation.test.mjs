@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   createLoginControlServer,
   createLoginOperation,
+  isLoginWorkerAlive,
   LoginOperationError,
   LoginOperationState,
   publicLoginOperation,
@@ -14,6 +15,7 @@ import {
   requireTemporaryCredentialsSubmitAuthorization,
   sendLoginControl,
   setLoginControlEndpoint,
+  setLoginWorkerProcess,
   SMS_REQUEST_AUTHORIZATION,
   TEMPORARY_CREDENTIALS_SUBMIT_AUTHORIZATION,
   transitionLoginOperation,
@@ -149,6 +151,84 @@ test("user handoff transitions refresh expiry and expose only safe failure detai
       pageState: "login_page",
       feedbackCategory: "sms_code_rejected",
     });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("registered browser verification exposes an explicit same-context user action", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
+  try {
+    const created = await createLoginOperation(directory, 1_000);
+    const operationId = created.record.operationId;
+    await setLoginWorkerProcess(operationId, 43210, directory);
+    let current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "worker_started" },
+      directory,
+    );
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.NEEDS_VERIFICATION,
+      { reason: "sms_required" },
+      directory,
+    );
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.SMS_REQUESTING,
+      { reason: "sms_authorized" },
+      directory,
+    );
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.WAITING_FOR_USER_CODE,
+      { reason: "sms_sent" },
+      directory,
+    );
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.CODE_SUBMITTED,
+      { reason: "code_submitted" },
+      directory,
+    );
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+      {
+        reason: "registered_challenge",
+        expiresInMs: 15 * 60_000,
+        humanVerification: {
+          type: "aliyun_account_verification",
+          safeUrl: "http://account.ose.aliyun.com/verify.html",
+          focusReady: true,
+          focusMethod: "xdotool_exact_window_class",
+        },
+      },
+      directory,
+    );
+
+    const status = publicLoginOperation(current.record);
+    assert.equal(status.status, "waiting_for_human_verification");
+    assert.equal(status.requiresUserAction, true);
+    assert.equal(status.userAction.kind, "browser_control");
+    assert.equal(status.userAction.sameBrowserContext, true);
+    assert.equal(status.userAction.agentMustInvokeInteractiveControl, true);
+    assert.equal(status.humanVerification.type, "aliyun_account_verification");
+    assert.equal(status.humanVerification.focusReady, true);
+    assert.equal(JSON.stringify(status).includes("token"), false);
+    assert.equal(JSON.stringify(status).includes("43210"), false);
+    assert.equal(isLoginWorkerAlive(current.record, (pid) => pid === 43210), true);
+    assert.equal(isLoginWorkerAlive(current.record, () => false), false);
+
+    const authenticated = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATED,
+      { reason: "authenticated_after_human_verification" },
+      directory,
+    );
+    assert.equal(authenticated.record.humanVerification, null);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

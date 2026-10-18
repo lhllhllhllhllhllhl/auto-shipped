@@ -33,7 +33,7 @@
     "verify-manifest": "node cli.mjs verify-manifest",
     "prepare-operation": "node cli.mjs prepare-operation",
     "test": "node --test *.test.mjs",
-    "check": "node --check cli.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check login-operation.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check submission.mjs && node --check workflow.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs"
+    "check": "node --check cli.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check human-verification.mjs && node --check login-operation.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check submission.mjs && node --check workflow.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs"
   },
   "dependencies": {
     "playwright-core": "1.63.0"

@@ -7,8 +7,10 @@ import {
   APP_URL,
   ARTIFACT_DIR,
   BROWSER_SESSION_LOCK,
+  BROWSER_WINDOW_CLASS,
   CHROME_EXECUTABLE,
   DEFAULT_TIMEOUT_MS,
+  HUMAN_VERIFICATION_TIMEOUT_MS,
   LOGIN_RESULT_TIMEOUT_MS,
   PROFILE_DIR,
   LOGIN_URL,
@@ -19,6 +21,9 @@ import {
   ensurePageGeometry,
   registerPageGeometry,
 } from "./geometry.mjs";
+import {
+  classifyRegisteredHumanVerificationUrl,
+} from "./human-verification.mjs";
 
 
 export function isLoginUrl(url) {
@@ -223,6 +228,9 @@ export async function launchSession() {
         "--no-default-browser-check",
         `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
         "--window-position=0,0",
+        ...(process.platform === "linux"
+          ? [`--class=${BROWSER_WINDOW_CLASS}`]
+          : []),
       ],
     });
     context.once("close", () => {
@@ -393,6 +401,7 @@ function feedbackError(category, details) {
 
 export async function inspectPostSmsLoginState(page) {
   const url = page.url();
+  const humanVerification = classifyRegisteredHumanVerificationUrl(url);
   const safeUrl = (() => {
     try {
       const parsed = new URL(url);
@@ -442,6 +451,7 @@ export async function inspectPostSmsLoginState(page) {
     verificationVisible,
     feedbackCategory,
     dialogVisible: visibleFeedback.dialogVisible,
+    humanVerificationType: humanVerification?.type || null,
   };
 }
 
@@ -567,20 +577,33 @@ export async function waitForAuthenticatedPage(
   timeoutMs,
   {
     onVerificationRequired,
+    onHumanVerificationRequired,
     postVerificationTimeoutMs = LOGIN_RESULT_TIMEOUT_MS,
+    humanVerificationTimeoutMs = HUMAN_VERIFICATION_TIMEOUT_MS,
     additionalStepStabilityMs = 1_500,
+    pollIntervalMs = 250,
     credentialsSubmitted = false,
   } = {},
 ) {
   let deadline = Date.now() + timeoutMs;
   let verificationReported = false;
   let verificationSubmitted = false;
-  let verificationPage = null;
   let lastObservation = null;
   let unregisteredPageSince = null;
   let unregisteredSafeUrl = null;
+  let humanVerificationReported = false;
+  let humanVerificationActive = false;
+  let humanVerificationPage = null;
   while (Date.now() < deadline) {
-    for (const candidate of context.pages()) {
+    const pages = context.pages();
+    if (humanVerificationActive && pages.length === 0) {
+      throw new SessionError(
+        "LOGIN_HUMAN_VERIFICATION_INTERRUPTED",
+        "人工验证期间原浏览器页面已关闭；禁止自动重启登录或重新发送短信。",
+        lastObservation || {},
+      );
+    }
+    for (const candidate of pages) {
       if (
         isAuthenticatedAppUrl(candidate.url()) &&
         (await confirmStableAuthenticatedPage(candidate))
@@ -594,7 +617,6 @@ export async function waitForAuthenticatedPage(
         (await isVerificationRequired(candidate))
       ) {
         verificationReported = true;
-        verificationPage = candidate;
         await candidate.bringToFront();
         const result = await onVerificationRequired?.(candidate);
         if (result?.verificationSubmitted) {
@@ -602,8 +624,20 @@ export async function waitForAuthenticatedPage(
           deadline = Date.now() + postVerificationTimeoutMs;
         }
       }
-      if (verificationSubmitted && candidate === verificationPage) {
+      if (verificationSubmitted) {
         lastObservation = await inspectPostSmsLoginState(candidate);
+        if (lastObservation.humanVerificationType) {
+          unregisteredPageSince = null;
+          unregisteredSafeUrl = null;
+          if (!humanVerificationReported) {
+            humanVerificationReported = true;
+            humanVerificationActive = true;
+            humanVerificationPage = candidate;
+            deadline = Date.now() + humanVerificationTimeoutMs;
+            await onHumanVerificationRequired?.(candidate, lastObservation);
+          }
+          continue;
+        }
         const feedbackFailure = feedbackError(
           lastObservation.feedbackCategory,
           lastObservation,
@@ -643,12 +677,37 @@ export async function waitForAuthenticatedPage(
       }
     }
     if (
+      humanVerificationActive &&
+      humanVerificationPage &&
+      !pages.includes(humanVerificationPage)
+    ) {
+      throw new SessionError(
+        "LOGIN_HUMAN_VERIFICATION_INTERRUPTED",
+        "人工验证期间原浏览器页面已关闭；禁止自动重启登录或重新发送短信。",
+        lastObservation || {},
+      );
+    }
+    if (
       isAuthenticatedAppUrl(page.url()) &&
       (await confirmStableAuthenticatedPage(page))
     ) {
       return page;
     }
-    await page.waitForTimeout(250);
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+  if (humanVerificationActive) {
+    throw new SessionError(
+      "LOGIN_HUMAN_VERIFICATION_TIMEOUT",
+      "人工验证等待超时；禁止自动重启登录或重新发送短信。",
+      lastObservation || {
+        pageState: "unknown",
+        safeUrl: "unknown",
+        verificationVisible: null,
+        feedbackCategory: null,
+        dialogVisible: null,
+        humanVerificationType: null,
+      },
+    );
   }
   if (verificationSubmitted) {
     throw new SessionError(
