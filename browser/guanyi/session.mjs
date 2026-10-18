@@ -298,14 +298,19 @@ export async function launchSession({
       closeOthers: !platformBrowser,
       createDedicatedPageWhenMissing: platformBrowser,
     });
+    const geometryOptions = {
+      externallyManagedWindow: platformBrowser,
+    };
     for (const candidate of context.pages()) {
-      registerPageGeometry(context, candidate);
+      registerPageGeometry(context, candidate, geometryOptions);
     }
     context.on("page", (candidate) => {
-      registerPageGeometry(context, candidate);
+      registerPageGeometry(context, candidate, geometryOptions);
     });
     await page.bringToFront();
-    await ensurePageGeometry(page, "browser_launch", { forceApply: true });
+    await ensurePageGeometry(page, "browser_launch", {
+      forceApply: !platformBrowser,
+    });
     return {
       backend,
       browser: browserConnection?.browser || null,

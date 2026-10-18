@@ -88,17 +88,66 @@ export function nativeVerticalScrollbarGutter(snapshot) {
 }
 
 
-export function geometryMismatchReasons(snapshot) {
+export function nativePlatformScrollbarGutters(snapshot) {
+  const documentWidthGap =
+    snapshot.innerWidth - snapshot.documentClientWidth;
+  const visualWidthGap =
+    snapshot.innerWidth - snapshot.visualViewportWidth;
+  const documentHeightGap =
+    snapshot.innerHeight - snapshot.documentClientHeight;
+  const visualHeightGap =
+    snapshot.innerHeight - snapshot.visualViewportHeight;
+  const gaps = [
+    documentWidthGap,
+    visualWidthGap,
+    documentHeightGap,
+    visualHeightGap,
+  ];
+  if (
+    gaps.some((gap) => gap < 0 || gap > MAX_NATIVE_SCROLLBAR_GUTTER) ||
+    Math.abs(documentWidthGap - visualWidthGap) > GEOMETRY_EPSILON ||
+    Math.abs(documentHeightGap - visualHeightGap) > GEOMETRY_EPSILON
+  ) {
+    return null;
+  }
+  return {
+    vertical: documentWidthGap,
+    horizontal: documentHeightGap,
+  };
+}
+
+
+export function geometryMismatchReasons(
+  snapshot,
+  { externallyManagedWindow = false } = {},
+) {
   const target = certifiedWindowFor(snapshot);
   const reasons = [];
   const scrollbarGutter = nativeVerticalScrollbarGutter(snapshot);
+  const platformScrollbarGutters = externallyManagedWindow
+    ? nativePlatformScrollbarGutters(snapshot)
+    : null;
+  const effectiveWidth = externallyManagedWindow
+    ? Math.min(
+        snapshot.innerWidth,
+        snapshot.documentClientWidth,
+        snapshot.visualViewportWidth,
+      )
+    : snapshot.innerWidth;
+  const effectiveHeight = externallyManagedWindow
+    ? Math.min(
+        snapshot.innerHeight,
+        snapshot.documentClientHeight,
+        snapshot.visualViewportHeight,
+      )
+    : snapshot.innerHeight;
   if (snapshot.playwrightViewport !== null) {
     reasons.push("headed_emulated_viewport_enabled");
   }
-  if (snapshot.innerWidth < MINIMUM_INNER_WIDTH) {
+  if (effectiveWidth < MINIMUM_INNER_WIDTH) {
     reasons.push("inner_width_too_small");
   }
-  if (snapshot.innerHeight < MINIMUM_INNER_HEIGHT) {
+  if (effectiveHeight < MINIMUM_INNER_HEIGHT) {
     reasons.push("inner_height_too_small");
   }
   if (
@@ -116,6 +165,7 @@ export function geometryMismatchReasons(snapshot) {
   }
   if (
     scrollbarGutter === null &&
+    platformScrollbarGutters === null &&
     Math.abs(snapshot.documentClientWidth - snapshot.innerWidth) >
       GEOMETRY_EPSILON
   ) {
@@ -123,6 +173,7 @@ export function geometryMismatchReasons(snapshot) {
   }
   if (
     scrollbarGutter === null &&
+    platformScrollbarGutters === null &&
     Math.abs(snapshot.visualViewportWidth - snapshot.innerWidth) >
       GEOMETRY_EPSILON
   ) {
@@ -184,9 +235,10 @@ export async function captureGeometry(page) {
 
 
 export class GeometryGuard {
-  constructor(context, page) {
+  constructor(context, page, { externallyManagedWindow = false } = {}) {
     this.context = context;
     this.page = page;
+    this.externallyManagedWindow = externallyManagedWindow;
     this.generation = 0;
     this.history = [];
   }
@@ -206,6 +258,11 @@ export class GeometryGuard {
   }
 
   async applyNativeWindow(stage) {
+    if (this.externallyManagedWindow) {
+      throw new GeometryError("GEOMETRY_MISMATCH", stage, {
+        reason: "platform_managed_window_cannot_be_repaired",
+      });
+    }
     const before = await captureGeometry(this.page);
     const target = certifiedWindowFor(before);
     const session = await this.context.newCDPSession(this.page);
@@ -245,11 +302,13 @@ export class GeometryGuard {
     allowRepair = true,
     forceApply = false,
   }) {
-    if (forceApply) {
+    if (forceApply && !this.externallyManagedWindow) {
       await this.applyNativeWindow(stage);
     }
     const before = await this.sampleStable();
-    const reasons = geometryMismatchReasons(before.samples.at(-1));
+    const reasons = geometryMismatchReasons(before.samples.at(-1), {
+      externallyManagedWindow: this.externallyManagedWindow,
+    });
     if (before.stable && reasons.length === 0) {
       const record = {
         stage,
@@ -277,9 +336,17 @@ export class GeometryGuard {
     if (!allowRepair) {
       throw new GeometryError("GEOMETRY_UNSTABLE", stage, details);
     }
+    if (this.externallyManagedWindow) {
+      throw new GeometryError("GEOMETRY_MISMATCH", stage, {
+        ...details,
+        repairSkipped: "platform_managed_window",
+      });
+    }
     await this.applyNativeWindow(stage);
     const after = await this.sampleStable();
-    const afterReasons = geometryMismatchReasons(after.samples.at(-1));
+    const afterReasons = geometryMismatchReasons(after.samples.at(-1), {
+      externallyManagedWindow: this.externallyManagedWindow,
+    });
     if (!after.stable || afterReasons.length > 0) {
       throw new GeometryError("GEOMETRY_MISMATCH", stage, {
         ...details,
@@ -301,8 +368,8 @@ export class GeometryGuard {
 }
 
 
-export function registerPageGeometry(context, page) {
-  const guard = new GeometryGuard(context, page);
+export function registerPageGeometry(context, page, options = {}) {
+  const guard = new GeometryGuard(context, page, options);
   PAGE_GUARDS.set(page, guard);
   return guard;
 }

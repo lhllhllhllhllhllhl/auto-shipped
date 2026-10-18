@@ -8,7 +8,9 @@ import { chromium } from "playwright-core";
 
 import { CHROME_EXECUTABLE } from "./config.mjs";
 import {
+  GeometryGuard,
   geometryMismatchReasons,
+  nativePlatformScrollbarGutters,
   nativeVerticalScrollbarGutter,
 } from "./geometry.mjs";
 import { captureReadOnlyScreenshot } from "./screenshot.mjs";
@@ -56,6 +58,110 @@ test("accepts macOS restored window when outer height mirrors content height", (
   const snapshot = stableHeadedSnapshot();
   snapshot.outerHeight = snapshot.innerHeight;
   assert.deepEqual(geometryMismatchReasons(snapshot), []);
+});
+
+
+test("accepts stable platform-managed native scrollbar gutters", () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1280,
+    innerHeight: 960,
+    outerWidth: 1440,
+    outerHeight: 850,
+    availableWidth: 1920,
+    availableHeight: 1080,
+    documentClientWidth: 1265,
+    documentClientHeight: 945,
+    visualViewportWidth: 1265,
+    visualViewportHeight: 945,
+    devicePixelRatio: 1,
+  };
+
+  assert.equal(nativeVerticalScrollbarGutter(snapshot), null);
+  assert.deepEqual(nativePlatformScrollbarGutters(snapshot), {
+    vertical: 15,
+    horizontal: 15,
+  });
+  assert.ok(
+    geometryMismatchReasons(snapshot).includes(
+      "document_client_width_mismatch",
+    ),
+  );
+  assert.deepEqual(
+    geometryMismatchReasons(snapshot, { externallyManagedWindow: true }),
+    [],
+  );
+});
+
+
+test("platform-managed viewport still rejects unsafe page geometry", () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1280,
+    innerHeight: 960,
+    outerWidth: 1440,
+    outerHeight: 850,
+    availableWidth: 1920,
+    availableHeight: 1080,
+    documentClientWidth: 1265,
+    documentClientHeight: 930,
+    visualViewportWidth: 1265,
+    visualViewportHeight: 930,
+    devicePixelRatio: 1,
+  };
+
+  assert.equal(nativePlatformScrollbarGutters(snapshot), null);
+  const reasons = geometryMismatchReasons(snapshot, {
+    externallyManagedWindow: true,
+  });
+  assert.ok(reasons.includes("document_client_width_mismatch"));
+  assert.ok(reasons.includes("visual_viewport_width_mismatch"));
+});
+
+
+test("platform-managed guard validates without mutating the external window", async () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1280,
+    innerHeight: 960,
+    outerWidth: 1440,
+    outerHeight: 850,
+    availableWidth: 1920,
+    availableHeight: 1080,
+    documentClientWidth: 1265,
+    documentClientHeight: 945,
+    visualViewportWidth: 1265,
+    visualViewportHeight: 945,
+    devicePixelRatio: 1,
+  };
+  let cdpSessionCount = 0;
+  const context = {
+    async newCDPSession() {
+      cdpSessionCount += 1;
+      throw new Error("must not mutate a platform-managed window");
+    },
+  };
+  const page = {
+    async evaluate() {
+      return snapshot;
+    },
+    viewportSize() {
+      return null;
+    },
+    async waitForTimeout() {},
+  };
+
+  const guard = new GeometryGuard(context, page, {
+    externallyManagedWindow: true,
+  });
+  const result = await guard.ensureStable({
+    stage: "browser_launch",
+    forceApply: true,
+  });
+
+  assert.equal(result.stable, true);
+  assert.equal(result.repaired, false);
+  assert.equal(cdpSessionCount, 0);
 });
 
 

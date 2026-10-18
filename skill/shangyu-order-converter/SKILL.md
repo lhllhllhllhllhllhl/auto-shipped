@@ -243,7 +243,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；它仍不代表上传授权，不得跳级到写入状态。
 - 返回 `popup_unknown` 或 `navigation_failed` 时停止并报告，不使用坐标或盲目重试。
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
-- Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。不得全局放宽几何容差。
+- 自有 Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。豆包`platform_cdp`浏览器的窗口由平台托管，可以同时存在宽高两个原生滚动条沟槽，但仅在两方向的document/visual证据分别一致、各不超过24px、有效页面区域仍达到最小尺寸且缩放正常时放行；执行器不得修改平台窗口，也不得全局放宽几何容差。
 - 正式Skill入口只接受与`runtime-manifest.json`一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区；通过`SHANGYU_AUTO_SHIPPED_ROOT`指向的普通复制目录同样必须通过清单校验。修改后的临时副本不得登录、选择文件或提交。
 - 2026-10-14 已完成真实全量成功闭环验收：两段确定、48行字段映射核验、唯一新增任务识别和结果汇总回读均通过，任务 `705668612` 为总数2、成功2、失败0。生产使用只对当前对话中明确授权的具体批次开放；不要用其他临时浏览器步骤绕过门禁。审核、发货、作废和删除不在本模块能力范围内。
 

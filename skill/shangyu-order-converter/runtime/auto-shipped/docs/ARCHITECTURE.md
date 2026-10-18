@@ -388,6 +388,8 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 额外安全验证采用“通用核心 + 浏览器接入适配”两层。核心只对白名单URL进入`waiting_for_human_verification`，保持原Playwright context/worker并输出通用`browser_control`动作合同；未知页面仍失败关闭。豆包平台CDP适配将目标声明为`existing_platform_builtin_browser`，Skill调度层立即调用正式Browser控制入口，用户直接操作同一页面，不再经过VNC。独立headed浏览器仍可使用桌面显示适配；窗口class/`xdotool`不进入业务状态机。用户操作后原worker回读稳定首页继续；平台重置、CDP断开或worker中断时停止，禁止盲目重登、重发短信或删除profile。
 
+Geometry Guard同样区分窗口所有权：本地持久浏览器可由执行器校准原生窗口；`platform_cdp`的外层窗口和viewport由豆包平台管理，执行器只读验证有效client区域，不调用窗口修复。平台固有的宽高滚动条沟槽必须在三次采样中稳定、document/visual证据分别一致、各不超过24px、有效区域满足最小尺寸且缩放为1；否则仍然失败关闭。
+
 ## 4. 商品映射
 
 商品映射采用公司隔离的多标识级联匹配，但由目标平台包调用：

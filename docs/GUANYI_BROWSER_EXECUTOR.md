@@ -10,7 +10,7 @@
 - 浏览器接入分为两种：macOS/Windows继续由Playwright启动持久headed Chromium；Linux平台存在可信本机CDP端点时，Playwright连接平台自带的可见浏览器。两者复用同一套登录、导航、上传、任务核验和Geometry Guard。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
-- Linux原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别；不使用全局20px宽容差。
+- 自有Linux浏览器的原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别。豆包`platform_cdp`浏览器由平台管理窗口，不调用`Browser.setWindowBounds`；它只在宽高原生滚动条沟槽分别由document/visual一致证明、各不超过24px且有效client区域仍达到最小尺寸时接受双沟槽。两种模式都不使用全局20px宽容差。
 - 主框架与订单子框架统一按页面状态识别；首页加载、菜单展开和弹窗出现均使用有界等待，不依赖固定延时或坐标。
 - 截图只观察当前 viewport，截图前后验证页面尺寸和滚动位置不变；截图失败不覆盖原始业务结果。
 - 只在标题已登记的弹窗内部点击“知道了”或语义明确的关闭控件；不点击页面品牌、背景、“不再提醒”或“去授权”。点击后必须确认弹窗消失且页面地址未变化，否则停止。
