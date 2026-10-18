@@ -543,6 +543,30 @@ test("creates one startup page when Chrome starts without tabs", async () => {
 });
 
 
+test("platform browser keeps unrelated tabs and creates a dedicated page", async () => {
+  const closed = [];
+  const unrelated = fakeStartupPage("https://example.com/work", closed);
+  const created = fakeStartupPage("about:blank", closed);
+  const context = {
+    pages() {
+      return [unrelated];
+    },
+    async newPage() {
+      return created;
+    },
+  };
+
+  assert.equal(
+    await retainSingleStartupPage(context, {
+      closeOthers: false,
+      createDedicatedPageWhenMissing: true,
+    }),
+    created,
+  );
+  assert.deepEqual(closed, []);
+});
+
+
 function fakeCredentialPage(values) {
   const actions = [];
   const inputs = {

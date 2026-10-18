@@ -140,7 +140,7 @@
 - `DEC-USER-CLOUD-CREDENTIAL-001`：账号密码不进入 Skill、Git、普通配置、环境变量、命令参数或日志。本地继续使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 提供的只读外部凭证助手。豆包当前未确认有安全凭证入口，用户明确选择便利性优先并接受对话历史留存风险：持久会话失效时可把本次账号密码发给同一 Agent。Agent用平台自带私有浏览器打开当前登录operation返回的单次`127.0.0.1`凭据页，或在平台支持时通过私有stdin提交；二者都进入同一个随机令牌控制通道和Playwright worker，项目不保存、不复述、不跨任务复用凭据。此决策取代“普通聊天绝对禁用”的旧限制，但不把聊天描述为安全存储。
 - `DEC-USER-SMS-HANDOFF-001`：短信验证改为可跨消息恢复的短时登录操作。检测到验证时先询问用户，用户确认后才请求短信；验证码优先经同一个随机令牌本机控制服务上的单次页面交给原浏览器进程，平台支持时也可经标准输入提交，只存在于内存。
 - `DEC-USER-CLOUD-BROWSER-VISIBILITY-001`：云端浏览器允许在 Xvfb 等私有显示环境运行 headed Chromium，用户无需看到窗口；Geometry Guard、状态回读和截图约束不变。
-- `DEC-USER-CLOUD-LOGIN-OBSERVABILITY-001`：平台自带/CDP浏览器只负责一次性`127.0.0.1`凭据与验证码交接，不要求它看到项目Playwright窗口。Playwright worker在验证码提交后自行识别成功、验证码/凭据拒绝、风控、未知步骤和结果超时，并只持久化脱敏分类；`code_submitted`不得触发自动重试。
+- `DEC-USER-CLOUD-LOGIN-OBSERVABILITY-001`：豆包工作Linux中，平台自带浏览器既是用户可见页面，也是项目Playwright通过loopback CDP控制和回读的同一页面；worker在验证码提交后自行识别成功、验证码/凭据拒绝、风控、未知步骤和结果超时，并只持久化脱敏分类；`code_submitted`不得触发自动重试。macOS/Windows仍使用项目启动的持久浏览器。
 - `DEC-USER-BROWSER-SESSION-LEASE-001`：同一持久profile同时只允许一个Playwright所有者；活动登录期间仅允许读取同一operation状态，probe、导航、上传和第二个登录必须返回忙碌，防止并发进程关闭或污染当前会话。
 - `DEC-USER-CLOUD-RUNTIME-INTEGRITY-001`：云端只读Skill副本必须完整复制到可写状态目录并保持`runtime-manifest.json`一致；显式`SHANGYU_AUTO_SHIPPED_ROOT`不能让普通临时副本绕过清单。默认状态目录不可写时允许回退到用户独占临时目录，但必须报告`persistent=false`，不能宣称跨工作区保留profile。
 - `DEC-USER-LINUX-GEOMETRY-001`：Linux headed Chromium允许稳定的原生垂直滚动条gutter，但只在三次采样一致、没有水平滚动、页面缩放正常且document/visual viewport宽度证据一致时放行；禁止把全部宽度容差从3px扩大到20px。
@@ -151,10 +151,11 @@
 ## 2026-10-18 同浏览器人工验证
 
 - `DEC-USER-HUMAN-VERIFICATION-CORE-001`：额外安全验证复用现有Node Playwright登录worker，不建立第二套Linux上传或登录脚本。核心只允许精确登记的验证URL进入`waiting_for_human_verification`，保持同一context/profile并等待稳定管易首页；未知URL和弹窗继续失败关闭，执行器不自动破解或代做验证。
-- `DEC-USER-PLATFORM-TAKEOVER-001`：人工接管采用通用`browser_control`动作合同；平台工具名不进入登录业务状态机。Skill调度层负责主动调用实际入口，豆包使用`interaction.request_action(browserControl)`。仅发送文字而未弹出可交互入口不算完成交接。
-- `DEC-USER-DOUBAO-VNC-HANDOFF-001`：豆包的`browserControl`必须承载AIO Sandbox的现有VNC桌面，不承担URL导航。需要先激活平台浏览器时只允许打开经实测的`http://127.0.0.1:8080/`并回读`AIO Sandbox`与`VNC`，禁止用阿里云验证URL、`127.0.0.1:1`或任意占位地址初始化。该规则只存在于Skill平台适配层，通用登录核心仅声明`navigationRequired=false`。
-- `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动，原worker回读`same_context=true`。该证据只解锁人工交互通道，不授权自动处理阿里云验证或订单写入。
-- `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或VNC重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查持久会话。Skill更新与bootstrap不得删除独立profile，Agent也不得自行清理profile。
+- `DEC-USER-PLATFORM-TAKEOVER-001`：人工接管采用通用`browser_control`动作合同；平台工具名不进入登录业务状态机。Skill调度层负责主动调用实际入口，豆包使用正式Browser控制请求。仅发送文字而未弹出可交互入口不算完成交接。
+- `DEC-USER-DOUBAO-CDP-BACKEND-001`：豆包工作云电脑优先使用平台Chrome的无凭据loopback CDP端点；项目Node Playwright用`connectOverCDP`连接唯一context，复用或新建管易标签但不关闭其他标签。命令结束只断开控制连接，不关闭平台默认context/profile。CDP不可达、context不唯一或连接中断时失败关闭，不得静默退回第二个Playwright浏览器或VNC。
+- `DEC-USER-DOUBAO-DIRECT-HANDOFF-001`：豆包CDP模式的人工动作目标为`existing_platform_builtin_browser`，展示面为`platform_browser_panel`。Agent必须直接交出当前Browser页，禁止打开AIO Sandbox、VNC、验证URL或占位URL。原VNC方案降级为历史POC证据，不再是生产路径。
+- `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动；后续CDP POC又确认Node Playwright与正式Browser面板可以控制同一平台页面。两项证据都不授权自动处理阿里云验证或订单写入。
+- `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或CDP连接重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查当前会话。Skill更新与bootstrap不得删除独立profile，Agent也不得清理平台浏览器profile。
 
 ## 2026-10-17 商品短语规范身份
 

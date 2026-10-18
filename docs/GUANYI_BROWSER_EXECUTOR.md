@@ -7,7 +7,7 @@
 - 使用独立 Chrome 配置保存管易登录会话。
 - 默认由用户首次手动登录；也可从 macOS 钥匙串读取凭证自动登录。
 - Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 通过一次性`127.0.0.1`页面或私有stdin交给当前登录worker。聊天平台仍可能保留原消息，项目无法代为删除。
-- 云端可在 Xvfb 等私有显示环境中运行 headed Chromium；正常自动步骤不要求用户看到窗口。出现精确登记的额外验证时，可通过平台VNC把同一Playwright窗口交给用户，几何与页面状态校验保持不变。
+- 浏览器接入分为两种：macOS/Windows继续由Playwright启动持久headed Chromium；Linux平台存在可信本机CDP端点时，Playwright连接平台自带的可见浏览器。两者复用同一套登录、导航、上传、任务核验和Geometry Guard。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
 - Linux原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别；不使用全局20px宽容差。
@@ -76,13 +76,13 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 不勾选管易“记住账户”，也不启用 Chrome 保存密码：持久会话负责减少重复登录，安全凭证提供器负责会话失效后的账号密码填充。跨消息场景优先运行 `login-auto-start`。它检测到短信验证后只返回 `needs_verification` 和登录操作 ID，不会立即发短信。用户当次确认可以接收后，Agent 才运行 `login-sms-request`；用户随后把一次性验证码发给 Agent，Agent优先用平台自带私有浏览器打开返回的单次`smsInputUrl`并填入，平台支持时也可通过 `login-sms-submit` 的标准输入交给仍在运行的原登录进程。验证码只存在于进程内存，不进入操作回执、命令参数、日志、Skill 或凭证库。旧的 `login-auto-sms` 仅保留给同一终端可持续读取标准输入的本地环境。
 
-平台自带/CDP浏览器与项目Playwright浏览器不是同一个页面会话。平台浏览器只作为一次性本机交接入口；管易登录页由Playwright worker自己持续检查。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
+豆包工作云电脑中，平台自带浏览器就是项目Playwright通过`connectOverCDP`控制的同一个页面会话。Skill只允许`http://127.0.0.1:9222`等无凭据loopback端点，并要求唯一context；已有管易标签时复用，没有时新建标签，但不关闭其他平台标签。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
 
-精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。Agent必须主动调用平台的远程桌面/VNC浏览器控制能力，不能只发文字提示，也不能打开验证URL或任意本地占位网址。在豆包工作伙伴中，Skill平台适配先确认AIO Sandbox的`http://127.0.0.1:8080/`与VNC标签，再调用`interaction.request_action`的`browserControl`。项目Chromium仍由原Node Playwright worker持有，用户在VNC中完成点击、输入或拖动后，worker只读等待稳定的管易首页并继续。浏览器核心只认识通用动作合同，豆包工具名与VNC入口只存在于Skill/平台适配说明中。
+精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。豆包CDP模式还会输出`target=existing_platform_builtin_browser`和`presentation=platform_browser_panel`；Agent必须主动调用平台`browserControl`，把当前Browser页面直接交给用户，不能只发文字，也不能打开VNC、验证URL或本地占位网址。用户在同一页面完成点击、输入或拖动后，原worker只读等待稳定管易首页并继续。
 
-Linux窗口使用专用window class。执行器先调用Playwright `bringToFront`，若环境已有`xdotool`，再要求唯一class匹配后置前；不存在或匹配不唯一时不猜测窗口。未知验证URL、未知弹窗、人工等待超时、worker或VNC中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查持久会话是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`。
+独立headed Linux浏览器使用专用window class和可选`xdotool`精确置前；平台CDP浏览器只调用Playwright `bringToFront`，不做VNC窗口搜索。未知验证URL、未知弹窗、人工等待超时、worker或浏览器连接中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查当前浏览器是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`，CDP清理也不得关闭平台默认context或平台profile。
 
-同一profile同时只允许一个Playwright所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`，防止并发probe关闭登录浏览器。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的普通结果窗口默认45秒，登记的人工验证阶段默认15分钟。
+同一浏览器会话同时只允许一个执行器所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`。命令结束时，本地模式关闭自有context；CDP模式只断开Playwright控制连接，保留平台浏览器、标签、Cookie和profile。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的普通结果窗口默认45秒，登记的人工验证阶段默认15分钟。
 
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
@@ -120,6 +120,6 @@ Linux窗口使用专用window class。执行器先调用Playwright `bringToFront
 
 2026-10-14 在所有者逐步授权下完成第一次真实写入链路观测：文件暂存后第一次“确定”只读取自定义模板并打开“自定义字段对应”；虚拟滚动表格共核对 48 行，系统字段与 Excel 字段全部同名对应；第二次“确定”才调用最终导入接口。任务中心回读到唯一任务 ID `705662035`，结果为总数 2、成功 1、格式错误 1、非法数据 0。失败原因属于店铺无法匹配；原始结果行含收件信息，因此执行器只允许返回来源行号、错误代码和脱敏说明，不保存或输出原文。该批次证明了两段确认、最终请求、任务 ID 和结果窗口的真实结构，同时暴露了店铺名称配置问题。
 
-2026-10-18 在豆包云工作区用独立临时profile和无外网data URL完成同浏览器人工接管验收：用户通过AIO Sandbox的VNC入口在原Playwright Chromium中亲自输入`HUMAN42`并拖动滑块，原worker回读到键盘、输入、pointerdown/move/up和最终确认状态，`same_context=true`。该证据只验证平台VNC可见性与键鼠通道，不代表自动处理阿里云验证；生产流程仍只允许用户人工完成登记验证页。
+2026-10-18 豆包云工作区实测确认：平台Chrome以`--remote-debugging-port=9222`运行，项目Node `playwright-core`可通过`connectOverCDP`读取用户正在看的同一测试页，正式`browserControl`交接后用户点击产生`SAME_BROWSER_CONFIRMED`。另一轮VNC测试也确认键盘和拖动能力，但VNC现仅保留为历史证据，不再是豆包生产路径。长时间等待期间平台可能重置云会话，因此生产worker必须事件驱动回读并在CDP断开时停止。
 
 同日修正店铺名称后，用新 operation、重新建立任务基线并重新取得用户授权完成第二次真实验收。执行器核对同一套 48 行字段对应，任务中心回读唯一任务 ID `705668612`，结果为总数 2、成功 2、格式错误 0、非法数据 0，状态进入 `post_write_verified`。这条证据解锁 `GY-UPLOAD-SUBMISSION` 的生产规则门禁，但不会取消“转换后先交付确认”“当前对话明确指定批次”“仅待审核”“写后禁止盲目重试”等运行时边界。

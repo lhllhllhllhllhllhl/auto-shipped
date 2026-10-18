@@ -173,11 +173,19 @@ export function publicLoginOperation(record) {
   } else if (
     record.state === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
   ) {
+    const browserControlTarget =
+      record.humanVerification?.browserControlTarget ||
+      "existing_playwright_browser_via_platform_desktop";
+    const platformBrowser =
+      browserControlTarget === "existing_platform_builtin_browser";
     payload.verificationType = "same_browser_human_takeover";
     payload.requiresUserAction = true;
     payload.userAction = {
       kind: "browser_control",
-      target: "existing_playwright_browser_via_platform_desktop",
+      target: browserControlTarget,
+      presentation: platformBrowser
+        ? "platform_browser_panel"
+        : "platform_desktop",
       sameBrowserContext: true,
       navigationRequired: false,
       navigationUrl: null,
@@ -186,8 +194,9 @@ export function publicLoginOperation(record) {
       workerContinuesAutomatically: true,
     };
     payload.humanVerification = record.humanVerification || null;
-    payload.instruction =
-      "必须主动调用当前平台的远程桌面/VNC浏览器控制入口，把已经存在的同一个Playwright窗口交给用户；不能只发文字提示，不能打开验证网址，也不能编造或打开占位本地网址来初始化平台浏览器。用户完成验证后原worker会自动继续。";
+    payload.instruction = platformBrowser
+      ? "必须主动调用当前平台的浏览器控制入口，把已经存在的同一个平台内置浏览器当前页直接交给用户；不能只发文字提示，不能打开VNC、验证网址或占位网址。用户完成验证后原worker会自动继续。"
+      : "必须主动调用当前平台的远程桌面/VNC浏览器控制入口，把已经存在的同一个Playwright窗口交给用户；不能只发文字提示，不能打开验证网址，也不能编造或打开占位本地网址来初始化平台浏览器。用户完成验证后原worker会自动继续。";
   }
   return payload;
 }
@@ -458,6 +467,10 @@ export async function transitionLoginOperation(
             focusReady: Boolean(humanVerification?.focusReady),
             focusMethod: humanVerification?.focusMethod || "playwright",
             focusCode: humanVerification?.focusCode || null,
+            browserControlTarget:
+              humanVerification?.browserControlTarget ||
+              "existing_playwright_browser_via_platform_desktop",
+            browserBackend: humanVerification?.browserBackend || "persistent",
           }
         : current === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
           ? null

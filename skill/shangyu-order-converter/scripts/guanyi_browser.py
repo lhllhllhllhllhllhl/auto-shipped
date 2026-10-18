@@ -9,6 +9,9 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 
 from runtime_common import STATE_ROOT, resolve_project_root, runtime_trust_status
@@ -48,6 +51,31 @@ COMMANDS = {
 def fail(code: str, message: str) -> int:
     print(json.dumps({"status": "failed", "code": code, "message": message}, ensure_ascii=False, indent=2))
     return 1
+
+
+def platform_cdp_ready(endpoint: str = "http://127.0.0.1:9222") -> bool:
+    if sys.platform != "linux":
+        return False
+    try:
+        with urllib.request.urlopen(
+            f"{endpoint}/json/version",
+            timeout=1.5,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+    browser = str(payload.get("Browser") or "").lower()
+    websocket = str(payload.get("webSocketDebuggerUrl") or "")
+    return ("chrome" in browser or "chromium" in browser) and websocket.startswith(
+        ("ws://127.0.0.1:", "ws://localhost:", "ws://[::1]:")
+    )
+
+
+def requires_platform_cdp(environment: Mapping[str, str]) -> bool:
+    return sys.platform == "linux" and (
+        "DOUBAO_OFFICE_USER_ACCESS_TOKEN" in environment
+        or Path("/opt/browser/chrome").is_file()
+    )
 
 
 def main() -> int:
@@ -101,6 +129,12 @@ def main() -> int:
             )
 
     environment = os.environ.copy()
+    if (
+        "GUANYI_BROWSER_BACKEND" not in environment
+        and (requires_platform_cdp(environment) or platform_cdp_ready())
+    ):
+        environment["GUANYI_BROWSER_BACKEND"] = "platform_cdp"
+        environment.setdefault("GUANYI_CDP_ENDPOINT", "http://127.0.0.1:9222")
     if args.command in {"submit-import", "execute-import"}:
         environment["GUANYI_UPLOAD_RULES_READY"] = "1"
     environment.setdefault(

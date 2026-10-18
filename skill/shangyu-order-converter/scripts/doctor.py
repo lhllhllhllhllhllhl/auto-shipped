@@ -8,6 +8,9 @@ import platform
 import os
 import shutil
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from runtime_common import (
@@ -24,6 +27,52 @@ def executable(value: str) -> str | None:
     if candidate.is_absolute():
         return str(candidate) if candidate.is_file() else None
     return shutil.which(value)
+
+
+def platform_cdp_status(endpoint: str = "http://127.0.0.1:9222") -> dict:
+    if platform.system() != "Linux":
+        return {"ready": False, "endpoint": None, "mode": "not_applicable"}
+    parsed = urllib.parse.urlsplit(endpoint)
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return {
+            "ready": False,
+            "endpoint": None,
+            "mode": "invalid_non_loopback_endpoint",
+        }
+    try:
+        with urllib.request.urlopen(
+            f"{endpoint}/json/version",
+            timeout=1.5,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError):
+        return {
+            "ready": False,
+            "endpoint": endpoint,
+            "mode": "loopback_platform_browser",
+        }
+    browser = str(payload.get("Browser") or "")
+    websocket = str(payload.get("webSocketDebuggerUrl") or "")
+    ready = (
+        ("chrome" in browser.lower() or "chromium" in browser.lower())
+        and websocket.startswith(
+            ("ws://127.0.0.1:", "ws://localhost:", "ws://[::1]:")
+        )
+    )
+    return {
+        "ready": ready,
+        "endpoint": endpoint,
+        "mode": "loopback_platform_browser",
+        "browser": browser if ready else None,
+    }
 
 
 def python_status(project_root: Path) -> dict:
@@ -123,6 +172,7 @@ def main() -> int:
             Path("/usr/bin/google-chrome"),
             Path("/usr/bin/google-chrome-stable"),
             Path("/usr/bin/chromium"),
+            Path("/opt/browser/chrome"),
         ]
     chrome = next(
         (path for path in chrome_candidates if path is not None and path.is_file()),
@@ -137,6 +187,18 @@ def main() -> int:
         and credential_helper_path.is_absolute()
         and credential_helper_path.is_file()
         and os.access(credential_helper_path, os.X_OK)
+    )
+    platform_cdp = platform_cdp_status(
+        os.environ.get("GUANYI_CDP_ENDPOINT", "http://127.0.0.1:9222")
+    )
+    platform_cdp_required = platform.system() == "Linux" and (
+        "DOUBAO_OFFICE_USER_ACCESS_TOKEN" in os.environ
+        or Path("/opt/browser/chrome").is_file()
+    )
+    browser_ready = (
+        platform_cdp["ready"]
+        if platform_cdp_required
+        else platform_cdp["ready"] or chrome is not None
     )
     checks = {
         "runtime": {"ready": True, "path": str(project_root)},
@@ -155,7 +217,25 @@ def main() -> int:
         },
         "daily_sequence": daily_sequence_status(project_root),
         "playwright_core": {"ready": (browser_root / "node_modules" / "playwright-core").is_dir()},
-        "chrome": {"ready": chrome is not None, "path": str(chrome) if chrome else None},
+        "browser_backend": {
+            "ready": browser_ready,
+            "selected": (
+                "platform_cdp"
+                if platform_cdp_required or platform_cdp["ready"]
+                else "persistent"
+                if chrome is not None
+                else None
+            ),
+            "platform_cdp": {
+                **platform_cdp,
+                "required": platform_cdp_required,
+            },
+        },
+        "chrome": {
+            "ready": chrome is not None,
+            "path": str(chrome) if chrome else None,
+            "required": not platform_cdp_required and not platform_cdp["ready"],
+        },
         "template": {"ready": (project_root / "assets" / "templates" / "guanyi" / "自定义订单导入模板.xlsx").is_file()},
         "catalog": catalog_status(project_root, "current_product_catalog.json"),
         "preferred_catalog": catalog_status(
@@ -183,7 +263,7 @@ def main() -> int:
             ),
         },
         "temporary_agent_input": {
-            "ready": chrome is not None,
+            "ready": browser_ready,
             "mode": "current_conversation_only",
             "requires_explicit_user_risk_acceptance": True,
             "transport": "one_time_loopback_page_or_stdin_to_tokenized_worker",
@@ -194,6 +274,7 @@ def main() -> int:
         key: value
         for key, value in checks.items()
         if key not in {"lark_cli", "credential_provider"}
+        and not (key == "chrome" and value.get("required") is False)
     }
     ready = all(value.get("ready") for value in required_checks.values())
     print(json.dumps({"status": "ready" if ready else "needs_setup", "checks": checks}, ensure_ascii=False, indent=2))

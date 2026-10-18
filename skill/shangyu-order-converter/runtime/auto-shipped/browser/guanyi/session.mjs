@@ -4,14 +4,22 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 import {
+  BrowserBackend,
+  BrowserBackendError,
+  connectPlatformBrowser,
+  resolveBrowserBackend,
+} from "./browser-backend.mjs";
+import {
   APP_URL,
   ARTIFACT_DIR,
+  BROWSER_BACKEND,
   BROWSER_SESSION_LOCK,
   BROWSER_WINDOW_CLASS,
   CHROME_EXECUTABLE,
   DEFAULT_TIMEOUT_MS,
   HUMAN_VERIFICATION_TIMEOUT_MS,
   LOGIN_RESULT_TIMEOUT_MS,
+  PLATFORM_CDP_ENDPOINT,
   PROFILE_DIR,
   LOGIN_URL,
   WINDOW_HEIGHT,
@@ -193,64 +201,128 @@ export async function confirmStableAuthenticatedPage(page, stabilityMs = 5_000) 
 }
 
 
-export async function retainSingleStartupPage(context) {
+export async function retainSingleStartupPage(
+  context,
+  {
+    closeOthers = true,
+    createDedicatedPageWhenMissing = false,
+  } = {},
+) {
   const existingPages = context.pages();
   const page =
     existingPages.find((candidate) => isAuthenticatedAppUrl(candidate.url())) ||
     existingPages.find((candidate) => isLoginUrl(candidate.url())) ||
-    existingPages[0] ||
+    (!createDedicatedPageWhenMissing ? existingPages[0] : null) ||
     (await context.newPage());
 
-  for (const candidate of existingPages) {
-    if (candidate === page) continue;
-    await candidate.close({ runBeforeUnload: false }).catch(() => null);
+  if (closeOthers) {
+    for (const candidate of existingPages) {
+      if (candidate === page) continue;
+      await candidate.close({ runBeforeUnload: false }).catch(() => null);
+    }
   }
   return page;
 }
 
 
-export async function launchSession() {
+export async function launchSession({
+  chromiumInstance = chromium,
+  configuredBackend = BROWSER_BACKEND,
+  cdpEndpoint = PLATFORM_CDP_ENDPOINT,
+  platform = process.platform,
+  probe,
+} = {}) {
   const lease = await acquireBrowserSessionLease();
   let context;
+  let browserConnection;
+  let backend;
+  let closed = false;
+  const close = async () => {
+    if (closed) return;
+    closed = true;
+    try {
+      if (backend === BrowserBackend.PLATFORM_CDP) {
+        await browserConnection?.close?.();
+      } else {
+        await context?.close();
+      }
+    } finally {
+      await lease.release();
+    }
+  };
   try {
-    await fs.access(CHROME_EXECUTABLE);
-    await fs.mkdir(PROFILE_DIR, { recursive: true, mode: 0o700 });
     await fs.mkdir(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
-
-    context = await chromium.launchPersistentContext(PROFILE_DIR, {
-      executablePath: CHROME_EXECUTABLE,
-      headless: false,
-      viewport: null,
-      acceptDownloads: false,
-      locale: "zh-CN",
-      args: [
-        "--no-first-run",
-        "--no-default-browser-check",
-        `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
-        "--window-position=0,0",
-        ...(process.platform === "linux"
-          ? [`--class=${BROWSER_WINDOW_CLASS}`]
-          : []),
-      ],
+    backend = await resolveBrowserBackend({
+      configuredBackend,
+      platform,
+      cdpEndpoint,
+      ...(probe ? { probe } : {}),
     });
-    context.once("close", () => {
-      void lease.release();
-    });
+    if (backend === BrowserBackend.PLATFORM_CDP) {
+      browserConnection = await connectPlatformBrowser(
+        chromiumInstance,
+        cdpEndpoint,
+      );
+      context = browserConnection.context;
+      browserConnection.browser.once("disconnected", () => {
+        void lease.release();
+      });
+    } else {
+      await fs.access(CHROME_EXECUTABLE);
+      await fs.mkdir(PROFILE_DIR, { recursive: true, mode: 0o700 });
+      context = await chromiumInstance.launchPersistentContext(PROFILE_DIR, {
+        executablePath: CHROME_EXECUTABLE,
+        headless: false,
+        viewport: null,
+        acceptDownloads: false,
+        locale: "zh-CN",
+        args: [
+          "--no-first-run",
+          "--no-default-browser-check",
+          `--window-size=${WINDOW_WIDTH},${WINDOW_HEIGHT}`,
+          "--window-position=0,0",
+          ...(platform === "linux"
+            ? [`--class=${BROWSER_WINDOW_CLASS}`]
+            : []),
+        ],
+      });
+      context.once("close", () => {
+        void lease.release();
+      });
+    }
     context.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
     context.setDefaultNavigationTimeout(30_000);
 
-    const page = await retainSingleStartupPage(context);
+    const platformBrowser = backend === BrowserBackend.PLATFORM_CDP;
+    const page = await retainSingleStartupPage(context, {
+      closeOthers: !platformBrowser,
+      createDedicatedPageWhenMissing: platformBrowser,
+    });
     for (const candidate of context.pages()) {
       registerPageGeometry(context, candidate);
     }
     context.on("page", (candidate) => {
       registerPageGeometry(context, candidate);
     });
+    await page.bringToFront();
     await ensurePageGeometry(page, "browser_launch", { forceApply: true });
-    return { context, page, release: lease.release };
+    return {
+      backend,
+      browser: browserConnection?.browser || null,
+      browserControlTarget: platformBrowser
+        ? "existing_platform_builtin_browser"
+        : "existing_playwright_browser_via_platform_desktop",
+      context,
+      ownsContext: !platformBrowser,
+      page,
+      close,
+      release: lease.release,
+    };
   } catch (error) {
-    await context?.close().catch(() => null);
-    await lease.release();
+    await close().catch(() => null);
+    if (error instanceof BrowserBackendError) {
+      throw new SessionError(error.code, error.message, error.details);
+    }
     throw error;
   }
 }

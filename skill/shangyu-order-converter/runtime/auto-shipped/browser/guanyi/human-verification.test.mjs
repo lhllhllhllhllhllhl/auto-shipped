@@ -75,6 +75,34 @@ test("focuses exactly one registered Linux window without page interaction", asy
 });
 
 
+test("platform browser handoff uses the visible browser without VNC window search", async () => {
+  let broughtToFront = 0;
+  let commandCount = 0;
+  const result = await focusHumanVerificationWindow(
+    {
+      async bringToFront() {
+        broughtToFront += 1;
+      },
+    },
+    {
+      browserControlTarget: "existing_platform_builtin_browser",
+      platform: "linux",
+      async runCommand() {
+        commandCount += 1;
+      },
+    },
+  );
+
+  assert.deepEqual(result, {
+    focusReady: true,
+    method: "playwright_platform_browser",
+    browserControlTarget: "existing_platform_builtin_browser",
+  });
+  assert.equal(broughtToFront, 1);
+  assert.equal(commandCount, 0);
+});
+
+
 test("does not guess when more than one matching window exists", async () => {
   const result = await focusHumanVerificationWindow(
     { async bringToFront() {} },

@@ -242,6 +242,57 @@ test("registered browser verification exposes an explicit same-context user acti
 });
 
 
+test("platform browser verification requests direct Browser-panel control", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
+  try {
+    const created = await createLoginOperation(directory, 1_000);
+    const operationId = created.record.operationId;
+    let current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "worker_started" },
+      directory,
+    );
+    for (const [state, reason] of [
+      [LoginOperationState.NEEDS_VERIFICATION, "sms_required"],
+      [LoginOperationState.SMS_REQUESTING, "sms_authorized"],
+      [LoginOperationState.WAITING_FOR_USER_CODE, "sms_sent"],
+      [LoginOperationState.CODE_SUBMITTED, "code_submitted"],
+    ]) {
+      current = await transitionLoginOperation(
+        operationId,
+        state,
+        { reason },
+        directory,
+      );
+    }
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+      {
+        reason: "registered_challenge",
+        humanVerification: {
+          type: "aliyun_account_verification",
+          safeUrl: "http://account.ose.aliyun.com/verify.html",
+          focusReady: true,
+          focusMethod: "playwright_platform_browser",
+          browserControlTarget: "existing_platform_builtin_browser",
+          browserBackend: "platform_cdp",
+        },
+      },
+      directory,
+    );
+
+    const status = publicLoginOperation(current.record);
+    assert.equal(status.userAction.target, "existing_platform_builtin_browser");
+    assert.equal(status.userAction.presentation, "platform_browser_panel");
+    assert.match(status.instruction, /不能打开VNC/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
 test("login control uses a private token and never persists the SMS code", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
   let server;

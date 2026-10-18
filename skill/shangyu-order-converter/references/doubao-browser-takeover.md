@@ -1,22 +1,59 @@
-# 豆包同浏览器人工接管
+# 豆包平台浏览器接入
 
-仅当管易登录 operation 返回 `waiting_for_human_verification`、`requiresUserAction=true` 且 `userAction.kind=browser_control` 时使用本适配。它只负责把豆包云电脑的 VNC 桌面交给用户；通用 Playwright 登录、导航和上传状态机不包含豆包专用逻辑。
+本参考只在豆包工作云电脑执行管易登录、导航、上传或人工验证时使用。业务状态机仍是 `browser/guanyi` 中唯一的一套；本适配只决定 Playwright 控制哪个浏览器。
 
-## 必须区分的界面
+## 核心关系
 
-- 豆包自带浏览器：用于显示 AIO Sandbox 控制面板，或打开带随机令牌的一次性凭据/验证码页面。
-- 项目 Playwright Chromium：运行管易和阿里云验证页，由原登录 worker 持有。
-- AIO Sandbox 的 VNC 标签：把 Playwright Chromium 所在的同一云桌面实时显示给用户。
+- 豆包工作提供一个用户可以直接看到和操作的 Browser/云浏览器。
+- 该浏览器在云电脑本机提供 Chrome DevTools Protocol（CDP）端点 `http://127.0.0.1:9222`。
+- 项目仍使用 Node `playwright-core`，但不再 `launchPersistentContext` 启动第二个 Chromium；它改用 `connectOverCDP` 接管平台浏览器的唯一 context。
+- 用户在 Browser 面板中的操作与 worker 的 DOM 回读发生在同一页面。正常路径不需要 AIO Sandbox、VNC、窗口切换或第二个浏览器。
 
-人工接管不是把阿里云 URL 重新打开到豆包自带浏览器，也不是另启第二个 Chromium。`humanVerification.safeUrl` 只用于证明命中了登记页面，不是导航目标。
+CDP 是浏览器暴露的控制协议，Playwright 是调用该协议并提供定位、等待、文件选择和状态回读能力的控制库。模型不必亲自拼 CDP 指令；它调用项目入口，由 Playwright 统一执行。
 
-## 豆包交接顺序
+## 开始前
 
-1. 保持原登录 operation 和 worker 运行；不得运行 `probe`、第二个登录、导航或上传命令。
-2. 若豆包的 `browserControl` 要求先存在可控制的页面，只能打开已验证的 AIO Sandbox 入口 `http://127.0.0.1:8080/`。必须回读页面确有 `AIO Sandbox` 和 `VNC` 标签；不能用 `127.0.0.1:1`、任意占位端口、阿里云验证 URL 或其他猜测地址来“激活浏览器”。
-3. 切到 AIO Sandbox 的 `VNC` 标签，确认桌面已经加载。项目窗口应是同一云桌面中的 Playwright Chromium；窗口未置前时，可让用户在 VNC 中切换窗口，但不得另开浏览器。
-4. 立即调用豆包 `interaction.request_action` 的 `browserControl`，让界面真正出现“去操作/请求用户协助”。只发送文字或停在“调用交互请求工具”不算完成交接。
-5. 告诉用户只完成当前验证页上的点击、输入或拖动，然后使用平台的“确认完成”返回对话。Agent不得代做验证。
-6. 用户返回后，只查询原 operation 的 `login-status`。worker会在同一个 context 中回读管易首页并继续；不得根据“确认完成”按钮本身宣称登录成功。
+1. 先使用豆包工作的正式浏览器控制能力让 Browser/云浏览器处于可用状态。不要用任意网址或本地占位页“激活”浏览器。
+2. 运行 `scripts/doctor.py`。豆包正常路径必须满足：
+   - `playwright_core.ready=true`；
+   - `browser_backend.ready=true`；
+   - `browser_backend.selected=platform_cdp`；
+   - `browser_backend.platform_cdp.endpoint=http://127.0.0.1:9222`。
+3. 如果 doctor 选择 `persistent`，先停止，不要继续登录或上传，也不要退回 VNC。重新打开平台 Browser 后再检查；仍无法识别时报告 `platform_cdp` 不可用。
 
-若 `127.0.0.1:8080` 无法打开、VNC 标签不存在、`browserControl` 调用失败或用户看到的不是项目 Playwright 窗口，明确报告人工接管不可用并保持原 operation 等待。只要 worker 仍存活且未超时，可以对同一 VNC 入口重新发起一次交接；不得重发短信、重启登录、删除 profile 或编造其他本地网址。
+Skill 的 `guanyi_browser.py` 会在 Linux 上只读探测该本机端点，确认它确实是 Chrome/Chromium 后为本次进程选择 `platform_cdp`。端点只允许无凭据的 loopback HTTP 地址；外部主机、带账号密码的URL、路径、查询串都被拒绝。
+
+## 正常流程
+
+1. 执行器取得单一浏览器会话锁，通过CDP连接平台浏览器。
+2. 已有管易首页或登录页时复用该标签；没有时新建专用标签。不得关闭或改写其他无关平台标签。
+3. 账号密码、短信验证码仍通过现有登录operation和内存通道交给同一worker；不得写入脚本、文件、环境变量、命令参数或日志。
+4. 登录、弹窗处理、导航、待审核状态、任务基线、文件选择、两段确认、任务中心核验继续调用原模块，不建立豆包专用副本。
+5. 命令完成时只断开Playwright的CDP连接并释放会话锁；不得关闭平台默认context或退出豆包浏览器，因此登录Cookie与当前页面由平台浏览器自行保留。
+
+## 阿里云额外验证
+
+只有状态同时满足以下条件才交给用户：
+
+- `status=waiting_for_human_verification`；
+- `requiresUserAction=true`；
+- `userAction.kind=browser_control`；
+- `userAction.target=existing_platform_builtin_browser`；
+- `userAction.presentation=platform_browser_panel`。
+
+Agent收到后必须立即调用豆包工作的正式 `browserControl` / 请求用户协助入口，让用户直接看到当前平台Browser页面。不能只发送文字，也不能打开VNC、AIO Sandbox、验证URL、`127.0.0.1`占位页或第二个浏览器。
+
+用户只完成页面要求的点击、输入或拖动，然后确认完成。原worker持续等待同一页面回到稳定的管易首页；无需再让用户复制页面结果。
+
+## 停止条件
+
+出现以下任一情况立即停止并报告，不自动重新登录、重发短信或继续上传：
+
+- CDP端点不可达或不再是本机Chrome/Chromium；
+- 平台浏览器context不是唯一一个；
+- worker或浏览器连接中断；
+- Browser控制入口没有真正弹给用户；
+- 当前页不是登记的验证页，或验证后没有回到稳定管易首页；
+- 云工作区重置导致进程、operation或状态证据丢失。
+
+恢复时先运行doctor并只读检查当前平台浏览器是否仍登录。不得删除本地持久profile、平台浏览器profile或operation证据，也不得用启动第二个Chromium来掩盖CDP故障。

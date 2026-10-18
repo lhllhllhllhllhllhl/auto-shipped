@@ -22,10 +22,10 @@
 ## 登录人工验证
 
 - 自动登录提交短信验证码后，只有精确登记的外部验证URL可以进入同浏览器人工接管；当前登记项是`account.ose.aliyun.com/verify.html`。查询串不会进入回执，未知域名、相似域名、其他路径和未知弹窗仍失败关闭。
-- 人工接管只暂停原Playwright worker并保持同一个context/profile，不启动第二个浏览器。状态回执必须包含`requiresUserAction=true`和`userAction.kind=browser_control`，并明确`navigationRequired=false`，供Agent主动调用平台现有远程桌面/VNC控制入口；仅发送文字提示不算完成交接，打开验证网址或编造本地占位网址也不算。
-- 平台允许时，用户可通过VNC/远程桌面完成点击、键盘输入和拖动。执行器不读取验证内容、不代做验证，也不把验证页面文本、截图、Cookie或查询参数写入日志。
-- Linux窗口置前属于可替换的显示适配层：Playwright先`bringToFront`，已有`xdotool`时再按唯一专用window class精确置前；工具不存在、零个或多个匹配窗口时不猜测。
-- 默认等待15分钟。worker、浏览器或VNC会话中断时停止并返回人工验证中断；禁止自动重发短信、重启登录或删除持久profile。恢复时先只读检查登录状态。
+- 人工接管只暂停原Playwright worker并保持同一个context/profile，不启动第二个浏览器。状态回执必须包含`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。仅发送文字、打开验证网址或编造占位页都不算完成交接。
+- `platform_cdp`模式直接把同一平台Browser页面交给用户，状态目标为`existing_platform_builtin_browser`；不得再打开VNC或AIO Sandbox。执行器不读取验证内容、不代做验证，也不把验证页面文本、截图、Cookie或查询参数写入日志。
+- 本地/独立headed浏览器才使用可替换的桌面显示适配：Playwright先`bringToFront`，Linux已有`xdotool`时再按唯一专用window class精确置前；工具不存在、零个或多个匹配窗口时不猜测。
+- 默认等待15分钟。worker或浏览器连接中断时停止并返回人工验证中断；禁止自动重发短信、重启登录、删除持久profile或关闭平台默认context。恢复时先只读检查登录状态。
 
 ## 上传状态机
 

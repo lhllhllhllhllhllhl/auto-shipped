@@ -108,6 +108,12 @@ const LOGIN_SESSION_ERROR_CODES = new Set([
 
 function sessionErrorStatus(error) {
   if (error.code === "BROWSER_SESSION_BUSY") return "browser_session_busy";
+  if (String(error.code || "").startsWith("PLATFORM_CDP")) {
+    return "platform_browser_unavailable";
+  }
+  if (error.code === "PLATFORM_BROWSER_DISCONNECTED") {
+    return "platform_browser_unavailable";
+  }
   if (error.code === "LOGIN_RISK_CONTROLLED") return "login_blocked";
   if (LOGIN_SESSION_ERROR_CODES.has(error.code)) return "login_failed";
   return "access_blocked";
@@ -119,7 +125,7 @@ function help() {
     usage:
       "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
     commands: {
-      login: "打开专用Chrome配置，由用户手动登录并保存会话。",
+      login: "打开当前管易浏览器会话，由用户手动登录。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
       "login-auto-start":
         "启动可跨消息恢复的自动登录；需要短信时先返回登录操作 ID，不发送短信。",
@@ -323,7 +329,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
       await transitionLoginOperation(
         operationId,
         LoginOperationState.AUTHENTICATED,
-        { reason: "persistent_session_authenticated" },
+        { reason: "browser_session_authenticated" },
       );
       return 0;
     }
@@ -331,7 +337,9 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     await markDedicatedLoginWindow(session.page);
     const loginOptions = {
       onHumanVerificationRequired: async (candidate, observation) => {
-        const focus = await focusHumanVerificationWindow(candidate);
+        const focus = await focusHumanVerificationWindow(candidate, {
+          browserControlTarget: session.browserControlTarget,
+        });
         await transitionLoginOperation(
           operationId,
           LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
@@ -344,6 +352,8 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
               focusReady: focus.focusReady,
               focusMethod: focus.method,
               focusCode: focus.code || null,
+              browserControlTarget: session.browserControlTarget,
+              browserBackend: session.backend,
             },
           },
         );
@@ -467,7 +477,16 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
       { reason: "authenticated_page_verified" },
     );
     return 0;
-  } catch (error) {
+  } catch (caughtError) {
+    const error =
+      session?.backend === "platform_cdp" &&
+      session.browser &&
+      !session.browser.isConnected()
+        ? new SessionError(
+            "PLATFORM_BROWSER_DISCONNECTED",
+            "豆包平台浏览器连接已中断；已停止，未自动重试登录或上传。",
+          )
+        : caughtError;
     pendingCommand?.reject(error);
     const loaded = await loadLoginOperation(operationId).catch(() => null);
     if (
@@ -494,8 +513,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     return 1;
   } finally {
     await new Promise((resolve) => server?.close(resolve) || resolve());
-    await session?.context.close().catch(() => null);
-    await session?.release?.().catch(() => null);
+    await session?.close?.().catch(() => null);
   }
 }
 
@@ -724,7 +742,7 @@ async function runLogin(context, page) {
   await markDedicatedLoginWindow(page);
   printJson({
     status: "needs_login",
-    instruction: "请在打开的专用Chrome窗口中手动登录管易。",
+    instruction: "请在当前已打开的管易浏览器页面中手动登录。",
     timeoutMs: LOGIN_TIMEOUT_MS,
   });
   const authenticatedPage = await waitForAuthenticatedPage(
@@ -1322,12 +1340,22 @@ async function main() {
       );
     }
     return await runNavigateImport(session.page);
-  } catch (error) {
+  } catch (caughtError) {
+    const error =
+      session?.backend === "platform_cdp" &&
+      session.browser &&
+      !session.browser.isConnected()
+        ? new SessionError(
+            "PLATFORM_BROWSER_DISCONNECTED",
+            "平台浏览器连接已中断；已停止当前操作，未自动重试。",
+          )
+        : caughtError;
     const screenshot =
       session?.page &&
       !(error instanceof SessionError &&
         (LOGIN_SESSION_ERROR_CODES.has(error.code) ||
-          error.code === "BROWSER_SESSION_BUSY"))
+          error.code === "BROWSER_SESSION_BUSY" ||
+          String(error.code || "").startsWith("PLATFORM_")))
       ? await saveFailureScreenshot(session.page, "guanyi-probe-failure")
       : null;
     if (error instanceof CredentialError) {
@@ -1427,8 +1455,7 @@ async function main() {
     });
     return 1;
   } finally {
-    await session?.context.close().catch(() => null);
-    await session?.release?.().catch(() => null);
+    await session?.close?.().catch(() => null);
   }
 }
 

@@ -28,6 +28,28 @@ export const LOGIN_OPERATION_DIR = path.resolve(
     path.join(RUNTIME_ROOT, "guanyi-login-operations"),
 );
 export const CREDENTIAL_HELPER = process.env.GUANYI_CREDENTIAL_HELPER || "";
+export function defaultBrowserBackend(
+  platform = process.platform,
+  environment = process.env,
+  pathExists = fs.existsSync,
+) {
+  if (environment.GUANYI_BROWSER_BACKEND) {
+    return environment.GUANYI_BROWSER_BACKEND;
+  }
+  if (
+    platform === "linux" &&
+    ("DOUBAO_OFFICE_USER_ACCESS_TOKEN" in environment ||
+      pathExists("/opt/browser/chrome"))
+  ) {
+    return "platform_cdp";
+  }
+  return "auto";
+}
+
+
+export const BROWSER_BACKEND = defaultBrowserBackend();
+export const PLATFORM_CDP_ENDPOINT =
+  process.env.GUANYI_CDP_ENDPOINT || "http://127.0.0.1:9222";
 function pathCandidates(names, environment = process.env) {
   const directories = String(environment.PATH || "")
     .split(path.delimiter)
