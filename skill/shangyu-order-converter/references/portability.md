@@ -38,7 +38,7 @@
 
 云端浏览器可在 Xvfb 等私有显示环境运行 headed Chromium；正常自动步骤不要求用户看到窗口。平台内置/CDP浏览器与项目Playwright浏览器是两个隔离会话：前者只打开一次性的`127.0.0.1`交接页，后者自行观察和操作管易页面。跨消息凭据与短信验证共用短时登录操作 ID 和仅监听 `127.0.0.1` 的随机令牌控制通道；单次凭据页提交成功后失效，验证码由用户临时提供，二者都只进入登录进程内存，不写文件或日志。验证码提交后由Playwright worker回读并返回脱敏分类。
 
-平台若提供与Xvfb同屏的VNC/远程桌面，精确登记的额外验证页可以把原Playwright窗口交给用户操作。核心登录状态机只输出`waiting_for_human_verification`与通用`browser_control`动作合同；豆包适配留在Skill调度层，由Agent主动调用`interaction.request_action`的`browserControl`，不把平台API写进浏览器业务模块。用户操作后仍由同一个worker回读稳定的管易首页。没有交互入口、入口调用失败、窗口不唯一或worker中断时停止，不建立第二套登录实现。
+平台若提供与Xvfb同屏的VNC/远程桌面，精确登记的额外验证页可以把原Playwright窗口交给用户操作。核心登录状态机只输出`waiting_for_human_verification`与通用`browser_control`动作合同，且明确不需要导航；平台适配留在Skill调度层，不把平台API写进浏览器业务模块。豆包的具体AIO Sandbox/VNC交接步骤见[豆包同浏览器人工接管](doubao-browser-takeover.md)。用户操作后仍由同一个worker回读稳定的管易首页。没有交互入口、入口调用失败、窗口不唯一或worker中断时停止，不建立第二套登录实现。
 
 默认状态目录不可写时，运行时会回退到当前系统用户独占的临时目录并在`doctor.py`中标记`persistent=false`；这能保证单次云端任务继续初始化，但不承诺跨云工作区保留profile。平台有明确的可写持久目录时，应通过`SHANGYU_SKILL_STATE_ROOT`指定该目录。`bootstrap_runtime.py`始终复制完整且经清单验证的运行时，不允许只复制`browser/guanyi`；只读Skill来源的权限不会原样阻断安装，复制完成后只对私有状态副本恢复当前用户写权限。
 

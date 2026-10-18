@@ -152,6 +152,7 @@
 
 - `DEC-USER-HUMAN-VERIFICATION-CORE-001`：额外安全验证复用现有Node Playwright登录worker，不建立第二套Linux上传或登录脚本。核心只允许精确登记的验证URL进入`waiting_for_human_verification`，保持同一context/profile并等待稳定管易首页；未知URL和弹窗继续失败关闭，执行器不自动破解或代做验证。
 - `DEC-USER-PLATFORM-TAKEOVER-001`：人工接管采用通用`browser_control`动作合同；平台工具名不进入登录业务状态机。Skill调度层负责主动调用实际入口，豆包使用`interaction.request_action(browserControl)`。仅发送文字而未弹出可交互入口不算完成交接。
+- `DEC-USER-DOUBAO-VNC-HANDOFF-001`：豆包的`browserControl`必须承载AIO Sandbox的现有VNC桌面，不承担URL导航。需要先激活平台浏览器时只允许打开经实测的`http://127.0.0.1:8080/`并回读`AIO Sandbox`与`VNC`，禁止用阿里云验证URL、`127.0.0.1:1`或任意占位地址初始化。该规则只存在于Skill平台适配层，通用登录核心仅声明`navigationRequired=false`。
 - `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动，原worker回读`same_context=true`。该证据只解锁人工交互通道，不授权自动处理阿里云验证或订单写入。
 - `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或VNC重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查持久会话。Skill更新与bootstrap不得删除独立profile，Agent也不得自行清理profile。
 

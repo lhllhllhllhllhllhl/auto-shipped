@@ -213,7 +213,14 @@ test("registered browser verification exposes an explicit same-context user acti
     assert.equal(status.status, "waiting_for_human_verification");
     assert.equal(status.requiresUserAction, true);
     assert.equal(status.userAction.kind, "browser_control");
+    assert.equal(
+      status.userAction.target,
+      "existing_playwright_browser_via_platform_desktop",
+    );
     assert.equal(status.userAction.sameBrowserContext, true);
+    assert.equal(status.userAction.navigationRequired, false);
+    assert.equal(status.userAction.navigationUrl, null);
+    assert.equal(status.userAction.placeholderUrlAllowed, false);
     assert.equal(status.userAction.agentMustInvokeInteractiveControl, true);
     assert.equal(status.humanVerification.type, "aliyun_account_verification");
     assert.equal(status.humanVerification.focusReady, true);

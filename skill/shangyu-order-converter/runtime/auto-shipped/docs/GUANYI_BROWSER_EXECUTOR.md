@@ -78,7 +78,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 平台自带/CDP浏览器与项目Playwright浏览器不是同一个页面会话。平台浏览器只作为一次性本机交接入口；管易登录页由Playwright worker自己持续检查。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
 
-精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`和`userAction.kind=browser_control`。Agent必须主动调用平台的浏览器控制/请求用户协助能力；在豆包工作伙伴中使用`interaction.request_action`的`browserControl`，不能只发文字提示。项目Chromium仍由原Node Playwright worker持有，用户在VNC中完成点击、输入或拖动后，worker只读等待稳定的管易首页并继续。浏览器核心只认识通用动作合同，豆包工具名只存在于Skill/平台适配说明中。
+精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。Agent必须主动调用平台的远程桌面/VNC浏览器控制能力，不能只发文字提示，也不能打开验证URL或任意本地占位网址。在豆包工作伙伴中，Skill平台适配先确认AIO Sandbox的`http://127.0.0.1:8080/`与VNC标签，再调用`interaction.request_action`的`browserControl`。项目Chromium仍由原Node Playwright worker持有，用户在VNC中完成点击、输入或拖动后，worker只读等待稳定的管易首页并继续。浏览器核心只认识通用动作合同，豆包工具名与VNC入口只存在于Skill/平台适配说明中。
 
 Linux窗口使用专用window class。执行器先调用Playwright `bringToFront`，若环境已有`xdotool`，再要求唯一class匹配后置前；不存在或匹配不唯一时不猜测窗口。未知验证URL、未知弹窗、人工等待超时、worker或VNC中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查持久会话是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`。
 

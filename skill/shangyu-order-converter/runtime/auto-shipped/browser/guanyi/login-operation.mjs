@@ -177,13 +177,17 @@ export function publicLoginOperation(record) {
     payload.requiresUserAction = true;
     payload.userAction = {
       kind: "browser_control",
+      target: "existing_playwright_browser_via_platform_desktop",
       sameBrowserContext: true,
+      navigationRequired: false,
+      navigationUrl: null,
+      placeholderUrlAllowed: false,
       agentMustInvokeInteractiveControl: true,
       workerContinuesAutomatically: true,
     };
     payload.humanVerification = record.humanVerification || null;
     payload.instruction =
-      "必须主动调用当前平台的浏览器控制/请求用户协助入口，把同一个Playwright窗口交给用户；不能只发文字提示。用户完成验证后原worker会自动继续。";
+      "必须主动调用当前平台的远程桌面/VNC浏览器控制入口，把已经存在的同一个Playwright窗口交给用户；不能只发文字提示，不能打开验证网址，也不能编造或打开占位本地网址来初始化平台浏览器。用户完成验证后原worker会自动继续。";
   }
   return payload;
 }
