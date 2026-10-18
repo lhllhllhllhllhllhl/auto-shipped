@@ -242,7 +242,7 @@ test("registered browser verification exposes an explicit same-context user acti
 });
 
 
-test("platform browser verification requests direct Browser-panel control", async () => {
+test("platform browser verification requires a trusted local login recovery", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
   try {
     const created = await createLoginOperation(directory, 1_000);
@@ -268,25 +268,38 @@ test("platform browser verification requests direct Browser-panel control", asyn
     }
     current = await transitionLoginOperation(
       operationId,
-      LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+      LoginOperationState.FAILED,
       {
-        reason: "registered_challenge",
-        humanVerification: {
-          type: "aliyun_account_verification",
+        reason: "local_verification_required",
+        code: "LOGIN_LOCAL_VERIFICATION_REQUIRED",
+        message: "需要用户在自己的可信电脑完成验证。",
+        details: {
+          humanVerificationType: "aliyun_account_verification",
           safeUrl: "http://account.ose.aliyun.com/verify.html",
-          focusReady: true,
-          focusMethod: "playwright_platform_browser",
-          browserControlTarget: "existing_platform_builtin_browser",
-          browserBackend: "platform_cdp",
+          requiredAction: "complete_login_in_trusted_local_browser",
+          resumePolicy: "confirm_then_probe_and_single_retry",
         },
       },
       directory,
     );
 
     const status = publicLoginOperation(current.record);
-    assert.equal(status.userAction.target, "existing_platform_builtin_browser");
-    assert.equal(status.userAction.presentation, "platform_browser_panel");
-    assert.match(status.instruction, /不能打开VNC/);
+    assert.equal(status.status, "failed");
+    assert.equal(status.code, "LOGIN_LOCAL_VERIFICATION_REQUIRED");
+    assert.equal(status.verificationType, "trusted_local_browser_login");
+    assert.equal(
+      status.userAction.kind,
+      "complete_login_in_trusted_local_browser",
+    );
+    assert.equal(status.userAction.target, "user_or_admin_local_computer");
+    assert.equal(status.userAction.cloudWorkerStopped, true);
+    assert.equal(status.userAction.cookieTransferAllowed, false);
+    assert.equal(
+      status.userAction.resumePolicy,
+      "confirm_then_probe_and_single_retry",
+    );
+    assert.match(status.instruction, /自己的可信电脑/);
+    assert.match(status.instruction, /最多重新登录一次/);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

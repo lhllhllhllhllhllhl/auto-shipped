@@ -56,7 +56,6 @@ function exactWindowClassPattern(windowClass) {
 export async function focusHumanVerificationWindow(
   page,
   {
-    browserControlTarget = "existing_playwright_browser_via_platform_desktop",
     platform = process.platform,
     runCommand = runBoundedCommand,
     windowClass = BROWSER_WINDOW_CLASS,
@@ -69,13 +68,6 @@ export async function focusHumanVerificationWindow(
       focusReady: false,
       method: "playwright",
       code: "HUMAN_VERIFICATION_PAGE_UNAVAILABLE",
-    };
-  }
-  if (browserControlTarget === "existing_platform_builtin_browser") {
-    return {
-      focusReady: true,
-      method: "playwright_platform_browser",
-      browserControlTarget,
     };
   }
   if (platform !== "linux") {

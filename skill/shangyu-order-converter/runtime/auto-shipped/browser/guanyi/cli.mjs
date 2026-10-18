@@ -103,6 +103,7 @@ const LOGIN_SESSION_ERROR_CODES = new Set([
   "LOGIN_HUMAN_VERIFICATION_INTERRUPTED",
   "LOGIN_HUMAN_VERIFICATION_TIMEOUT",
   "LOGIN_OUTCOME_UNCONFIRMED",
+  "LOGIN_LOCAL_VERIFICATION_REQUIRED",
 ]);
 
 
@@ -113,6 +114,9 @@ function sessionErrorStatus(error) {
   }
   if (error.code === "PLATFORM_BROWSER_DISCONNECTED") {
     return "platform_browser_unavailable";
+  }
+  if (error.code === "LOGIN_LOCAL_VERIFICATION_REQUIRED") {
+    return "local_verification_required";
   }
   if (error.code === "LOGIN_RISK_CONTROLLED") return "login_blocked";
   if (LOGIN_SESSION_ERROR_CODES.has(error.code)) return "login_failed";
@@ -337,9 +341,19 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     await markDedicatedLoginWindow(session.page);
     const loginOptions = {
       onHumanVerificationRequired: async (candidate, observation) => {
-        const focus = await focusHumanVerificationWindow(candidate, {
-          browserControlTarget: session.browserControlTarget,
-        });
+        if (session.backend === "platform_cdp") {
+          throw new SessionError(
+            "LOGIN_LOCAL_VERIFICATION_REQUIRED",
+            "豆包云端登录遇到阿里云额外验证；请用户或管理员先在自己的可信电脑完整登录管易并通过验证。",
+            {
+              humanVerificationType: observation.humanVerificationType,
+              safeUrl: observation.safeUrl,
+              requiredAction: "complete_login_in_trusted_local_browser",
+              resumePolicy: "confirm_then_probe_and_single_retry",
+            },
+          );
+        }
+        const focus = await focusHumanVerificationWindow(candidate);
         await transitionLoginOperation(
           operationId,
           LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
@@ -352,7 +366,6 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
               focusReady: focus.focusReady,
               focusMethod: focus.method,
               focusCode: focus.code || null,
-              browserControlTarget: session.browserControlTarget,
               browserBackend: session.backend,
             },
           },

@@ -30,30 +30,25 @@ Skill 的 `guanyi_browser.py` 会在 Linux 上只读探测该本机端点，确�
 3. 返回 `waiting_for_credentials` 后，先说明对话历史留存风险；用户接受并提供本次凭据后，优先用 `login-credentials-submit` 经私有stdin交给原worker。平台没有私有stdin时才使用operation返回的一次性本机页面。凭据不得落盘、进入命令参数或跨任务复用。
 4. 返回 `needs_verification` 时先询问用户是否方便接收；得到当次确认后才运行一次 `login-sms-request`。收到验证码后用 `login-sms-submit`交给同一operation，不得自动重发短信。
 5. `code_submitted`只表示worker仍在判定，继续轮询同一`login-status`；不得启动`probe`或新登录与它争抢浏览器锁。
-6. 返回 `waiting_for_human_verification` 时按下一节交接当前Browser页面。其他未知页面或错误立即停止。
+6. 返回 `LOGIN_LOCAL_VERIFICATION_REQUIRED` 时按下一节让用户在自己的电脑完成验证。其他未知页面或错误立即停止。
 7. 只有operation返回`authenticated`，随后只读`probe`又返回`home_ready`，才向用户确认登录成功。登录本身不构成订单上传授权。
 
 登录、弹窗处理、导航、上传和任务核验继续调用`browser/guanyi`原模块，不建立豆包专用副本。命令结束只断开Playwright的CDP连接并释放会话锁，不关闭平台浏览器、默认context或其他标签，因此平台可以自行保留当前页面与Cookie。
 
 ## 阿里云额外验证
 
-只有状态同时满足以下条件才交给用户：
+精确命中登记的阿里云验证页时，豆包登录operation必须以以下结构化结果终止并释放浏览器锁：
 
-- `status=waiting_for_human_verification`；
+- `status=failed`；
+- `code=LOGIN_LOCAL_VERIFICATION_REQUIRED`；
 - `requiresUserAction=true`；
-- `userAction.kind=browser_control`；
-- `userAction.target=existing_platform_builtin_browser`；
-- `userAction.presentation=platform_browser_panel`。
+- `userAction.kind=complete_login_in_trusted_local_browser`；
+- `userAction.target=user_or_admin_local_computer`；
+- `userAction.resumePolicy=confirm_then_probe_and_single_retry`。
 
-Agent收到后必须立即调用豆包工作的正式 `browserControl` / 请求用户协助入口，让用户直接看到当前平台Browser页面。不能只发送文字，也不能打开VNC、AIO Sandbox、验证URL、`127.0.0.1`占位页或第二个浏览器。
+Agent必须提示用户或管理员在自己的可信macOS/Windows电脑打开管易，使用同一账号完整登录并通过短信及阿里云验证，直到亲眼看到稳定的管易首页。豆包不得尝试在云浏览器完成该验证，不调用`browserControl`，也不打开VNC、AIO Sandbox、验证URL、占位页或第二个浏览器。
 
-用户只完成页面要求的点击、输入或拖动，然后确认完成。原worker持续等待同一页面回到稳定的管易首页；无需再让用户复制页面结果。
-
-CDP操作后如果豆包自己的页面控制句柄暂时显示“未绑定”或需要重新同步，但原Browser标签仍存在，不要据此判定登录失败。先重新绑定同一个平台标签，再查看同一`login-status`；operation已经结束时只运行一次只读`probe`。禁止因此打开第二个浏览器或重新发送短信。
-
-如果用户在云浏览器完成验证后仍出现回调失败、再次回到阿里云验证页，或在合理等待时间内始终没有稳定进入管易首页，停止当前云端登录，不循环发送短信或重新提交。提示用户或管理员在自己可信的macOS/Windows浏览器中手动打开管易，使用同一账号完整完成一次登录与阿里云二次验证，直到亲眼看到稳定的管易首页；这一步用于由管易/阿里云解除当次账号风控，不是把本机浏览器交给云端。
-
-用户明确回复“本机已经登录成功”后，豆包工作先只读检查平台浏览器是否已经获得登录态；仍未登录时最多重新发起一次正常云端登录。不得导出、复制或上传本机Cookie、Chrome profile、验证码或其他会话材料。2026-10-19实测确认该恢复路径曾使豆包工作随后正常进入管易，但风控可能按账号、时间或环境再次触发，因此只能作为已验证的故障恢复步骤，不能承诺永久免验证；若本机也无法完成，停止并提示联系管易管理员或官方支持。
+用户明确回复“本机已经登录成功”后，豆包先只读`probe`当前平台浏览器；仍为`needs_login`时最多新建一个登录operation重试一次。这个步骤只用于解除账号当次风控，本机与云端不会共享会话；不得导出、复制或上传Cookie、Chrome profile、验证码或其他会话材料。2026-10-19实测确认该流程曾使豆包随后正常进入管易，但不能承诺永久免验证。若本机无法完成，或一次云端重试再次要求阿里云验证，停止并提示联系管易管理员或官方支持。
 
 ## 停止条件
 

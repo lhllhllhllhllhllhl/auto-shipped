@@ -147,7 +147,22 @@ export function publicLoginOperation(record) {
     payload.message = record.error.message;
     if (record.error.details) payload.details = record.error.details;
   }
-  if (record.state === LoginOperationState.WAITING_FOR_CREDENTIALS) {
+  if (
+    record.state === LoginOperationState.FAILED &&
+    record.error?.code === "LOGIN_LOCAL_VERIFICATION_REQUIRED"
+  ) {
+    payload.verificationType = "trusted_local_browser_login";
+    payload.requiresUserAction = true;
+    payload.userAction = {
+      kind: "complete_login_in_trusted_local_browser",
+      target: "user_or_admin_local_computer",
+      cloudWorkerStopped: true,
+      cookieTransferAllowed: false,
+      resumePolicy: "confirm_then_probe_and_single_retry",
+    };
+    payload.instruction =
+      "请用户或管理员在自己的可信电脑打开管易，使用同一账号完整登录并通过阿里云验证，直到进入管易首页。用户确认完成后，豆包先只读probe；仍未登录时最多重新登录一次。不要复制Cookie、profile或验证码。";
+  } else if (record.state === LoginOperationState.WAITING_FOR_CREDENTIALS) {
     payload.credentialMode = "temporary_agent_input";
     if (record.control?.host && record.control?.port && record.control?.token) {
       payload.credentialInputUrl =
@@ -173,19 +188,12 @@ export function publicLoginOperation(record) {
   } else if (
     record.state === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
   ) {
-    const browserControlTarget =
-      record.humanVerification?.browserControlTarget ||
-      "existing_playwright_browser_via_platform_desktop";
-    const platformBrowser =
-      browserControlTarget === "existing_platform_builtin_browser";
     payload.verificationType = "same_browser_human_takeover";
     payload.requiresUserAction = true;
     payload.userAction = {
       kind: "browser_control",
-      target: browserControlTarget,
-      presentation: platformBrowser
-        ? "platform_browser_panel"
-        : "platform_desktop",
+      target: "existing_playwright_browser_via_platform_desktop",
+      presentation: "platform_desktop",
       sameBrowserContext: true,
       navigationRequired: false,
       navigationUrl: null,
@@ -194,9 +202,8 @@ export function publicLoginOperation(record) {
       workerContinuesAutomatically: true,
     };
     payload.humanVerification = record.humanVerification || null;
-    payload.instruction = platformBrowser
-      ? "必须主动调用当前平台的浏览器控制入口，把已经存在的同一个平台内置浏览器当前页直接交给用户；不能只发文字提示，不能打开VNC、验证网址或占位网址。用户完成验证后原worker会自动继续。"
-      : "必须主动调用当前平台的远程桌面/VNC浏览器控制入口，把已经存在的同一个Playwright窗口交给用户；不能只发文字提示，不能打开验证网址，也不能编造或打开占位本地网址来初始化平台浏览器。用户完成验证后原worker会自动继续。";
+    payload.instruction =
+      "必须把项目已打开的同一浏览器窗口交给当前电脑的用户；平台有正式桌面控制入口时主动发起。不能只发文字提示，不能打开验证网址或占位网址。用户完成验证后原worker会自动继续。";
   }
   return payload;
 }
@@ -467,9 +474,6 @@ export async function transitionLoginOperation(
             focusReady: Boolean(humanVerification?.focusReady),
             focusMethod: humanVerification?.focusMethod || "playwright",
             focusCode: humanVerification?.focusCode || null,
-            browserControlTarget:
-              humanVerification?.browserControlTarget ||
-              "existing_playwright_browser_via_platform_desktop",
             browserBackend: humanVerification?.browserBackend || "persistent",
           }
         : current === LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION

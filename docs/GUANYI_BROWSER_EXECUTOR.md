@@ -78,9 +78,9 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 豆包工作云电脑中，平台自带浏览器就是项目Playwright通过`connectOverCDP`控制的同一个页面会话。Skill只允许`http://127.0.0.1:9222`等无凭据loopback端点，并要求唯一context；已有管易标签时复用，没有时新建标签，但不关闭其他平台标签。验证码提交后，worker会区分已登录、验证码拒绝、凭据拒绝、风控、未知弹窗/额外步骤和超时未确认，并只返回页面类型、安全URL与分类等脱敏证据。返回`code_submitted`表示结果仍在判定中，Agent只能查询原operation，不能重发短信或重启登录。
 
-精确命中`account.ose.aliyun.com/verify.html`时，原operation进入`waiting_for_human_verification`，默认等待15分钟。它会输出`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。豆包CDP模式还会输出`target=existing_platform_builtin_browser`和`presentation=platform_browser_panel`；Agent必须主动调用平台`browserControl`，把当前Browser页面直接交给用户，不能只发文字，也不能打开VNC、验证URL或本地占位网址。用户在同一页面完成点击、输入或拖动后，原worker只读等待稳定管易首页并继续。
+精确命中`account.ose.aliyun.com/verify.html`时，本机持久浏览器仍可进入`waiting_for_human_verification`并把同一窗口交给当前电脑的用户处理；豆包`platform_cdp`模式不得走这条路径。豆包operation直接以`LOGIN_LOCAL_VERIFICATION_REQUIRED`终止并释放浏览器锁，输出`userAction.kind=complete_login_in_trusted_local_browser`。Agent提示用户/管理员在自己的可信电脑完整登录同一账号并通过阿里云验证，直到进入管易首页；用户确认后豆包先只读`probe`，仍未登录时最多重新登录一次。
 
-若豆包工作中的人工验证完成后仍回调失败、重复进入阿里云验证页或无法建立管易会话，停止云端重试并提示用户/管理员在可信本机浏览器完整登录同一账号，完成阿里云二次验证直至进入管易首页。用户确认本机登录成功后，云端先只读探测平台浏览器，再最多重试一次正常登录。2026-10-19实测该步骤曾解除当次账号风控并使豆包工作随后登录成功；它不是永久豁免，不涉及VPN切换，也不允许在本机与云端之间复制Cookie、profile或验证码。
+豆包不得在云浏览器代做或交接阿里云验证，也不得打开VNC、AIO Sandbox、验证URL、本地占位页或第二个浏览器。2026-10-19实测本机验证后的一次云端重试曾正常登录；这不是永久豁免，不涉及VPN切换，也不允许在设备间复制Cookie、profile或验证码。
 
 独立headed Linux浏览器使用专用window class和可选`xdotool`精确置前；平台CDP浏览器只调用Playwright `bringToFront`，不做VNC窗口搜索。未知验证URL、未知弹窗、人工等待超时、worker或浏览器连接中断都失败关闭。中断后不得自动重发短信、重启登录或清理profile；先只读检查当前浏览器是否已登录。Skill更新/bootstrap不删除`guanyi-browser-profile`，CDP清理也不得关闭平台默认context或平台profile。
 
@@ -96,7 +96,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 1. 登录失效时返回 `needs_login`。
 2. 用户登录后返回可识别的已认证状态。
-3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。云端提交验证码后必须在同一operation返回`authenticated`、`waiting_for_human_verification`或明确的脱敏失败分类；等待中的`code_submitted`不得触发重发短信。进入人工验证时Agent必须实际发起浏览器控制交接，用户操作后仍由同一worker续跑；中断时不得盲目重启。登录worker运行期间启动第二个浏览器命令必须返回`browser_session_busy`，不能抢占或关闭profile。
+3. 出现短信验证时返回 `needs_verification`，并保持窗口等待用户完成。云端提交验证码后必须在同一operation返回`authenticated`、`LOGIN_LOCAL_VERIFICATION_REQUIRED`或明确的脱敏失败分类；等待中的`code_submitted`不得触发重发短信。豆包遇到阿里云验证必须终止worker并要求用户在自己的电脑完整登录，确认后只读探测并最多重试一次。登录worker运行期间启动第二个浏览器命令必须返回`browser_session_busy`，不能抢占或关闭profile。
 4. 已知公告可以安全关闭；关闭未生效、页面地址变化或出现未知弹窗时返回 `popup_unknown`。
 5. 侧栏展开或折叠时都能进入订单查询。
 6. 能打开订单导入并切换到自定义导入。

@@ -386,7 +386,7 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 账号密码属于运行环境凭证，不属于 Skill 或订单数据合同。本地使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 的只读凭证助手。没有安全入口且用户明确接受对话留存风险时，现有登录 operation 可进入 `waiting_for_credentials`，通过随机令牌loopback控制通道或私有stdin把本次凭据交给worker。豆包工作Linux的Playwright worker通过loopback CDP连接平台自带浏览器，直接观察并操作同一管易页面；执行器只在内存填值，不把字段内容写入状态、文件、环境变量、命令或日志。短信验证码继续使用同一短时operation ID。单一浏览器会话锁禁止probe或第二个登录抢占当前worker。
 
-额外安全验证采用“通用核心 + 浏览器接入适配”两层。核心只对白名单URL进入`waiting_for_human_verification`，保持原Playwright context/worker并输出通用`browser_control`动作合同；未知页面仍失败关闭。豆包平台CDP适配将目标声明为`existing_platform_builtin_browser`，Skill调度层立即调用正式Browser控制入口，用户直接操作同一页面，不再经过VNC。独立headed浏览器仍可使用桌面显示适配；窗口class/`xdotool`不进入业务状态机。用户操作后原worker回读稳定首页继续；平台重置、CDP断开或worker中断时停止，禁止盲目重登、重发短信或删除profile。
+额外安全验证采用“通用识别 + 接入策略”两层。核心只识别白名单URL，未知页面仍失败关闭。本机/独立headed浏览器可进入`waiting_for_human_verification`，保持原Playwright context/worker并把同一窗口交给当前电脑用户；窗口class/`xdotool`只属于显示适配。豆包`platform_cdp`命中阿里云验证页时不做云端交接，而以`LOGIN_LOCAL_VERIFICATION_REQUIRED`终止worker并释放锁；用户或管理员在自己的可信电脑完整登录并确认进入管易首页后，豆包只读探测并最多重试一次。两种路径都禁止盲目重登、重发短信、复制会话材料或删除profile。
 
 Geometry Guard同样区分窗口所有权：本地持久浏览器可由执行器校准原生窗口；`platform_cdp`的外层窗口和viewport由豆包平台管理，不要求匹配本地浏览器的`1440×850`目标，执行器只读验证三次采样稳定、有效client区域和页面缩放，不调用窗口修复。平台固有的宽高滚动条沟槽还必须由document/visual证据分别一致证明、各不超过24px；否则仍然失败关闭。
 

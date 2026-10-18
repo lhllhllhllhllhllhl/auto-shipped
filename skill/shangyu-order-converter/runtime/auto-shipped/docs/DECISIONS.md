@@ -157,6 +157,7 @@
 - `DEC-USER-VNC-EVIDENCE-001`：2026-10-18豆包AIO Sandbox VNC安全POC确认用户可在原Playwright Chromium中完成键盘输入和鼠标拖动；后续CDP POC又确认Node Playwright与正式Browser面板可以控制同一平台页面。两项证据都不授权自动处理阿里云验证或订单写入。
 - `DEC-USER-HUMAN-VERIFICATION-FAIL-CLOSED-001`：人工阶段默认等待15分钟。worker、浏览器或CDP连接重置后返回中断，不自动重发短信或重启登录；恢复时先只读检查当前会话。Skill更新与bootstrap不得删除独立profile，Agent也不得清理平台浏览器profile。
 - `DEC-USER-LOCAL-RISK-RELEASE-001`：2026-10-19实测确认，当豆包工作无法在阿里云二次验证后建立管易会话时，用户先在可信本机浏览器用同一账号完整完成人工验证并进入管易首页，随后豆包工作能够正常登录。该路径登记为账号风控的人工恢复步骤：云端失败后停止循环并提示用户/管理员在本机完成验证；用户确认成功后云端先只读探测并最多重试一次。不得承诺永久免验证，不归因于VPN，也不得在设备间迁移Cookie、profile或验证码。
+- `DEC-USER-DOUBAO-ALIYUN-LOCAL-001`：上述本机验证路径升级为豆包工作遇到阿里云额外验证时的唯一生产流程，并取代`DEC-USER-DOUBAO-DIRECT-HANDOFF-001`在该场景中的做法。豆包operation以`LOGIN_LOCAL_VERIFICATION_REQUIRED`终止并释放锁，不尝试云端人工接管；用户/管理员在自己的可信电脑完整登录并确认进入管易首页后，豆包先只读探测，仍未登录时最多重试一次。原Browser/VNC接管记录只保留为能力POC证据。
 
 ## 2026-10-17 商品短语规范身份
 

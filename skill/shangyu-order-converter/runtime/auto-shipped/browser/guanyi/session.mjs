@@ -314,9 +314,6 @@ export async function launchSession({
     return {
       backend,
       browser: browserConnection?.browser || null,
-      browserControlTarget: platformBrowser
-        ? "existing_platform_builtin_browser"
-        : "existing_playwright_browser_via_platform_desktop",
       context,
       ownsContext: !platformBrowser,
       page,

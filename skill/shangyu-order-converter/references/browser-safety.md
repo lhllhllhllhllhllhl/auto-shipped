@@ -22,11 +22,10 @@
 
 ## 登录人工验证
 
-- 自动登录提交短信验证码后，只有精确登记的外部验证URL可以进入同浏览器人工接管；当前登记项是`account.ose.aliyun.com/verify.html`。查询串不会进入回执，未知域名、相似域名、其他路径和未知弹窗仍失败关闭。
-- 人工接管只暂停原Playwright worker并保持同一个context/profile，不启动第二个浏览器。状态回执必须包含`requiresUserAction=true`、`userAction.kind=browser_control`和`navigationRequired=false`。仅发送文字、打开验证网址或编造占位页都不算完成交接。
-- `platform_cdp`模式直接把同一平台Browser页面交给用户，状态目标为`existing_platform_builtin_browser`；不得再打开VNC或AIO Sandbox。执行器不读取验证内容、不代做验证，也不把验证页面文本、截图、Cookie或查询参数写入日志。
-- 本地/独立headed浏览器才使用可替换的桌面显示适配：Playwright先`bringToFront`，Linux已有`xdotool`时再按唯一专用window class精确置前；工具不存在、零个或多个匹配窗口时不猜测。
-- 默认等待15分钟。worker或浏览器连接中断时停止并返回人工验证中断；禁止自动重发短信、重启登录、删除持久profile或关闭平台默认context。恢复时先只读检查登录状态。
+- 自动登录提交短信验证码后，只有精确登记的外部验证URL可以进入受控处理；当前登记项是`account.ose.aliyun.com/verify.html`。查询串不会进入回执，未知域名、相似域名、其他路径和未知弹窗仍失败关闭。
+- `platform_cdp`模式命中登记页后立即返回`LOGIN_LOCAL_VERIFICATION_REQUIRED`并终止worker、释放锁。用户或管理员必须在自己的可信电脑完整登录同一账号并通过验证；确认进入管易首页后，豆包先只读探测，仍未登录时最多重试一次。不得在云端交接或代做验证，也不得复制Cookie、profile或验证码。
+- 本地/独立headed浏览器可以保持原Playwright worker和同一个context/profile，把已有窗口交给当前电脑用户；Linux已有`xdotool`时可按唯一专用window class精确置前，工具不存在、零个或多个匹配窗口时不猜测。
+- 本地人工阶段默认等待15分钟。worker或浏览器连接中断时停止；禁止自动重发短信、重启登录、删除持久profile或关闭平台默认context。恢复时先只读检查登录状态。
 
 ## 上传状态机
 
