@@ -151,12 +151,14 @@ export function geometryMismatchReasons(
     reasons.push("inner_height_too_small");
   }
   if (
+    !externallyManagedWindow &&
     snapshot.outerWidth &&
     Math.abs(snapshot.outerWidth - target.width) > WINDOW_TOLERANCE
   ) {
     reasons.push("outer_width_mismatch");
   }
   if (
+    !externallyManagedWindow &&
     snapshot.outerHeight &&
     Math.abs(snapshot.outerHeight - snapshot.innerHeight) > 3 &&
     Math.abs(snapshot.outerHeight - target.height) > WINDOW_TOLERANCE

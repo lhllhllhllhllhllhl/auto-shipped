@@ -3,7 +3,7 @@
 ## 几何与定位
 
 - headed 浏览器只使用原生窗口和 `viewport: null`；Geometry Guard 是窗口几何的权威来源。
-- 自有浏览器只接受稳定的原生垂直滚动条沟槽；`platform_cdp`的外层窗口由平台管理，不执行`Browser.setWindowBounds`修复。平台页面若同时报告宽高滚动条沟槽，只有三次采样稳定、document/visual两组证据分别一致、每个沟槽不超过24px、缩放为1且有效client区域仍达到最小尺寸时才接受；其他差异继续失败关闭。
+- 自有浏览器只接受稳定的原生垂直滚动条沟槽；`platform_cdp`的外层窗口由平台管理，不要求匹配自有浏览器的`1440×850`目标，也不执行`Browser.setWindowBounds`修复。最大化或平台调整后的窗口只有在三次采样稳定、有效client区域达到最小尺寸、缩放为1时才接受；页面若同时报告宽高滚动条沟槽，还要求document/visual两组证据分别一致且每个沟槽不超过24px。其他差异继续失败关闭。
 - Guard 在浏览器启动、路由跳转、弹窗关闭和关键动作前读取 viewport、inner/outer、client、visual viewport、screen 和 DPR。
 - 几何变化后重新获取 Locator。当前执行器禁止固定坐标；若未来确需坐标，必须即时测量并回读业务结果。
 - 截图只观察当前页面，不改变 viewport、缩放或滚动。截图失败不能覆盖原始业务结果。

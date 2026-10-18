@@ -94,6 +94,35 @@ test("accepts stable platform-managed native scrollbar gutters", () => {
 });
 
 
+test("accepts a stable maximized platform-managed viewport", () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1920,
+    innerHeight: 993,
+    outerWidth: 1920,
+    outerHeight: 1080,
+    screenWidth: 1920,
+    screenHeight: 1080,
+    availableWidth: 1920,
+    availableHeight: 1080,
+    documentClientWidth: 1920,
+    documentClientHeight: 993,
+    visualViewportWidth: 1920,
+    visualViewportHeight: 993,
+    devicePixelRatio: 1,
+    url: "about:blank",
+  };
+
+  const locallyOwnedReasons = geometryMismatchReasons(snapshot);
+  assert.ok(locallyOwnedReasons.includes("outer_width_mismatch"));
+  assert.ok(locallyOwnedReasons.includes("outer_height_mismatch"));
+  assert.deepEqual(
+    geometryMismatchReasons(snapshot, { externallyManagedWindow: true }),
+    [],
+  );
+});
+
+
 test("platform-managed viewport still rejects unsafe page geometry", () => {
   const snapshot = {
     ...stableHeadedSnapshot(),
@@ -119,20 +148,47 @@ test("platform-managed viewport still rejects unsafe page geometry", () => {
 });
 
 
+test("platform-managed viewport still enforces minimum usable area", () => {
+  const snapshot = {
+    ...stableHeadedSnapshot(),
+    innerWidth: 1100,
+    innerHeight: 600,
+    outerWidth: 1920,
+    outerHeight: 1080,
+    availableWidth: 1920,
+    availableHeight: 1080,
+    documentClientWidth: 1100,
+    documentClientHeight: 600,
+    visualViewportWidth: 1100,
+    visualViewportHeight: 600,
+    devicePixelRatio: 1,
+  };
+
+  const reasons = geometryMismatchReasons(snapshot, {
+    externallyManagedWindow: true,
+  });
+  assert.ok(reasons.includes("inner_width_too_small"));
+  assert.ok(reasons.includes("inner_height_too_small"));
+});
+
+
 test("platform-managed guard validates without mutating the external window", async () => {
   const snapshot = {
     ...stableHeadedSnapshot(),
-    innerWidth: 1280,
-    innerHeight: 960,
-    outerWidth: 1440,
-    outerHeight: 850,
+    innerWidth: 1920,
+    innerHeight: 993,
+    outerWidth: 1920,
+    outerHeight: 1080,
+    screenWidth: 1920,
+    screenHeight: 1080,
     availableWidth: 1920,
     availableHeight: 1080,
-    documentClientWidth: 1265,
-    documentClientHeight: 945,
-    visualViewportWidth: 1265,
-    visualViewportHeight: 945,
+    documentClientWidth: 1920,
+    documentClientHeight: 993,
+    visualViewportWidth: 1920,
+    visualViewportHeight: 993,
     devicePixelRatio: 1,
+    url: "about:blank",
   };
   let cdpSessionCount = 0;
   const context = {
