@@ -135,10 +135,10 @@ test("closes a top-frame Ant speed notice before clicking import inside an ifram
     const guard = registerPageGeometry(page.context(), page);
     guard.ensureStable = async () => ({ stable: true });
     await page.setContent(`
-      <div id="speed-backdrop" style="z-index:888;position:fixed;top:64px;left:0;width:100%;height:calc(100vh - 64px);opacity:.4;background:black"></div>
+      <div id="speed-backdrop" style="z-index:888;position:fixed;top:64px;left:0;width:100%;height:calc(100vh - 64px);opacity:.4;background:black" onclick="this.remove()"></div>
       <div class="ant-popover ant-popconfirm ant-popover-placement-left" style="position:absolute;z-index:1060;top:100px;left:100px">
         <div class="ant-popover-message-title">当前页面已经更新到极速版，可以通过当前按钮回到历史版本</div>
-        <button class="ant-btn-primary ant-btn-sm" onclick="document.querySelector('#speed-backdrop').remove(); this.closest('.ant-popconfirm').remove()"><span>知道了</span></button>
+        <button class="ant-btn-primary ant-btn-sm" onclick="this.closest('.ant-popconfirm').remove()"><span>知道了</span></button>
       </div>
       <iframe id="trade-order-header"></iframe>
     `);

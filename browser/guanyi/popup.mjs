@@ -46,11 +46,14 @@ async function visibleButton(root, name) {
 }
 
 
-async function visibleFullPageDimBackdropCount(page) {
-  return await page.evaluate(() => {
-    const minimumWidth = window.innerWidth * 0.9;
-    const minimumHeight = window.innerHeight * 0.7;
-    return [...document.body.children].filter((element) => {
+async function visibleFullPageDimBackdrops(page) {
+  const matches = [];
+  const candidates = page.locator("body > div");
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    const isBackdrop = await candidate.evaluate((element) => {
+      const minimumWidth = window.innerWidth * 0.9;
+      const minimumHeight = window.innerHeight * 0.7;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       const opacity = Number.parseFloat(style.opacity || "1");
@@ -68,8 +71,12 @@ async function visibleFullPageDimBackdropCount(page) {
         rect.top <= window.innerHeight * 0.25 &&
         !element.textContent.trim()
       );
-    }).length;
-  });
+    });
+    if (isBackdrop) {
+      matches.push(candidate);
+    }
+  }
+  return matches;
 }
 
 
@@ -79,18 +86,37 @@ async function clickAndConfirmClosed(
   target,
   { confirmDimBackdrop = false } = {},
 ) {
-  const initialBackdropCount = confirmDimBackdrop
-    ? await visibleFullPageDimBackdropCount(page)
-    : 0;
+  const initialBackdrops = confirmDimBackdrop
+    ? await visibleFullPageDimBackdrops(page)
+    : [];
+  if (initialBackdrops.length > 1) {
+    return false;
+  }
   await target.click();
   const deadline = Date.now() + CLOSE_CONFIRM_TIMEOUT_MS;
+  let surfaceClosed = false;
   while (Date.now() < deadline) {
-    const surfaceClosed = !(await surface.isVisible().catch(() => false));
-    const backdropClosed =
-      !confirmDimBackdrop ||
-      initialBackdropCount === 0 ||
-      (await visibleFullPageDimBackdropCount(page)) === 0;
-    if (surfaceClosed && backdropClosed) {
+    surfaceClosed = !(await surface.isVisible().catch(() => false));
+    if (surfaceClosed) {
+      break;
+    }
+    await page.waitForTimeout(50);
+  }
+  if (!surfaceClosed || !confirmDimBackdrop || initialBackdrops.length === 0) {
+    return surfaceClosed;
+  }
+
+  let remainingBackdrops = await visibleFullPageDimBackdrops(page);
+  if (remainingBackdrops.length === 0) {
+    return true;
+  }
+  if (remainingBackdrops.length !== 1) {
+    return false;
+  }
+  await remainingBackdrops[0].click();
+  while (Date.now() < deadline) {
+    remainingBackdrops = await visibleFullPageDimBackdrops(page);
+    if (remainingBackdrops.length === 0) {
       return true;
     }
     await page.waitForTimeout(50);
