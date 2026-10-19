@@ -125,6 +125,54 @@ test("recovers once when the exact speed-edition notice appears during the impor
 });
 
 
+test("closes a top-frame Ant speed notice before clicking import inside an iframe", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <div id="speed-backdrop" style="z-index:888;position:fixed;top:64px;left:0;width:100%;height:calc(100vh - 64px);opacity:.4;background:black"></div>
+      <div class="ant-popover ant-popconfirm ant-popover-placement-left" style="position:absolute;z-index:1060;top:100px;left:100px">
+        <div class="ant-popover-message-title">当前页面已经更新到极速版，可以通过当前按钮回到历史版本</div>
+        <button class="ant-btn-primary ant-btn-sm" onclick="document.querySelector('#speed-backdrop').remove(); this.closest('.ant-popconfirm').remove()"><span>知道了</span></button>
+      </div>
+      <iframe id="trade-order-header"></iframe>
+    `);
+    await page.locator("#trade-order-header").evaluate((iframe) => {
+      iframe.srcdoc = `
+        <button id="import-button">订单导入</button>
+        <section id="import-dialog" style="display:none">
+          <h2>订单导入</h2>
+          <button role="tab">自定义导入</button>
+          <p>导入表格可增加、删除列</p>
+        </section>
+        <script>
+          document.querySelector('#import-button').addEventListener('click', () => {
+            document.querySelector('#import-dialog').style.display = 'block';
+          });
+        <\/script>
+      `;
+    });
+    await page
+      .frames()
+      .find((frame) => frame !== page.mainFrame())
+      .getByRole("button", { name: "订单导入", exact: true })
+      .waitFor();
+
+    const result = await navigateToCustomImport(page);
+    assert.equal(result.status, "import_dialog_ready");
+    assert.deepEqual(result.dismissedPopups, ["知道了"]);
+    assert.equal(await page.locator("#speed-backdrop").count(), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test("selects pending-review and confirms the rendered value without a file", async () => {
   const browser = await chromium.launch({
     executablePath: CHROME_EXECUTABLE,

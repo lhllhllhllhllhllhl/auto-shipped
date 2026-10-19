@@ -55,6 +55,70 @@ test("dismisses the exact speed-edition notice without relying on modal classes"
 });
 
 
+test("dismisses the real Ant speed notice and its full-page backdrop", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <div id="speed-backdrop" style="z-index:888;position:fixed;top:64px;left:0;width:100%;height:calc(100vh - 64px);opacity:.4;background:black"></div>
+      <div class="ant-popover ant-popconfirm ant-popover-placement-left" style="position:absolute;z-index:1060;top:100px;left:100px">
+        <div class="ant-popover-content">
+          <div class="ant-popover-inner">
+            <div class="ant-popover-inner-content">
+              <div class="ant-popover-message">
+                <div class="ant-popover-message-title">当前页面已经更新到极速版，可以通过当前按钮回到历史版本</div>
+              </div>
+              <div class="ant-popover-buttons">
+                <button style="display:none">取 消</button>
+                <button class="ant-btn-primary ant-btn-sm" onclick="document.querySelector('#speed-backdrop').remove(); this.closest('.ant-popconfirm').remove()"><span>知道了</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    const result = await dismissKnownPopups(page);
+    assert.deepEqual(result.dismissed, ["知道了"]);
+    assert.deepEqual(result.unknown, []);
+    assert.equal(await page.locator("#speed-backdrop").count(), 0);
+    assert.equal(await page.locator(".ant-popconfirm").count(), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+
+test("fails closed when the speed notice closes but its backdrop remains", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div id="speed-backdrop" style="z-index:888;position:fixed;top:64px;left:0;width:100%;height:calc(100vh - 64px);opacity:.4;background:black"></div>
+      <div class="ant-popover ant-popconfirm" style="position:absolute;z-index:1060;top:100px;left:100px">
+        <div class="ant-popover-message-title">当前页面已经更新到极速版，可以通过当前按钮回到历史版本</div>
+        <button onclick="this.closest('.ant-popconfirm').remove()">知道了</button>
+      </div>
+    `);
+    const result = await dismissKnownPopups(page);
+    assert.deepEqual(result.dismissed, []);
+    assert.ok(
+      result.unknown.some((text) => text.includes("安全确认后弹层或遮罩未完全消失")),
+    );
+    assert.equal(await page.locator("#speed-backdrop").count(), 1);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test("does not click an ambiguous acknowledgement for the exact speed notice", async () => {
   const browser = await chromium.launch({
     executablePath: CHROME_EXECUTABLE,

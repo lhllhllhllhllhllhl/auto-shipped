@@ -5,6 +5,7 @@ import { ensurePageGeometry } from "./geometry.mjs";
 const BLOCKING_SURFACES = [
   '[role="dialog"]:visible',
   ".ant-modal-wrap:visible .ant-modal:visible",
+  ".ant-popconfirm:visible",
   ".el-dialog__wrapper:visible .el-dialog:visible",
   ".vxe-modal--wrapper:visible",
   ".x-window:visible",
@@ -16,6 +17,7 @@ const SPEED_EDITION_NOTICE =
 const EXACT_ACKNOWLEDGEMENT_NOTICES = [
   { text: SPEED_EDITION_NOTICE, acknowledgement: "知道了" },
 ];
+const EXACT_NOTICE_SURFACE_SELECTORS = ".ant-popconfirm:visible";
 const SAFE_CLOSE_SELECTORS = [
   'button[aria-label="Close"]',
   'button[aria-label="关闭"]',
@@ -44,11 +46,51 @@ async function visibleButton(root, name) {
 }
 
 
-async function clickAndConfirmClosed(page, surface, target) {
+async function visibleFullPageDimBackdropCount(page) {
+  return await page.evaluate(() => {
+    const minimumWidth = window.innerWidth * 0.9;
+    const minimumHeight = window.innerHeight * 0.7;
+    return [...document.body.children].filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const opacity = Number.parseFloat(style.opacity || "1");
+      const background = style.backgroundColor.replaceAll(" ", "");
+      return (
+        style.position === "fixed" &&
+        style.pointerEvents !== "none" &&
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        opacity > 0 &&
+        opacity < 0.9 &&
+        background === "rgb(0,0,0)" &&
+        rect.width >= minimumWidth &&
+        rect.height >= minimumHeight &&
+        rect.top <= window.innerHeight * 0.25 &&
+        !element.textContent.trim()
+      );
+    }).length;
+  });
+}
+
+
+async function clickAndConfirmClosed(
+  page,
+  surface,
+  target,
+  { confirmDimBackdrop = false } = {},
+) {
+  const initialBackdropCount = confirmDimBackdrop
+    ? await visibleFullPageDimBackdropCount(page)
+    : 0;
   await target.click();
   const deadline = Date.now() + CLOSE_CONFIRM_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!(await surface.isVisible().catch(() => false))) {
+    const surfaceClosed = !(await surface.isVisible().catch(() => false));
+    const backdropClosed =
+      !confirmDimBackdrop ||
+      initialBackdropCount === 0 ||
+      (await visibleFullPageDimBackdropCount(page)) === 0;
+    if (surfaceClosed && backdropClosed) {
       return true;
     }
     await page.waitForTimeout(50);
@@ -69,7 +111,42 @@ async function visibleMatches(locator) {
 }
 
 
+async function findExactSurfaceTargets(page, notice) {
+  const targets = [];
+  let visibleTextCount = 0;
+  for (const frame of page.frames()) {
+    const surfaces = await visibleMatches(
+      frame.locator(EXACT_NOTICE_SURFACE_SELECTORS),
+    );
+    for (const surface of surfaces) {
+      const texts = await visibleMatches(
+        surface.getByText(notice.text, { exact: true }),
+      );
+      visibleTextCount += texts.length;
+      if (texts.length !== 1) {
+        continue;
+      }
+      const buttons = await visibleMatches(
+        surface.getByRole("button", {
+          name: notice.acknowledgement,
+          exact: true,
+        }),
+      );
+      if (buttons.length === 1) {
+        targets.push({ notice: texts[0], surface, button: buttons[0] });
+      }
+    }
+  }
+  return { targets, visibleTextCount };
+}
+
+
 async function findExactAcknowledgementTargets(page, notice) {
+  const surfaceMatches = await findExactSurfaceTargets(page, notice);
+  if (surfaceMatches.visibleTextCount > 0) {
+    return surfaceMatches;
+  }
+
   const targets = [];
   let visibleTextCount = 0;
   for (const frame of page.frames()) {
@@ -79,7 +156,7 @@ async function findExactAcknowledgementTargets(page, notice) {
     visibleTextCount += texts.length;
     for (const text of texts) {
       let ancestor = text;
-      for (let depth = 0; depth < 6; depth += 1) {
+      for (let depth = 0; depth < 12; depth += 1) {
         ancestor = ancestor.locator("..");
         const buttons = await visibleMatches(
           ancestor.getByRole("button", {
@@ -88,7 +165,7 @@ async function findExactAcknowledgementTargets(page, notice) {
           }),
         );
         if (buttons.length === 1) {
-          targets.push({ notice: text, button: buttons[0] });
+          targets.push({ notice: text, surface: ancestor, button: buttons[0] });
           break;
         }
         if (buttons.length > 1) {
@@ -105,14 +182,19 @@ async function dismissExactAcknowledgementNotice(page, notice) {
   const { targets, visibleTextCount } =
     await findExactAcknowledgementTargets(page, notice);
   if (targets.length !== 1) {
-    return { changed: false, ambiguous: visibleTextCount > 0 };
+    return {
+      changed: false,
+      ambiguous: visibleTextCount > 0,
+      closeFailed: false,
+    };
   }
   const closed = await clickAndConfirmClosed(
     page,
-    targets[0].notice,
+    targets[0].surface,
     targets[0].button,
+    { confirmDimBackdrop: true },
   );
-  return { changed: closed, ambiguous: false };
+  return { changed: closed, ambiguous: false, closeFailed: !closed };
 }
 
 
@@ -134,6 +216,7 @@ async function visibleBlockingSurfaces(page) {
 export async function dismissKnownPopups(page, maxPasses = 6) {
   const dismissed = [];
   const exactNoticeAmbiguities = [];
+  const exactNoticeCloseFailures = [];
   const initialUrl = page.url();
   for (let pass = 0; pass < maxPasses; pass += 1) {
     let changed = false;
@@ -142,6 +225,10 @@ export async function dismissKnownPopups(page, maxPasses = 6) {
       const result = await dismissExactAcknowledgementNotice(page, notice);
       if (result.ambiguous) {
         exactNoticeAmbiguities.push(notice.text);
+        break;
+      }
+      if (result.closeFailed) {
+        exactNoticeCloseFailures.push(notice.text);
         break;
       }
       if (result.changed) {
@@ -220,6 +307,9 @@ export async function dismissKnownPopups(page, maxPasses = 6) {
     ) {
       unknown.push(`${notice.text} [未找到唯一安全确认按钮]`);
     }
+  }
+  for (const noticeText of exactNoticeCloseFailures) {
+    unknown.push(`${noticeText} [安全确认后弹层或遮罩未完全消失]`);
   }
   for (const surface of remaining) {
     const text = (await surface.innerText().catch(() => ""))
