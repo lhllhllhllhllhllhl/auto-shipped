@@ -4,13 +4,66 @@ import test from "node:test";
 import { chromium } from "playwright-core";
 
 import { CHROME_EXECUTABLE } from "./config.mjs";
+import { registerPageGeometry } from "./geometry.mjs";
 import {
   ensureImportOptionsSelected,
   IMPORT_OPTION_LABELS,
   NavigationError,
+  navigateToCustomImport,
   selectCustomImportOrderStatus,
   selectOrderStatusControl,
 } from "./navigation.mjs";
+
+
+test("recovers once when the exact speed-edition notice appears during the import click", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <button id="import-button">订单导入</button>
+      <section id="import-dialog" style="display:none">
+        <h2>订单导入</h2>
+        <button role="tab">自定义导入</button>
+        <p>导入表格可增加、删除列</p>
+      </section>
+      <script>
+        const importButton = document.querySelector('#import-button');
+        let noticeShown = false;
+        importButton.addEventListener('pointerover', () => {
+          if (noticeShown) return;
+          noticeShown = true;
+          const notice = document.createElement('div');
+          notice.style.cssText =
+            'position:fixed;inset:0;z-index:9999;background:white';
+          notice.innerHTML =
+            '<p>当前页面已经更新到极速版，可以通过当前按钮回到历史版本</p>' +
+            '<button onclick="this.parentElement.remove()">知道了</button>';
+          document.body.appendChild(notice);
+        });
+        importButton.addEventListener('click', () => {
+          document.querySelector('#import-dialog').style.display = 'block';
+        });
+      </script>
+    `);
+    const result = await navigateToCustomImport(page);
+    assert.equal(result.status, "import_dialog_ready");
+    assert.deepEqual(result.dismissedPopups, ["知道了"]);
+    assert.equal(
+      await page.getByText(
+        "当前页面已经更新到极速版，可以通过当前按钮回到历史版本",
+        { exact: true },
+      ).count(),
+      0,
+    );
+  } finally {
+    await browser.close();
+  }
+});
 
 
 test("selects pending-review and confirms the rendered value without a file", async () => {

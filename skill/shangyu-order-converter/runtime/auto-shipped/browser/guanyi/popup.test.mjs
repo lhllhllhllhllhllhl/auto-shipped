@@ -30,6 +30,56 @@ test("dismisses an acknowledgement only inside a known popup", async () => {
 });
 
 
+test("dismisses the exact speed-edition notice without relying on modal classes", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <div class="late-speed-notice">
+        <p>当前页面已经更新到极速版，可以通过当前按钮回到历史版本</p>
+        <button onclick="this.parentElement.remove()">知道了</button>
+      </div>
+    `);
+    const result = await dismissKnownPopups(page);
+    assert.deepEqual(result.dismissed, ["知道了"]);
+    assert.deepEqual(result.unknown, []);
+    assert.equal(result.pageUrlUnchanged, true);
+  } finally {
+    await browser.close();
+  }
+});
+
+
+test("does not click an ambiguous acknowledgement for the exact speed notice", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`
+      <div>
+        <p>当前页面已经更新到极速版，可以通过当前按钮回到历史版本</p>
+        <button onclick="window.clicks = (window.clicks || 0) + 1">知道了</button>
+        <button onclick="window.clicks = (window.clicks || 0) + 1">知道了</button>
+      </div>
+    `);
+    const result = await dismissKnownPopups(page);
+    assert.deepEqual(result.dismissed, []);
+    assert.equal(result.unknown.length, 1);
+    assert.match(result.unknown[0], /未找到唯一安全确认按钮/);
+    assert.equal(await page.evaluate(() => window.clicks || 0), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test("does not click an acknowledgement in an unknown popup", async () => {
   const browser = await chromium.launch({
     executablePath: CHROME_EXECUTABLE,

@@ -22,6 +22,7 @@ export const IMPORT_OPTION_LABELS = Object.freeze([
   "相同平台单号，不同收货信息（收货人、收货地址）生成不同订单",
   "不校验已存在单据平台单号，允许平台单号重复",
 ]);
+const IMPORT_BUTTON_CLICK_TIMEOUT_MS = 5_000;
 
 
 async function clickFirstVisible(locator) {
@@ -43,6 +44,17 @@ async function hasImportButton(page) {
         exact: true,
       }),
     ),
+  );
+}
+
+
+async function findImportButton(page) {
+  return await firstVisibleInFrames(
+    page,
+    (frame) => frame.getByRole("button", {
+      name: "订单导入",
+      exact: true,
+    }),
   );
 }
 
@@ -176,20 +188,42 @@ export async function ensureOrderPage(page) {
 export async function navigateToCustomImport(page) {
   const orderPage = await ensureOrderPage(page);
   await ensurePageGeometry(page, "before_open_import_dialog");
-  const importButton = await firstVisibleInFrames(
-    page,
-    (frame) => frame.getByRole("button", {
-      name: "订单导入",
-      exact: true,
-    }),
-  );
+  let importButton = await findImportButton(page);
   if (!importButton) {
     throw new NavigationError(
       "IMPORT_BUTTON_NOT_FOUND",
       "订单查询页没有找到订单导入按钮。",
     );
   }
-  await importButton.click();
+  let popups = orderPage.popups;
+  try {
+    await importButton.click({ timeout: IMPORT_BUTTON_CLICK_TIMEOUT_MS });
+  } catch (error) {
+    // Some Guanyi notices are injected only after the order page is already
+    // actionable. A single retry is safe here because no file has been
+    // selected and it is allowed only after a registered popup was closed.
+    const latePopups = await dismissKnownPopups(page);
+    popups = mergePopupResults(popups, latePopups);
+    if (latePopups.unknown.length) {
+      throw new NavigationError(
+        "POPUP_UNKNOWN",
+        "订单导入按钮被未登记的阻断弹窗覆盖，已停止导航。",
+        { popupSummaries: latePopups.unknown },
+      );
+    }
+    if (latePopups.dismissed.length === 0) {
+      throw error;
+    }
+    await ensurePageGeometry(page, "late_known_popup_closed");
+    importButton = await findImportButton(page);
+    if (!importButton) {
+      throw new NavigationError(
+        "IMPORT_BUTTON_NOT_FOUND",
+        "关闭延迟通知后没有找到订单导入按钮。",
+      );
+    }
+    await importButton.click({ timeout: IMPORT_BUTTON_CLICK_TIMEOUT_MS });
+  }
 
   const customImport = await waitForVisibleInFrames(
     page,
@@ -238,7 +272,7 @@ export async function navigateToCustomImport(page) {
     state: observed.state,
     url: observed.url,
     route: orderPage.route,
-    dismissedPopups: orderPage.popups.dismissed,
+    dismissedPopups: popups.dismissed,
     safety: "No file was selected or uploaded.",
   };
 }
