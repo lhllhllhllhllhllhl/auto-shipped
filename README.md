@@ -103,9 +103,13 @@ PYTHONPATH=src python -m auto_shipped.cli preflight \
 cd browser/guanyi
 npm run verify-manifest -- "/path/to/上传预检.json"
 npm run prepare-operation -- "/path/to/上传预检.json"
+
+# Excel 被传到另一台电脑或云工作区时，显式绑定它在当前环境中的路径
+npm run verify-manifest -- "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
+npm run prepare-operation -- "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
 ```
 
-`prepare-operation` 在 manifest 与 Excel 仍一致时建立本地 `prepared` 操作 ID。它不打开文件选择器、不上传，也不携带上传授权；未来的文件选择、提交、任务中心回读和防重复均必须沿用该操作 ID。
+第二个参数只能是用户明确交付的当前 Excel，执行器不会扫描目录或猜测“最新文件”。原 manifest 保持不变；只有当前文件的文件名、大小和 SHA-256 全部与预检记录一致时，`prepare-operation` 才建立本地 `prepared` 操作 ID。它不打开文件选择器、不上传，也不携带上传授权；未来的文件选择、提交、任务中心回读和防重复均必须沿用该操作 ID。
 
 ## 当前支持
 

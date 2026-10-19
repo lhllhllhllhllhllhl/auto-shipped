@@ -181,15 +181,21 @@ test("refuses file selection without the exact authorization token", () => {
 test("requires a verified task baseline before file selection", () => {
   const verified = {
     manifestPath: "/tmp/preflight.json",
+    manifestArtifactPath: "/original-machine/exports/orders.xlsx",
     workbookPath: "/tmp/orders.xlsx",
+    artifactPathBinding: "explicit_current_path",
     artifactSha256: "a".repeat(64),
     artifactSizeBytes: 123,
   };
   const record = {
     state: OperationState.PREPARED,
-    manifest: { path: verified.manifestPath },
+    manifest: {
+      path: verified.manifestPath,
+      artifactPath: verified.manifestArtifactPath,
+    },
     artifact: {
       path: verified.workbookPath,
+      pathBinding: verified.artifactPathBinding,
       sha256: verified.artifactSha256,
       sizeBytes: verified.artifactSizeBytes,
     },

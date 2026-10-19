@@ -30,7 +30,7 @@
 - `navigation.mjs`：订单查询、自定义导入导航和“待审核”表单状态准备。
 - `task-center.mjs`：只读任务中心导航、结构探针、已完成导入任务记录 ID 核验和结果窗口回读；结果仅返回汇总数量与脱敏失败原因。
 - `task-reconciliation.mjs`：合并“执行中 + 已完成”任务建立上传前 ID 基线，并以集合差异识别唯一新增任务。
-- `manifest.mjs`：验证预检 manifest、Excel 路径、大小和 SHA-256。
+- `manifest.mjs`：验证预检 manifest，并把用户明确交付的当前 Excel 路径绑定到原始文件名、大小和 SHA-256；不扫描目录、不改写 manifest。
 - `operation-state.mjs`：为通过预检的批次建立不可跳级的操作状态机和非敏感本地回执。
 - `file-selection.mjs`：复核操作记录、任务基线与文件哈希，唯一定位“订单信息上传”输入框，并在当次授权门禁后选择一次文件。
 - `submission.mjs`：在同一操作内选择文件，点击导入弹窗的第一次“确定”，完整滚动核对“自定义字段对应”的全部字段，再点击第二次“确定”；任一阶段出现未登记写请求、字段错配或证据不足即停止。
@@ -66,7 +66,13 @@ npm run execute-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 npm run reconcile-operation -- "<operation-id>"
 npm run verify-manifest -- "/path/to/上传预检.json"
 npm run prepare-operation -- "/path/to/上传预检.json"
+
+# 跨电脑或云工作区时显式提供当前 Excel 路径
+npm run verify-manifest -- "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
+npm run prepare-operation -- "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
 ```
+
+manifest 中的 `artifact.path` 是转换环境留下的来源位置证据，不因文件传输而改写。当前环境无法访问该位置时，必须把用户明确交付的 Excel 路径作为第二个参数传入；文件名、大小或 SHA-256 任一不一致即停止。不得复制到伪造的原路径、扫描下载目录、按修改时间猜文件或只因路径变化重建 manifest。
 
 `credential:set` 由员工在本机终端交互执行。看不到终端时可运行 `credential:web`，它会提供一次性 `127.0.0.1` 页面，配置成功后自动关闭本地服务。两种方式都只写入当前系统安全凭证区。通常优先复用专用 Chrome 的持久登录会话；会话失效时才调用登录流程。
 
@@ -104,7 +110,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 8. manifest 与 Excel 不一致时在文件选择之前阻断。
 9. 浏览器启动、路由跳转、弹窗关闭和关键动作前的几何保持稳定。
 10. 截图前后 viewport 与滚动位置保持不变。
-11. `prepare-operation` 只建立 `prepared` 操作 ID；不能跳过文件选择边界直接进入已提交状态。
+11. `prepare-operation` 只建立 `prepared` 操作 ID，并同时记录 manifest 的原始文件位置和当前环境中经过哈希核验的绑定路径；不能跳过文件选择边界直接进入已提交状态。
 12. 未登录时任务中心探针返回 `needs_login`，不自动触发短信；登录后只读取标题、表头和可见行数。
 13. `probe-completed-imports` 只读取“自定义订单导入”的任务记录 ID、序号、任务名称、时间和状态；任务 ID 必须同时通过行属性与 ExtJS 数据记录模型一致性校验。不读取操作人、操作列，不打开任务行；ID 证据不足时不得把列表结果当作写后成功凭证。
 14. `prepare-import-form` 必须导航到“订单导入 → 自定义导入”，只允许把订单状态设为“待审核”，并回读选中值；文件输入框必须保持为空，禁止点击“确定”。

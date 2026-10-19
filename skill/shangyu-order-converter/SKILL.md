@@ -215,6 +215,8 @@ python3 <skill-dir>/scripts/guanyi_browser.py reconcile-operation "<operation-id
 python3 <skill-dir>/scripts/guanyi_browser.py resolve-no-task "<operation-id>" "CONFIRM_CLOSE_NO_TASK_OPERATION"
 python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/path/to/上传预检.json"
 python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传预检.json"
+python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
+python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
 ```
 
 浏览器几何、截图、暂态恢复和未来写入边界见 [references/browser-safety.md](references/browser-safety.md)。
@@ -243,8 +245,8 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - Agent 必须把最终任务 ID、导入总数、成功数、失败分类和需要人工处理的来源行号返回给用户；不得返回或记录结果窗口中的收件人、手机号、详细地址或原始失败整行。未登记的失败文本统一脱敏为人工查看提示。
 - 同一 Excel 哈希只有在已 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 和明确失败关闭后允许创建新操作；新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得本次上传授权。
 - 同一对话可以一次授权多个明确列出的已转换批次。Agent必须先回显 manifest/operation 清单，再按顺序逐批提交；每批独立绑定路径、SHA-256、操作 ID 和任务基线，前一批未 `verified` 时不得开始下一批。不得扫描目录猜测“最新文件”。
-- `verify-manifest` 只校验预检 manifest 与 Excel 的路径、大小和 SHA-256；失败时停止。即使通过，也不得据此选择文件或上传。
-- `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；它仍不代表上传授权，不得跳级到写入状态。
+- `verify-manifest` 校验预检 manifest 与当前 Excel 的文件名、大小和 SHA-256；失败时停止。同一环境可只传manifest，跨电脑或附件被平台复制到新路径时，必须把用户明确交付的当前Excel路径作为第二个参数传入。不得改写或重建原manifest、伪造原路径、扫描目录或猜测“最新文件”。即使通过，也不得据此选择文件或上传。
+- `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；记录同时保留manifest中的原始文件位置和当前环境经过哈希核验的绑定路径。它仍不代表上传授权，不得跳级到写入状态。
 - 返回 `popup_unknown` 或 `navigation_failed` 时停止并报告，不使用坐标或盲目重试。
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
 - 自有 Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。豆包`platform_cdp`浏览器的窗口由平台托管，不要求匹配自有浏览器的`1440×850`目标；最大化窗口只有在三次采样稳定、有效页面区域达到最小尺寸且缩放正常时才放行。宽高两个原生滚动条沟槽还须由两方向document/visual证据分别一致证明且各不超过24px；执行器不得修改平台窗口，也不得全局放宽几何容差。
@@ -261,7 +263,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传
 - 百礼汇：路由已确认为“专用后台取单后导入管易”，后台连接器尚待样本和取单方式确认。
 - 管易网页：Playwright 执行器已具备持久会话、安全凭证适配、跨消息短信验证交接、登记验证页的同浏览器人工接管、Geometry Guard、只读截图不变量、跨框架状态识别、已知通知处理、导入页导航、“待审核”表单准备、任务中心结构探针、上传前任务 ID 基线、文件选择、两段确定、字段映射核验、唯一新增任务识别和结果汇总回读。2026-10-14 已完成总数2、成功2、失败0的真实全量成功闭环验收；生产入口仍要求用户对明确批次的当次上传授权。
 - 可迁移性：Skill 已内置确定性运行时、模板、规则、商品资料快照和 SHA-256 清单；新 Windows/macOS 电脑会自动选择目录和凭证提供器，但仍需安装依赖、重新配置本机凭证并建立登录会话。云端只读Skill副本经清单校验后会完整复制到私有可写状态目录，并在副本上恢复当前用户写权限再安装依赖。
-- 上传前预检：转换成功时生成不含收件信息的 manifest，并由浏览器执行器复核 Excel 路径、大小和 SHA-256；manifest 不包含上传授权。
+- 上传前预检：转换成功时生成不含收件信息的 manifest，并由浏览器执行器复核当前 Excel 的文件名、大小和 SHA-256；跨环境时显式绑定当前路径并保留原始路径证据，manifest 不包含上传授权。
 - 多文件合并：统一入口已将“合并为一个管易Excel”设为多文件默认行为；只有用户明确要求分开时才启用`--separate`。每份原始 Excel 先走完整单文件链路，全部通过后才按输入顺序合并；重复源文件、跨文件平台单号冲突、目标模板不一致或任一追问都会 fail-close，不产生部分成品。
 - 文字/截图订单：V0.1已具备Agent提取合同、关键字段来源标记、脱敏预览、集中追问、用户确认门禁，以及标准化Excel和一次性计划生成。天猫/京东只证明渠道，不能单独证明“尚舆自营”；公司上下文不明确时先向用户确认。自营订单确认后按渠道选旗舰店；自营玉米`袋`匹配8棒家庭装，`根`尚未登记时追问；自营文本`京东中通`按京东旗舰店并把物流原样填写为`京东中通`，同时把姓名后的四位码追加到联系电话和联系手机，缺失或冲突时停止追问。荣之达`根`匹配彩袋单棒装。裸棒在普通发货中禁用。
 - 白标商品：独立版本化SKU库已接入所有当前管易转换工作流；当前权威版本含131条精确商品代码+规格代码，并完整替换旧3条临时记录。库异常时停止，命中时复用统一卖家备注组合器，不影响来源识别和普通商品映射。
