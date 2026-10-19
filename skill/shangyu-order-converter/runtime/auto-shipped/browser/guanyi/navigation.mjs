@@ -226,13 +226,22 @@ export async function ensureOrderPage(page) {
 export async function navigateToCustomImport(page) {
   const current = await detectState(page);
   if (current.state === BrowserState.IMPORT_DIALOG_READY) {
+    const restoredOrderPage = await ensureOrderPage(page);
+    const restored = await detectState(page);
+    if (restored.state !== BrowserState.IMPORT_DIALOG_READY) {
+      throw new NavigationError(
+        "IMPORT_DIALOG_NOT_RESTORED",
+        "切回订单查询页签后，已准备的自定义导入弹窗不可见。",
+        { observedState: restored.state, url: restored.url },
+      );
+    }
     await ensurePageGeometry(page, "existing_import_dialog_ready");
     return {
       status: "import_dialog_ready",
-      state: current.state,
-      url: current.url,
+      state: restored.state,
+      url: restored.url,
       route: "existing_import_dialog",
-      dismissedPopups: [],
+      dismissedPopups: restoredOrderPage.popups.dismissed,
       safety: "The existing import dialog was reused; no file was selected or uploaded.",
     };
   }

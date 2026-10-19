@@ -183,15 +183,28 @@ test("reuses an already-open custom-import dialog without clicking import again"
     const guard = registerPageGeometry(page.context(), page);
     guard.ensureStable = async () => ({ stable: true });
     await page.setContent(`
+      <div role="tablist" style="position:relative;z-index:3">
+        <button id="order-tab" role="tab" aria-selected="false">订单查询</button>
+        <button id="task-tab" role="tab" aria-selected="true">任务中心</button>
+      </div>
       <button id="import-button">订单导入</button>
       <div class="ant-modal-wrap order-import-modal"
-        style="position:fixed;inset:0;z-index:1000;background:white">
+        style="position:fixed;inset:60px;z-index:4;background:white">
         <h2>订单导入</h2>
         <button role="tab">自定义导入</button>
         <p>导入表格可增加、删除列</p>
       </div>
+      <section id="task-panel" role="tabpanel"
+        style="position:fixed;inset:50px 0 0;z-index:5;background:white">
+        <iframe id="paneltaskCenter"></iframe>
+      </section>
       <script>
         window.importClickCount = 0;
+        document.querySelector('#order-tab').addEventListener('click', () => {
+          document.querySelector('#order-tab').setAttribute('aria-selected', 'true');
+          document.querySelector('#task-tab').setAttribute('aria-selected', 'false');
+          document.querySelector('#task-panel').style.display = 'none';
+        });
         document.querySelector('#import-button').addEventListener('click', () => {
           window.importClickCount += 1;
         });
@@ -202,6 +215,11 @@ test("reuses an already-open custom-import dialog without clicking import again"
 
     assert.equal(result.status, "import_dialog_ready");
     assert.equal(result.route, "existing_import_dialog");
+    assert.equal(
+      await page.locator("#order-tab").getAttribute("aria-selected"),
+      "true",
+    );
+    assert.equal(await page.locator("#task-panel").isVisible(), false);
     assert.equal(await page.evaluate(() => window.importClickCount), 0);
   } finally {
     await browser.close();
