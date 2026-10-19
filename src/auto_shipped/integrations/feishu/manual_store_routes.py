@@ -6,6 +6,8 @@ from typing import Any, Iterable, Mapping
 
 from auto_shipped.catalog import ProductCatalog, clean_identifier
 
+from .versioned_repository import VersionedRepositoryError, record_is_visible
+
 
 class ManualStoreRouteError(ValueError):
     """Raised when a governed manual-order store route is invalid."""
@@ -62,16 +64,22 @@ def normalize_manual_store_routes(
         status = clean_identifier(source.get("status"))
         if status == "inactive":
             continue
-        if status != "active":
-            raise ManualStoreRouteError(
-                f"手工单店铺关联{source.get('route_id')!r}状态不是active/inactive。"
-            )
         route_id = clean_identifier(source.get("route_id"))
         scope_id = clean_identifier(source.get("scope_id"))
         product_code = clean_identifier(source.get("product_code"))
         spec_code = clean_identifier(source.get("spec_code"))
         store = clean_identifier(source.get("store"))
         route_version = clean_identifier(source.get("route_version"))
+        try:
+            if not record_is_visible(
+                status=status,
+                record_version=route_version,
+                repository_revision=revision,
+                record_label=f"手工单店铺关联{route_id or '<unknown>'}",
+            ):
+                continue
+        except VersionedRepositoryError as exc:
+            raise ManualStoreRouteError(str(exc)) from exc
         missing = [
             name
             for name, value in {
@@ -106,11 +114,6 @@ def normalize_manual_store_routes(
             raise ManualStoreRouteError(f"手工单店铺关联route_id重复：{route_id}")
         if route_key in seen_keys:
             raise ManualStoreRouteError(f"手工单店铺关联route_key重复：{route_key}")
-        if revision.isdigit() and route_version.isdigit():
-            if int(route_version) > int(revision):
-                raise ManualStoreRouteError(
-                    f"手工单店铺关联{route_id}版本高于正式库版本。"
-                )
         seen_ids.add(route_id)
         seen_keys.add(route_key)
         normalized.append(

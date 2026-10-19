@@ -274,6 +274,53 @@ def _item_expansion_records(
     return list(reader()) if callable(reader) else []
 
 
+def _repository_accepts_new_write(metadata: Mapping[str, Any]) -> bool:
+    return (
+        clean_identifier(metadata.get("repository_status")) == "active"
+        and not clean_identifier(metadata.get("publish_operation_id"))
+    )
+
+
+def _acquire_repository_write_lock(
+    gateway: OwnerMappingPublisherGateway,
+    *,
+    revision_before: str,
+    operation_id: str,
+) -> bool:
+    """Acquire the single-writer lock without changing the readable revision."""
+
+    latest = gateway.get_official_repository_metadata()
+    if (
+        not _repository_accepts_new_write(latest)
+        or clean_identifier(latest.get("mapping_revision")) != revision_before
+    ):
+        return False
+    gateway.update_official_repository_metadata(
+        {"publish_operation_id": operation_id}
+    )
+    verified = gateway.get_official_repository_metadata()
+    return (
+        clean_identifier(verified.get("repository_status")) == "active"
+        and clean_identifier(verified.get("mapping_revision")) == revision_before
+        and clean_identifier(verified.get("publish_operation_id")) == operation_id
+    )
+
+
+def _publish_targets(
+    gateway: OwnerMappingPublisherGateway,
+    logs: Sequence[Mapping[str, Any]],
+) -> None:
+    for log in logs:
+        action = clean_identifier(log.get("action"))
+        key = clean_identifier(log.get("mapping_key"))
+        if action in {"CREATE", "DIRECT_CREATE"}:
+            gateway.update_official_mapping_status(key, "active")
+        elif action == "DIRECT_CREATE_MANUAL_STORE_ROUTE":
+            gateway.update_manual_store_route_status(key, "active")
+        elif action == "DIRECT_CREATE_ITEM_EXPANSION":
+            gateway.update_item_expansion_rule_status(key, "active")
+
+
 def diagnose_official_repository_recovery(
     gateway: OwnerMappingPublisherGateway,
     catalog: ProductCatalog,
@@ -284,7 +331,7 @@ def diagnose_official_repository_recovery(
     repository_status = clean_identifier(metadata.get("repository_status"))
     revision = clean_identifier(metadata.get("mapping_revision"))
     operation_id = clean_identifier(metadata.get("publish_operation_id"))
-    if repository_status == "active":
+    if repository_status == "active" and not operation_id:
         return OfficialRepositoryRecoveryResult(
             status="healthy",
             operation_id="",
@@ -293,7 +340,7 @@ def diagnose_official_repository_recovery(
             log_count=0,
             reason="正式库已经是active，无需恢复。",
         )
-    if repository_status != "publishing" or not operation_id:
+    if repository_status not in {"active", "publishing"} or not operation_id:
         return OfficialRepositoryRecoveryResult(
             status="blocked",
             operation_id=operation_id,
@@ -301,7 +348,7 @@ def diagnose_official_repository_recovery(
             mapping_revision=revision,
             log_count=0,
             code="OFFICIAL_REPOSITORY_RECOVERY_METADATA_INVALID",
-            reason="只有带publish_operation_id的publishing状态可自动诊断。",
+            reason="只有带publish_operation_id的active/legacy publishing状态可自动诊断。",
         )
 
     logs = [
@@ -309,10 +356,18 @@ def diagnose_official_repository_recovery(
         for item in gateway.list_mapping_publish_logs()
         if clean_identifier(item.get("operation_id")) == operation_id
     ]
+    before_revisions = {
+        clean_identifier(item.get("official_revision_before")) for item in logs
+    }
     after_revisions = {
         clean_identifier(item.get("official_revision_after")) for item in logs
     }
-    if not logs or len(after_revisions) != 1 or revision not in after_revisions:
+    if (
+        not logs
+        or len(before_revisions) != 1
+        or len(after_revisions) != 1
+        or revision not in before_revisions | after_revisions
+    ):
         return OfficialRepositoryRecoveryResult(
             status="blocked",
             operation_id=operation_id,
@@ -320,7 +375,7 @@ def diagnose_official_repository_recovery(
             mapping_revision=revision,
             log_count=len(logs),
             code="OFFICIAL_REPOSITORY_RECOVERY_REVISION_UNPROVEN",
-            reason="发布日志不存在、目标版本不唯一，或元数据尚未到达目标版本。",
+            reason="发布日志不存在、前后版本不唯一，或元数据版本不在本次发布边界内。",
         )
     if any(clean_identifier(item.get("status")) not in {"staged", "published"} for item in logs):
         return OfficialRepositoryRecoveryResult(
@@ -357,7 +412,8 @@ def diagnose_official_repository_recovery(
         else:
             records = []
         if not records or any(
-            record is None or clean_identifier(record.get("status")) != "active"
+            record is None
+            or clean_identifier(record.get("status")) not in {"active", "staged"}
             for record in records
         ):
             return OfficialRepositoryRecoveryResult(
@@ -367,12 +423,64 @@ def diagnose_official_repository_recovery(
                 mapping_revision=revision,
                 log_count=len(logs),
                 code="OFFICIAL_REPOSITORY_RECOVERY_TARGET_INCOMPLETE",
-                reason=f"操作{action or 'unknown'}的目标记录尚未全部处于active。",
+                reason=f"操作{action or 'unknown'}的目标记录尚未全部处于staged/active。",
             )
+    target_revision = next(iter(after_revisions))
+    logged_mapping_keys = {
+        clean_identifier(item.get("mapping_key"))
+        for item in logs
+        if clean_identifier(item.get("action")) in {"CREATE", "DIRECT_CREATE"}
+    }
+    logged_route_keys = {
+        clean_identifier(item.get("mapping_key"))
+        for item in logs
+        if clean_identifier(item.get("action"))
+        == "DIRECT_CREATE_MANUAL_STORE_ROUTE"
+    }
+    logged_expansion_keys = {
+        clean_identifier(item.get("mapping_key"))
+        for item in logs
+        if clean_identifier(item.get("action")) == "DIRECT_CREATE_ITEM_EXPANSION"
+    }
+    unexpected_staged = [
+        f"mapping:{clean_identifier(item.get('mapping_key'))}"
+        for item in mappings
+        if clean_identifier(item.get("status")) == "staged"
+        and clean_identifier(item.get("mapping_version")) == target_revision
+        and clean_identifier(item.get("mapping_key")) not in logged_mapping_keys
+    ]
+    unexpected_staged.extend(
+        f"store_route:{clean_identifier(item.get('route_key'))}"
+        for item in routes
+        if clean_identifier(item.get("status")) == "staged"
+        and clean_identifier(item.get("route_version")) == target_revision
+        and clean_identifier(item.get("route_key")) not in logged_route_keys
+    )
+    unexpected_staged.extend(
+        f"item_expansion:{clean_identifier(item.get('rule_key'))}"
+        for item in expansions
+        if clean_identifier(item.get("status")) == "staged"
+        and clean_identifier(item.get("rule_version")) == target_revision
+        and clean_identifier(item.get("rule_key")) not in logged_expansion_keys
+    )
+    if unexpected_staged:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id=operation_id,
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=len(logs),
+            code="OFFICIAL_REPOSITORY_RECOVERY_UNLOGGED_STAGED_ROWS",
+            reason="目标版本存在不属于本操作日志的staged记录，禁止自动切换版本。",
+        )
     try:
         build_official_mapping_snapshot(
             mappings,
-            {**metadata, "repository_status": "active"},
+            {
+                **metadata,
+                "repository_status": "active",
+                "mapping_revision": target_revision,
+            },
             catalog,
             manual_store_route_records=routes,
             item_expansion_records=expansions,
@@ -394,7 +502,7 @@ def diagnose_official_repository_recovery(
         repository_status=repository_status,
         mapping_revision=revision,
         log_count=len(logs),
-        reason="目标记录、发布日志、版本号和完整快照一致；只需完成日志封口并解锁。",
+        reason="目标记录、发布日志和目标快照一致；可安全切换版本并完成封口。",
     )
 
 
@@ -433,9 +541,20 @@ def recover_official_repository(
     if diagnosis.status != "recoverable":
         return diagnosis
     try:
-        for log in gateway.list_mapping_publish_logs():
-            if clean_identifier(log.get("operation_id")) != diagnosis.operation_id:
-                continue
+        operation_logs = [
+            log
+            for log in gateway.list_mapping_publish_logs()
+            if clean_identifier(log.get("operation_id")) == diagnosis.operation_id
+        ]
+        target_revision = clean_identifier(
+            operation_logs[0].get("official_revision_after")
+        )
+        if diagnosis.mapping_revision != target_revision:
+            gateway.update_official_repository_metadata(
+                {"mapping_revision": target_revision}
+            )
+        _publish_targets(gateway, operation_logs)
+        for log in operation_logs:
             if clean_identifier(log.get("status")) == "staged":
                 gateway.update_mapping_publish_log_status(
                     clean_identifier(log.get("event_id")),
@@ -461,7 +580,8 @@ def recover_official_repository(
         diagnosis,
         status="recovered",
         repository_status="active",
-        reason="发布日志已封口，正式库已恢复active。",
+        mapping_revision=target_revision,
+        reason="目标版本已切换，发布日志和记录已封口；正式库继续保持active。",
     )
 
 
@@ -727,7 +847,7 @@ def add_confirmed_mapping_direct(
 
     metadata = gateway.get_official_repository_metadata()
     revision_before = clean_identifier(metadata.get("mapping_revision"))
-    if clean_identifier(metadata.get("repository_status")) != "active":
+    if not _repository_accepts_new_write(metadata):
         return DirectMappingAddResult(
             status="blocked",
             operation_id=operation_id or clean_identifier(
@@ -738,8 +858,11 @@ def add_confirmed_mapping_direct(
             revision_after="",
             product_code=target.product_code,
             spec_code=target.spec_code,
-            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
-            reason="正式映射库不是active，需管理员先核对并恢复。",
+            code="OFFICIAL_REPOSITORY_WRITE_IN_PROGRESS",
+            reason=(
+                "正式库当前有一个未封口写操作；旧active版本仍可用于转换，"
+                "但新的正式写入需等待管理员恢复或封口。"
+            ),
         )
     revision_after = _next_revision(revision_before)
     official_records = gateway.list_official_mapping_records()
@@ -846,10 +969,10 @@ def add_confirmed_mapping_direct(
             reason=str(exc),
         )
     try:
-        latest = gateway.get_official_repository_metadata()
-        if (
-            clean_identifier(latest.get("repository_status")) != "active"
-            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        if not _acquire_repository_write_lock(
+            gateway,
+            revision_before=revision_before,
+            operation_id=stable_operation_id,
         ):
             return DirectMappingAddResult(
                 status="blocked",
@@ -860,15 +983,9 @@ def add_confirmed_mapping_direct(
                 product_code=target.product_code,
                 spec_code=target.spec_code,
                 code="DIRECT_MAPPING_REVISION_CHANGED",
-                reason="正式映射库在预检后发生变化，未写入。",
+                reason="正式映射库在预检后发生变化或已有写操作，未写入。",
             )
-        gateway.update_official_repository_metadata(
-            {
-                "repository_status": "publishing",
-                "publish_operation_id": stable_operation_id,
-            }
-        )
-        gateway.upsert_official_mapping_record(replace(record, status="inactive"))
+        gateway.upsert_official_mapping_record(replace(record, status="staged"))
         event_id = _stable_id("event", stable_operation_id, mapping_key)
         gateway.upsert_mapping_publish_log(
             MappingPublishLogRecord(
@@ -897,10 +1014,25 @@ def add_confirmed_mapping_direct(
                 created_at=written_at,
             )
         )
+        staged_records = gateway.list_official_mapping_records()
+        build_official_mapping_snapshot(
+            staged_records,
+            {
+                **gateway.get_official_repository_metadata(),
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=_item_expansion_records(gateway),
+            synced_at=written_at,
+        )
+        gateway.update_official_repository_metadata(
+            {"mapping_revision": revision_after}
+        )
         gateway.update_official_mapping_status(mapping_key, "active")
         gateway.update_official_repository_metadata(
             {
-                "mapping_revision": revision_after,
                 "last_published_at": written_at,
                 "last_published_by": identity.user_id,
             }
@@ -917,7 +1049,7 @@ def add_confirmed_mapping_direct(
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
         gateway.update_official_repository_metadata(
-            {"repository_status": "active", "publish_operation_id": ""}
+            {"publish_operation_id": ""}
         )
     except Exception as exc:
         return DirectMappingAddResult(
@@ -930,8 +1062,8 @@ def add_confirmed_mapping_direct(
             spec_code=target.spec_code,
             code="DIRECT_MAPPING_WRITE_INTERRUPTED",
             reason=(
-                "写入中断；正式库保持可核验状态，禁止继续转换。请管理员按"
-                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+                "写入中断；已提交的active版本仍可继续转换，新的正式写入暂缓。"
+                f"请管理员按operation_id={stable_operation_id}核对并恢复：{exc}"
             ),
         )
     return DirectMappingAddResult(
@@ -1054,7 +1186,7 @@ def add_confirmed_manual_store_route_direct(
     )
     metadata = gateway.get_official_repository_metadata()
     revision_before = clean_identifier(metadata.get("mapping_revision"))
-    if clean_identifier(metadata.get("repository_status")) != "active":
+    if not _repository_accepts_new_write(metadata):
         return DirectManualStoreRouteAddResult(
             status="blocked",
             operation_id=operation_id
@@ -1065,8 +1197,11 @@ def add_confirmed_manual_store_route_direct(
             product_code=target.product_code,
             spec_code=target.spec_code,
             store=store,
-            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
-            reason="正式映射库不是active，需管理员先核对并恢复。",
+            code="OFFICIAL_REPOSITORY_WRITE_IN_PROGRESS",
+            reason=(
+                "正式库当前有一个未封口写操作；旧active版本仍可用于转换，"
+                "但新的正式写入需等待管理员恢复或封口。"
+            ),
         )
     revision_after = _next_revision(revision_before)
     existing_routes = _manual_store_routes(gateway)
@@ -1167,10 +1302,10 @@ def add_confirmed_manual_store_route_direct(
             reason=str(exc),
         )
     try:
-        latest = gateway.get_official_repository_metadata()
-        if (
-            clean_identifier(latest.get("repository_status")) != "active"
-            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        if not _acquire_repository_write_lock(
+            gateway,
+            revision_before=revision_before,
+            operation_id=stable_operation_id,
         ):
             return DirectManualStoreRouteAddResult(
                 status="blocked",
@@ -1182,15 +1317,9 @@ def add_confirmed_manual_store_route_direct(
                 spec_code=target.spec_code,
                 store=store,
                 code="DIRECT_STORE_ROUTE_REVISION_CHANGED",
-                reason="正式映射库在预检后发生变化，未写入。",
+                reason="正式映射库在预检后发生变化或已有写操作，未写入。",
             )
-        gateway.update_official_repository_metadata(
-            {
-                "repository_status": "publishing",
-                "publish_operation_id": stable_operation_id,
-            }
-        )
-        gateway.upsert_manual_store_route_record(replace(record, status="inactive"))
+        gateway.upsert_manual_store_route_record(replace(record, status="staged"))
         event_id = _stable_id("event", stable_operation_id, route_key)
         gateway.upsert_mapping_publish_log(
             MappingPublishLogRecord(
@@ -1221,10 +1350,25 @@ def add_confirmed_manual_store_route_direct(
                 created_at=written_at,
             )
         )
+        staged_routes = _manual_store_routes(gateway)
+        build_official_mapping_snapshot(
+            gateway.list_official_mapping_records(),
+            {
+                **gateway.get_official_repository_metadata(),
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            manual_store_route_records=staged_routes,
+            item_expansion_records=_item_expansion_records(gateway),
+            synced_at=written_at,
+        )
+        gateway.update_official_repository_metadata(
+            {"mapping_revision": revision_after}
+        )
         gateway.update_manual_store_route_status(route_key, "active")
         gateway.update_official_repository_metadata(
             {
-                "mapping_revision": revision_after,
                 "last_published_at": written_at,
                 "last_published_by": identity.user_id,
             }
@@ -1241,7 +1385,7 @@ def add_confirmed_manual_store_route_direct(
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
         gateway.update_official_repository_metadata(
-            {"repository_status": "active", "publish_operation_id": ""}
+            {"publish_operation_id": ""}
         )
     except Exception as exc:
         return DirectManualStoreRouteAddResult(
@@ -1255,8 +1399,8 @@ def add_confirmed_manual_store_route_direct(
             store=store,
             code="DIRECT_STORE_ROUTE_WRITE_INTERRUPTED",
             reason=(
-                "写入中断；正式库保持可核验状态，禁止继续转换。请管理员按"
-                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+                "写入中断；已提交的active版本仍可继续转换，新的正式写入暂缓。"
+                f"请管理员按operation_id={stable_operation_id}核对并恢复：{exc}"
             ),
         )
     return DirectManualStoreRouteAddResult(
@@ -1411,13 +1555,16 @@ def add_confirmed_item_expansion_direct(
 
     metadata = gateway.get_official_repository_metadata()
     revision_before = clean_identifier(metadata.get("mapping_revision"))
-    if clean_identifier(metadata.get("repository_status")) != "active":
+    if not _repository_accepts_new_write(metadata):
         return outcome(
             "blocked",
             rule_key=rule_key,
             revision_before=revision_before,
-            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
-            reason="正式映射库不是active，需管理员先核对并恢复。",
+            code="OFFICIAL_REPOSITORY_WRITE_IN_PROGRESS",
+            reason=(
+                "正式库当前有一个未封口写操作；旧active版本仍可用于转换，"
+                "但新的正式写入需等待管理员恢复或封口。"
+            ),
         )
     revision_after = _next_revision(revision_before)
     existing_rows = _item_expansion_records(gateway)
@@ -1544,10 +1691,10 @@ def add_confirmed_item_expansion_direct(
             resolved_operation_id=stable_operation_id,
         )
     try:
-        latest = gateway.get_official_repository_metadata()
-        if (
-            clean_identifier(latest.get("repository_status")) != "active"
-            or clean_identifier(latest.get("mapping_revision")) != revision_before
+        if not _acquire_repository_write_lock(
+            gateway,
+            revision_before=revision_before,
+            operation_id=stable_operation_id,
         ):
             return outcome(
                 "blocked",
@@ -1557,17 +1704,11 @@ def add_confirmed_item_expansion_direct(
                 revision_after=revision_after,
                 component_count=len(records),
                 code="DIRECT_ITEM_EXPANSION_REVISION_CHANGED",
-                reason="正式映射库在预检后发生变化，未写入。",
+                reason="正式映射库在预检后发生变化或已有写操作，未写入。",
                 resolved_operation_id=stable_operation_id,
             )
-        gateway.update_official_repository_metadata(
-            {
-                "repository_status": "publishing",
-                "publish_operation_id": stable_operation_id,
-            }
-        )
         gateway.upsert_item_expansion_component_records(
-            tuple(replace(record, status="inactive") for record in records)
+            tuple(replace(record, status="staged") for record in records)
         )
         event_id = _stable_id("event", stable_operation_id, rule_key)
         gateway.upsert_mapping_publish_log(
@@ -1597,10 +1738,25 @@ def add_confirmed_item_expansion_direct(
                 created_at=written_at,
             )
         )
+        staged_expansions = _item_expansion_records(gateway)
+        build_official_mapping_snapshot(
+            gateway.list_official_mapping_records(),
+            {
+                **gateway.get_official_repository_metadata(),
+                "repository_status": "active",
+                "mapping_revision": revision_after,
+            },
+            catalog,
+            manual_store_route_records=_manual_store_routes(gateway),
+            item_expansion_records=staged_expansions,
+            synced_at=written_at,
+        )
+        gateway.update_official_repository_metadata(
+            {"mapping_revision": revision_after}
+        )
         gateway.update_item_expansion_rule_status(rule_key, "active")
         gateway.update_official_repository_metadata(
             {
-                "mapping_revision": revision_after,
                 "last_published_at": written_at,
                 "last_published_by": identity.user_id,
             }
@@ -1616,7 +1772,7 @@ def add_confirmed_item_expansion_direct(
         )
         gateway.update_mapping_publish_log_status(event_id, "published")
         gateway.update_official_repository_metadata(
-            {"repository_status": "active", "publish_operation_id": ""}
+            {"publish_operation_id": ""}
         )
     except Exception as exc:
         return outcome(
@@ -1628,8 +1784,8 @@ def add_confirmed_item_expansion_direct(
             component_count=len(records),
             code="DIRECT_ITEM_EXPANSION_WRITE_INTERRUPTED",
             reason=(
-                "写入中断；正式库保持失败关闭状态，请管理员按"
-                f"operation_id={stable_operation_id}核对并恢复：{exc}"
+                "写入中断；已提交的active版本仍可继续转换，新的正式写入暂缓。"
+                f"请管理员按operation_id={stable_operation_id}核对并恢复：{exc}"
             ),
             resolved_operation_id=stable_operation_id,
         )
@@ -1669,9 +1825,8 @@ def plan_pending_mapping_publish(
         )
 
     metadata = gateway.get_official_repository_metadata()
-    repository_status = clean_identifier(metadata.get("repository_status"))
     revision_before = clean_identifier(metadata.get("mapping_revision"))
-    if repository_status != "active":
+    if not _repository_accepts_new_write(metadata):
         return MappingPublishPlan(
             status="blocked",
             operation_id=operation_id or clean_identifier(
@@ -1681,10 +1836,10 @@ def plan_pending_mapping_publish(
             revision_after="",
             owner_user_id=identity.user_id,
             items=(),
-            code="OFFICIAL_REPOSITORY_NOT_ACTIVE",
+            code="OFFICIAL_REPOSITORY_WRITE_IN_PROGRESS",
             reason=(
-                "正式映射库当前不是active。若上次发布中断，应由所有者按"
-                "publish_operation_id核对已写记录和日志后恢复；不要启动新的发布。"
+                "正式库当前有一个未封口写操作。旧active版本仍可用于转换；"
+                "新的正式写入应按publish_operation_id恢复后再开始。"
             ),
         )
     revision_after = _next_revision(revision_before)
@@ -1985,7 +2140,7 @@ def publish_pending_mappings(
 
     metadata = gateway.get_official_repository_metadata()
     if (
-        clean_identifier(metadata.get("repository_status")) != "active"
+        not _repository_accepts_new_write(metadata)
         or clean_identifier(metadata.get("mapping_revision"))
         != plan.revision_before
     ):
@@ -2008,16 +2163,26 @@ def publish_pending_mappings(
     ]
     try:
         if create_items:
-            gateway.update_official_repository_metadata(
-                {
-                    "repository_status": "publishing",
-                    "publish_operation_id": plan.operation_id,
-                }
-            )
+            if not _acquire_repository_write_lock(
+                gateway,
+                revision_before=plan.revision_before,
+                operation_id=plan.operation_id,
+            ):
+                return MappingPublishResult(
+                    status="blocked",
+                    operation_id=plan.operation_id,
+                    revision_before=plan.revision_before,
+                    revision_after=plan.revision_after,
+                    created_count=0,
+                    already_published_count=plan.already_published_count,
+                    published_proposal_count=0,
+                    code="MAPPING_PUBLISH_REVISION_CHANGED",
+                    reason="正式映射库在预检后发生变化或已有写操作，整批未发布。",
+                )
             for item in create_items:
                 assert item.record is not None
                 gateway.upsert_official_mapping_record(
-                    replace(item.record, status="inactive")
+                    replace(item.record, status="staged")
                 )
                 log = MappingPublishLogRecord(
                     event_id=_stable_id(
@@ -2050,6 +2215,22 @@ def publish_pending_mappings(
                 )
                 gateway.upsert_mapping_publish_log(log)
 
+            combined = gateway.list_official_mapping_records()
+            build_official_mapping_snapshot(
+                combined,
+                {
+                    **gateway.get_official_repository_metadata(),
+                    "repository_status": "active",
+                    "mapping_revision": plan.revision_after,
+                },
+                catalog,
+                manual_store_route_records=_manual_store_routes(gateway),
+                item_expansion_records=_item_expansion_records(gateway),
+                synced_at=published_at,
+            )
+            gateway.update_official_repository_metadata(
+                {"mapping_revision": plan.revision_after}
+            )
             for item in create_items:
                 gateway.update_official_mapping_status(
                     item.proposal.mapping_key,
@@ -2057,7 +2238,6 @@ def publish_pending_mappings(
                 )
             gateway.update_official_repository_metadata(
                 {
-                    "mapping_revision": plan.revision_after,
                     "last_published_at": published_at,
                     "last_published_by": plan.owner_user_id,
                 }
@@ -2075,12 +2255,6 @@ def publish_pending_mappings(
                 item_expansion_records=_item_expansion_records(gateway),
                 synced_at=published_at,
             )
-            gateway.update_official_repository_metadata(
-                {
-                    "repository_status": "active",
-                    "publish_operation_id": "",
-                }
-            )
             for item in create_items:
                 event_id = _stable_id(
                     "event",
@@ -2088,6 +2262,9 @@ def publish_pending_mappings(
                     item.proposal.proposal_id,
                 )
                 gateway.update_mapping_publish_log_status(event_id, "published")
+            gateway.update_official_repository_metadata(
+                {"publish_operation_id": ""}
+            )
 
         for sheet in gateway.list_managed_pending_sheets():
             proposal_ids = {
@@ -2113,7 +2290,7 @@ def publish_pending_mappings(
             published_proposal_count=0,
             code="MAPPING_PUBLISH_INTERRUPTED",
             reason=(
-                "发布中断；正式库保持非active或可核验状态，禁止转换，"
+                "发布中断；已提交的active版本仍可继续转换，新的正式写入暂缓。"
                 f"需要所有者按operation_id={plan.operation_id}核对并恢复：{exc}"
             ),
         )

@@ -19,6 +19,11 @@ from .item_expansion_registry import (
     normalize_item_expansion_rules,
 )
 from .mapping_contract import MappingScopeError, normalize_mapping_scope
+from .versioned_repository import (
+    READABLE_REPOSITORY_STATUSES,
+    VersionedRepositoryError,
+    record_is_visible,
+)
 
 
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
@@ -93,8 +98,8 @@ def build_official_mapping_snapshot(
     synced_at: str | None = None,
 ) -> dict[str, Any]:
     repository_status = clean_identifier(metadata.get("repository_status"))
-    if repository_status != "active":
-        raise OfficialMappingSyncError("正式映射库状态不是active，拒绝生成快照。")
+    if repository_status not in READABLE_REPOSITORY_STATUSES:
+        raise OfficialMappingSyncError("正式映射库没有可读取的active版本。")
     revision = clean_identifier(metadata.get("mapping_revision"))
     if not revision:
         raise OfficialMappingSyncError("正式映射库缺少mapping_revision。")
@@ -106,10 +111,6 @@ def build_official_mapping_snapshot(
         status = clean_identifier(source.get("status"))
         if status == "inactive":
             continue
-        if status != "active":
-            raise OfficialMappingSyncError(
-                f"映射{source.get('mapping_id')!r}状态不是active/inactive。"
-            )
         mapping_id = clean_identifier(source.get("mapping_id"))
         company_id = clean_identifier(source.get("company_id"))
         source_profile_id = clean_identifier(source.get("source_profile_id"))
@@ -120,6 +121,16 @@ def build_official_mapping_snapshot(
         product_code = clean_identifier(source.get("product_code"))
         spec_code = clean_identifier(source.get("spec_code"))
         mapping_version = clean_identifier(source.get("mapping_version"))
+        try:
+            if not record_is_visible(
+                status=status,
+                record_version=mapping_version,
+                repository_revision=revision,
+                record_label=f"正式映射{mapping_id or '<unknown>'}",
+            ):
+                continue
+        except VersionedRepositoryError as exc:
+            raise OfficialMappingSyncError(str(exc)) from exc
         required = {
             "mapping_id": mapping_id,
             "company_id": company_id,
@@ -183,11 +194,6 @@ def build_official_mapping_snapshot(
             raise OfficialMappingSyncError(f"正式映射mapping_key重复：{actual_key}")
         seen_ids.add(mapping_id)
         seen_keys.add(actual_key)
-        if revision.isdigit() and mapping_version.isdigit():
-            if int(mapping_version) > int(revision):
-                raise OfficialMappingSyncError(
-                    f"正式映射{mapping_id}版本高于库版本。"
-                )
         mapping = {
             "mapping_id": mapping_id,
             "mapping_key": actual_key,
@@ -239,7 +245,7 @@ def build_official_mapping_snapshot(
         "schema_version": "2.0",
         "source": "feishu_official_mapping_repository",
         "mapping_revision": revision,
-        "repository_status": repository_status,
+        "repository_status": "active",
         "canonical_schema_version": catalog.phrase_normalizer.schema_version,
         "synced_at": timestamp,
         "mappings": mappings,

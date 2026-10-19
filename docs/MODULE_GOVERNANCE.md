@@ -20,7 +20,7 @@
 | `company_workflow_routing` | 解析公司身份，先选择固定流程，无固定流程时仅对fallback_enabled公司选择共享兜底。 | 不解析商品、不分配店铺、不上传管易。 | source_intake |
 | `adaptive_excel` | 只读探测表头、标签和结构，形成字段映射计划；行式订单和页尾统一收件信息的标签式商品表共用配置化解析，只对无法确定的必要字段追问；共享兜底只按公司库显式声明复用同公司旧来源映射。 | 不得凭文件外观猜公司；不得绕过公司与工作流路由。 | company_workflow_routing |
 | `product_resolution` | 按编码、条码、正式映射、规范名称和候选优先级解析管易商品及规格，并展开已确认组合商品。 | 低可信相似名称只能给候选；不得自行创造商品代码。 | source_intake |
-| `mapping_governance` | 同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突；诊断publishing事务，只在记录、日志、版本和快照一致时由所有者完成封口。 | 本批临时替换不得伪装成正式映射；已有映射的替换必须走管理员治理。 | product_resolution、feishu_integration |
+| `mapping_governance` | 同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突；用staged记录和mapping_revision读指针发布，诊断并恢复未封口写操作。 | 本批临时替换不得伪装成正式映射；已有映射的替换必须走管理员治理；写锁只阻断后续写入，不得阻断读取已提交版本。 | product_resolution、feishu_integration |
 | `store_assignment` | 按固定店铺、来源渠道、SKU关联或受控商品兜底分配唯一店铺。 | 同单命中多个店铺或没有已确认规则时停止；通用兜底按company_id隔离店铺事实，共享来源配置不能造成跨公司污染，玉米兜底不影响自营天猫京东等固定流程。 | product_resolution、company_workflow_routing |
 | `order_identity` | 执行订单编号优先、来源单号次之、最后才按已登记前缀和飞书中央日序号生成。 | 不同前缀分别计数；同一来源重跑复用原号段；不得临时猜测前缀。 | company_workflow_routing、feishu_integration |
 | `order_business_policies` | 集中执行买家会员、价格金额、仓库、支付、订单类型、物流、联系方式后缀、白标和备注分流。 | 共享默认值只定义一次；公司差异通过规则包引用或显式覆盖。 | product_resolution、store_assignment |

@@ -56,8 +56,8 @@
     {
       "module_id": "mapping_governance",
       "title": "正式、待确认与本批临时映射治理",
-      "responsibility": "同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突；诊断publishing事务，只在记录、日志、版本和快照一致时由所有者完成封口。",
-      "boundary": "本批临时替换不得伪装成正式映射；已有映射的替换必须走管理员治理。",
+      "responsibility": "同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突；用staged记录和mapping_revision读指针发布，诊断并恢复未封口写操作。",
+      "boundary": "本批临时替换不得伪装成正式映射；已有映射的替换必须走管理员治理；写锁只阻断后续写入，不得阻断读取已提交版本。",
       "authority_paths": ["src/auto_shipped/integrations/feishu", "contracts/official_product_mapping.schema.json", "contracts/current_batch_mapping_replacement.schema.json"],
       "dependencies": ["product_resolution", "feishu_integration"],
       "implementation_refs": [],

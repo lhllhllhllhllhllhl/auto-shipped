@@ -16,6 +16,7 @@ from auto_shipped.integrations.feishu import (
     PendingSheetMetadata,
     build_pending_mapping_proposal,
     build_mapping_key,
+    build_official_mapping_snapshot,
     add_confirmed_mapping_direct,
     add_confirmed_item_expansion_direct,
     add_confirmed_manual_store_route_direct,
@@ -111,7 +112,6 @@ class FakePublisherGateway:
         if len(matches) != 1:
             raise ValueError("store route not unique")
         matches[0]["status"] = status
-
     def list_item_expansion_component_records(self) -> list[dict[str, str]]:
         return [dict(item) for item in self.item_expansions]
 
@@ -170,6 +170,12 @@ class FakePublisherGateway:
         if len(matches) != 1:
             raise ValueError("log not unique")
         matches[0]["status"] = status
+
+
+class FailAfterMappingLogGateway(FakePublisherGateway):
+    def upsert_mapping_publish_log(self, record: MappingPublishLogRecord) -> None:
+        super().upsert_mapping_publish_log(record)
+        raise RuntimeError("simulated interruption after staging")
 
 
 class OfficialRepositoryRecoveryTests(unittest.TestCase):
@@ -244,17 +250,68 @@ class OfficialRepositoryRecoveryTests(unittest.TestCase):
         self.assertEqual(gateway.metadata["publish_operation_id"], "")
         self.assertEqual(gateway.logs[0]["status"], "published")
 
-    def test_recovery_refuses_revision_that_has_not_reached_target(self) -> None:
+    def test_recovery_can_complete_staged_revision_before_pointer_switch(self) -> None:
         gateway = self._recoverable_gateway()
         gateway.metadata["mapping_revision"] = "2"
+        gateway.official[0]["status"] = "staged"
 
         diagnosis = diagnose_official_repository_recovery(gateway, catalog())
 
-        self.assertEqual(diagnosis.status, "blocked")
-        self.assertEqual(
-            diagnosis.code,
-            "OFFICIAL_REPOSITORY_RECOVERY_REVISION_UNPROVEN",
+        self.assertEqual(diagnosis.status, "recoverable")
+        recovered = recover_official_repository(
+            gateway,
+            catalog(),
+            allowed_owner_user_ids=(OWNER,),
+            confirmation_token="CONFIRM_RECOVER_OFFICIAL_REPOSITORY",
         )
+        self.assertEqual(recovered.status, "recovered")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+        self.assertEqual(gateway.official[0]["status"], "active")
+
+    def test_interrupted_direct_add_does_not_block_old_active_snapshot(self) -> None:
+        gateway = FailAfterMappingLogGateway()
+
+        result = add_confirmed_mapping_direct(
+            gateway,
+            catalog(),
+            allowed_company_ids=["company-a"],
+            allowed_source_profile_ids=["profile-a"],
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_code",
+            source_value="SOURCE-P1",
+            source_spec="",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            evidence="用户确认以后沿用",
+            confirmation_token="CONFIRM_ADD_NEW_OFFICIAL_MAPPING",
+            timestamp=NOW,
+        )
+
+        self.assertEqual(result.status, "failed_closed")
+        self.assertEqual(gateway.metadata["repository_status"], "active")
+        self.assertEqual(gateway.metadata["mapping_revision"], "2")
+        self.assertTrue(gateway.metadata["publish_operation_id"])
+        self.assertEqual(gateway.official[0]["status"], "staged")
+        snapshot = build_official_mapping_snapshot(
+            gateway.official,
+            gateway.metadata,
+            catalog(),
+        )
+        self.assertEqual(snapshot["mappings"], [])
+        diagnosis = diagnose_official_repository_recovery(gateway, catalog())
+        self.assertEqual(diagnosis.status, "recoverable")
+        recovered = recover_official_repository(
+            gateway,
+            catalog(),
+            allowed_owner_user_ids=(OWNER,),
+            confirmation_token="CONFIRM_RECOVER_OFFICIAL_REPOSITORY",
+        )
+        self.assertEqual(recovered.status, "recovered")
+        self.assertEqual(gateway.metadata["mapping_revision"], "3")
+        self.assertEqual(gateway.metadata["publish_operation_id"], "")
+        self.assertEqual(gateway.official[0]["status"], "active")
 
 
 def catalog() -> ProductCatalog:

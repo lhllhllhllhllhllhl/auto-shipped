@@ -344,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     diagnose_recovery = subparsers.add_parser(
         "diagnose-official-repository-recovery",
-        help="只读判断publishing正式库能否安全完成封口；不修改飞书",
+        help="只读判断未封口正式写入能否安全切换版本并完成封口；不修改飞书",
     )
     diagnose_recovery.add_argument(
         "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
@@ -361,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     recover_repository = subparsers.add_parser(
         "recover-official-repository",
-        help="所有者专用：仅在目标记录、日志、版本和快照全部一致时完成publishing封口",
+        help="所有者专用：仅在目标记录、日志和目标快照一致时切换版本并完成封口",
     )
     recover_repository.add_argument(
         "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
