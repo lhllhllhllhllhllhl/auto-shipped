@@ -42,7 +42,80 @@ def build_manual_address_list(path: Path, *, marker: str = "") -> None:
     workbook.save(path)
 
 
+def build_labeled_item_table(path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Sheet1"
+    sheet["B2"] = "上海世贸商城有限公司订单"
+    headers = ["序号", "产品名称", "克重", "订货数量（根/袋）", "金额"]
+    for column, value in enumerate(headers, start=2):
+        sheet.cell(3, column).value = value
+    values = [1, "花糯玉米 9根装", "230g/棒", 1, 0]
+    for column, value in enumerate(values, start=2):
+        sheet.cell(4, column).value = value
+    sheet["B8"] = "收货地址"
+    sheet["C8"] = "上海市杨浦区测试路1号"
+    sheet["D8"] = "联系人"
+    sheet["E8"] = "测试人 13800138000"
+    workbook.save(path)
+
+
 class AdaptiveExcelTests(unittest.TestCase):
+    def test_unknown_labeled_item_table_is_ready_without_purpose_question(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "入仓标题但实际发货.xlsx"
+            build_labeled_item_table(source)
+            registry = load_company_registry(
+                PROJECT_ROOT / "config/companies/company_registry_v1.json"
+            )
+
+            proposal = propose_adaptive_excel_plan(
+                source,
+                "shanghai_shimao_plaza",
+                registry,
+            )
+
+            self.assertEqual(proposal.status, "ready")
+            assert proposal.plan is not None
+            self.assertEqual(
+                proposal.plan["layout_mode"],
+                "single_order_labeled_item_table",
+            )
+            self.assertEqual(
+                proposal.plan["order_number"]["strategy"],
+                "central_daily_sequence",
+            )
+            self.assertEqual(proposal.clarifications, [])
+
+    def test_fallback_company_unknown_excel_reaches_adaptive_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "kld-unknown.xlsx"
+            build_manual_address_list(source)
+            registry = load_company_registry(
+                PROJECT_ROOT / "config/companies/company_registry_v1.json"
+            )
+
+            proposal = propose_adaptive_excel_plan(
+                source,
+                "shanghai_shimao_plaza",
+                registry,
+            )
+
+            self.assertIsNotNone(proposal.plan)
+            assert proposal.plan is not None
+            self.assertEqual(
+                proposal.plan["rule_source_profile_id"],
+                "generic_company_manual_v1",
+            )
+            self.assertEqual(
+                {item.code for item in proposal.clarifications},
+                {
+                    "ADAPTIVE_ORDER_NUMBER_REQUIRED",
+                    "ADAPTIVE_PRODUCT_REQUIRED",
+                    "ADAPTIVE_QUANTITY_REQUIRED",
+                },
+            )
+
     def test_structure_inspection_never_returns_order_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "manual.xlsx"
@@ -51,7 +124,10 @@ class AdaptiveExcelTests(unittest.TestCase):
             structure = inspect_excel_structure(source)
             rendered = json.dumps(structure, ensure_ascii=False)
 
-            self.assertEqual(structure["privacy"], "headers_and_type_counts_only_no_data_values")
+            self.assertEqual(
+                structure["privacy"],
+                "headers_labels_cell_refs_and_type_counts_only_no_data_values",
+            )
             self.assertNotIn("测试甲", rendered)
             self.assertNotIn("13800138000", rendered)
             self.assertNotIn("测试路1号", rendered)

@@ -137,15 +137,15 @@ class DetectionRoutingTests(unittest.TestCase):
             self.assertEqual(detected.schema_warnings[0]["code"], "SOURCE_SCHEMA_NEW_HEADERS")
             self.assertEqual(detected.schema_warnings[0]["headers"], ["新增业务列"])
 
-    def test_inbound_order_routes_to_agent_clarification(self) -> None:
+    def test_fuze_labeled_corn_table_routes_to_guanyi(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "inbound.xlsx"
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "Sheet1"
             sheet.append([""])
-            sheet.append([""])
-            sheet.append(["产品名称", "订货数量（根/袋）", "金额"])
+            sheet.append(["", "上海孚泽经贸有限公司采购订单"])
+            sheet.append(["", "产品名称", "订货数量（根/袋）", "金额"])
             workbook.save(path)
 
             profiles = load_source_profiles(PROJECT_ROOT / "config/source_profiles")
@@ -154,8 +154,11 @@ class DetectionRoutingTests(unittest.TestCase):
 
             routing = load_routing(PROJECT_ROOT / "config/routing/order_routes_v1.json")
             routed = resolve_route(routing, detected.source_profile_id, detected.order_type)
-            self.assertEqual(routed.status, "needs_input")
-            self.assertEqual(routed.clarifications[0].code, "ORDER_PURPOSE_UNCLEAR")
+            self.assertEqual(routed.status, "resolved")
+            self.assertEqual(
+                routed.decision.platform_rules_profile_id,
+                "guanyi_fuze_corn_inbound_v1",
+            )
 
     def test_bailihui_backend_orders_route_to_guanyi(self) -> None:
         routing = load_routing(PROJECT_ROOT / "config/routing/order_routes_v1.json")

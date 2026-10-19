@@ -1,6 +1,6 @@
 # 飞书商品映射治理
 
-状态：核心合同、用户路由、正式同步、受控直接新增和所有者发布器均已实现。商品名称映射已增加程序管理的规范品牌、商品主体、规格和Schema版本；运行时兼容旧15列表，并提供只读迁移计划与所有者确认后的19列表迁移。用户明确“以后沿用”且只是新增一个不存在的映射键时，可通过受控命令直接追加正式映射；完全重复幂等跳过，同键不同目标、替换、删除、合并和公司身份变更一律阻断并转管理员。所有正式写入都使用`publishing`失败关闭状态、写后回读、独立发布日志、版本递增和最终正式快照校验。待确认提案仍不能直接参与转换。
+状态：核心合同、用户路由、正式同步、受控直接新增和所有者发布器均已实现。商品名称映射已增加程序管理的规范品牌、商品主体、规格和Schema版本；运行时兼容旧15列表，并提供只读迁移计划与所有者确认后的19列表迁移。用户明确“以后沿用”且只是新增一个不存在的映射键时，可通过受控命令直接追加正式映射；完全重复幂等跳过，同键不同目标、替换、删除、合并和公司身份变更一律阻断并转管理员。正式写入采用单写者锁、`staged`记录和`mapping_revision`原子读指针：发布未封口只暂停后续写入，不阻断订单继续读取上一个已提交版本。待确认提案仍不能直接参与转换。
 
 用户否决、人工改写和系统结果纠错由独立反馈箱承接；它不是第三个映射库，也不直接参与转换。完整边界见[用户纠错反馈治理](CORRECTION_FEEDBACK_GOVERNANCE.md)。
 
@@ -231,7 +231,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py migrate-canonical \
   --confirmation-token CONFIRM_MIGRATE_CANONICAL_MAPPING_SCHEMA
 ```
 
-迁移写入P:S四列、递增`mapping_revision`、记录`MIGRATE_CANONICAL_SCHEMA`发布日志并回读完整19列表。发布新代码前不得提前迁移在线表；迁移失败时正式库保持非active并停止转换，等待管理员核对，禁止部分静默成功。
+迁移写入P:S四列、递增`mapping_revision`、记录`MIGRATE_CANONICAL_SCHEMA`发布日志并回读完整19列表。发布新代码前不得提前迁移在线表；迁移失败时保留旧`mapping_revision`供转换读取，并保留写锁等待管理员核对，禁止部分静默成功或继续发起正式写入。
 
 提交规则：
 
@@ -304,7 +304,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py add-expansion \
   --confirmation-token CONFIRM_ADD_ITEM_EXPANSION_RULE
 ```
 
-该入口至少要求两个不重复目标，逐项校验有效商品目录；完全重复幂等，同一来源键已有不同组成时转管理员，禁止普通用户覆盖。写入过程与普通正式映射共用`mapping_revision`、`publishing`失败关闭状态、发布日志和回读快照。
+该入口至少要求两个不重复目标，逐项校验有效商品目录；完全重复幂等，同一来源键已有不同组成时转管理员，禁止普通用户覆盖。写入过程与普通正式映射共用`mapping_revision`原子读指针、单写者锁、发布日志和回读快照。
 
 用户只确认当前批次时不得写飞书正式表。使用：
 
@@ -324,11 +324,11 @@ python3 <skill-dir>/scripts/save_item_expansion.py \
 
 转换重跑时只把该文件作为本批`--mapping-overlay`传入；来源文件指纹不同即不命中。
 
-JZDZ、DRJY等手工业务来源完成商品映射后，再读取“手工单商品店铺”关系。`scope_id`可使用具体来源配置（如`jzdz_manual_v1`、`drjy_manual_v1`）或通用回退`manual_all`；具体来源优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
+JZDZ、DRJY等固定手工业务来源完成商品映射后，再读取“手工单商品店铺”关系，`scope_id`使用具体来源配置；通用兜底公司则使用稳定`company_id`，不能使用共享的`generic_company_manual_v1`，以免多家公司相同SKU互相污染。两者均可回退`manual_all`，具体作用域优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
 
 ```bash
 python3 <skill-dir>/scripts/feishu_mapping.py add-store-route \
-  --scope-id <manual_all|jzdz_manual_v1|drjy_manual_v1> \
+  --scope-id <manual_all|jzdz_manual_v1|drjy_manual_v1|fallback_company_id> \
   --product-code <管易商品代码> \
   --spec-code <管易规格代码；唯一单规格商品可省略> \
   --store <光明满元气|淘橘子> \
@@ -378,7 +378,7 @@ python3 <skill-dir>/scripts/feishu_mapping.py submit \
 - 正式工作簿只允许受控命令写；普通用户只能无冲突新增，所有者处理替换、删除和冲突。
 - 发布器不信任待确认状态，必须重新校验映射、来源、冲突和正式库版本。
 - 所有发布必须写入独立业务变更日志并回读正式映射。
-- 商品映射与手工单店铺关联共享正式库版本、发布状态和日志；任何一类写入中断都会让正式库保持非active，转换失败关闭。
+- 商品映射、手工单店铺关联和组合规则共享正式库版本、单写者锁和日志；写入中断只锁住后续正式写入，转换继续读取当前`mapping_revision`对应的完整版本。
 - 当前批次临时替换是独立本机记录，永远不写正式表或待确认表，也不改变正式版本。
 
 所有者发布命令分为只读计划和确认发布：
@@ -390,7 +390,17 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
   --confirmation-token CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS
 ```
 
-完全相同的正式映射会跳过且不增加重复行；同一`mapping_key`指向不同商品时整批阻断，禁止覆盖。发布期间正式库状态改为`publishing`，订单转换会失败关闭；全部记录、日志、元数据和快照校验通过后才恢复`active`。
+完全相同的正式映射会跳过且不增加重复行；同一`mapping_key`指向不同商品时整批阻断，禁止覆盖。新发布不再把整个库改成`publishing`：它只写入`publish_operation_id`作为单写者锁，并把新行写成下一版本的`staged`。读取端始终以`mapping_revision`为唯一提交边界，版本指针切换前忽略新行，切换后即使状态清理尚未完成也可读取该完整版本。
+
+因此，未封口写入不再阻断订单转换，只阻断另一个正式写入。若写入中断，先只读诊断；只有目标记录、日志和目标版本快照全部一致时，所有者才可切换或确认版本指针、把记录封口为`active`并清除写锁。旧版遗留的`repository_status=publishing`也按相同版本规则只读兼容，不再让转换整体停摆：
+
+```bash
+python3 <skill-dir>/scripts/feishu_mapping.py diagnose-recovery
+python3 <skill-dir>/scripts/feishu_mapping.py recover \
+  --confirmation-token CONFIRM_RECOVER_OFFICIAL_REPOSITORY
+```
+
+若诊断返回`blocked`，不得手工清除`publish_operation_id`或改动`mapping_revision`；应按操作ID继续核对缺失的记录或日志。转换可继续使用当前已提交版本，但新的长期映射写入必须等恢复完成。
 
 如果未来需要强用户隔离，应把待确认仓库替换为每用户独立工作簿、飞书多维表格或数据库；`FeishuSheetGateway`上层业务合同无需改变。
 

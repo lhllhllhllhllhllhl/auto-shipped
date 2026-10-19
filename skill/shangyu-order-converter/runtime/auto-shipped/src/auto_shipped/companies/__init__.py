@@ -3,9 +3,11 @@ from .registry import (
     CompanyRegistryError,
     CompanyResolution,
     audit_company_registry,
+    generic_fallback_for_company,
     load_company_registry,
     resolve_company_abbreviation_references,
     resolve_company_by_identity,
+    resolve_company_from_text_evidence,
     resolve_company_by_source_profile,
     validate_company_workflow,
 )
@@ -15,9 +17,11 @@ __all__ = [
     "CompanyRegistryError",
     "CompanyResolution",
     "audit_company_registry",
+    "generic_fallback_for_company",
     "load_company_registry",
     "resolve_company_abbreviation_references",
     "resolve_company_by_identity",
+    "resolve_company_from_text_evidence",
     "resolve_company_by_source_profile",
     "validate_company_workflow",
 ]

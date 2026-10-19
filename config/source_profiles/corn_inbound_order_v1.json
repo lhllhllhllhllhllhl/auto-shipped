@@ -1,9 +1,10 @@
 {
   "profile_id": "corn_inbound_order_v1",
-  "source_label": "玉米入仓订单",
-  "order_type": "purpose_unknown",
-  "adapter": null,
-  "version": 1,
+  "company_id": "fuze",
+  "source_label": "上海孚泽玉米标签式商品表",
+  "order_type": "standard_order",
+  "adapter": "labeled_table_order_parsed",
+  "version": 2,
   "enabled": true,
   "detection": {
     "sheet_name": "Sheet1",
@@ -12,11 +13,40 @@
       "产品名称",
       "订货数量（根/袋）",
       "金额"
-    ]
+    ],
+    "known_headers": [
+      "序号",
+      "产品名称",
+      "克重",
+      "箱规",
+      "结算价（个）",
+      "订货数量（根/袋）",
+      "金额"
+    ],
+    "company_identity": {
+      "rules": [
+        {
+          "kind": "fixed_cell",
+          "cell": "B2",
+          "match": "contains",
+          "values": ["上海孚泽经贸有限公司"]
+        }
+      ]
+    }
   },
-  "processing": {
-    "mode": "clarify_before_route",
-    "clarification_code": "ORDER_PURPOSE_UNCLEAR"
+  "labeled_table": {
+    "sheet_name": "Sheet1",
+    "header_row": 3,
+    "item_fields": {
+      "product_name": "产品名称",
+      "quantity": "订货数量（根/袋）",
+      "source_spec_headers": ["克重", "箱规"]
+    },
+    "batch_fields": {
+      "address": "C8",
+      "combined_recipient_contact": "E8"
+    },
+    "stop_labels": ["合计", "总计"]
   }
 }
 

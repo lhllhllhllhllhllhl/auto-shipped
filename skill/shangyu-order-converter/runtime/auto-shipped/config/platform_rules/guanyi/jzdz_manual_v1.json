@@ -28,7 +28,7 @@
     "catalog_id": "shangyu_shipping_sop_v1",
     "scope_id": "jzdz_manual_to_guanyi_v1",
     "rules": {
-      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_manual_route", "evidence": "商品映射完成后读取独立SKU—店铺关联表；同单多店铺追问。"},
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_manual_route_then_product", "evidence": "商品映射后先读独立SKU—店铺关联；未命中时玉米进光明满元气、非玉米进淘橘子并在结果小节告知；同单多店铺追问。"},
       "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_daily_sequence", "evidence": "JZDZ按飞书中央台账生成日期日序号，不追加A。"},
       "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
       "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通手工订单金额规则。"},

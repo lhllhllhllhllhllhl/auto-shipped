@@ -38,6 +38,33 @@ def _load_registries(directory: str | Path) -> dict[str, dict[str, Any]]:
     return registries
 
 
+def _materialize_shared_rule_set(
+    registry: dict[str, Any],
+    module_id: str,
+    value: dict[str, Any],
+) -> dict[str, Any]:
+    materialized = copy.deepcopy(value)
+    rule_set_id = str(materialized.pop("shared_rule_set_ref", "") or "").strip()
+    target_key = str(materialized.pop("shared_rule_set_target", "") or "").strip()
+    if not rule_set_id and not target_key:
+        return materialized
+    if not rule_set_id or target_key not in {"rules", "product_fallback_rules"}:
+        raise GuanyiPolicyModuleError(
+            f"共享策略模块{module_id}的规则集引用不完整或目标无效"
+        )
+    if target_key in materialized:
+        raise GuanyiPolicyModuleError(
+            f"共享策略模块{module_id}同时内联并引用{target_key}"
+        )
+    rule_set = (registry.get("rule_sets") or {}).get(rule_set_id)
+    if not isinstance(rule_set, list) or not rule_set:
+        raise GuanyiPolicyModuleError(f"共享规则集不存在或为空：{rule_set_id}")
+    if not all(isinstance(rule, dict) for rule in rule_set):
+        raise GuanyiPolicyModuleError(f"共享规则集格式无效：{rule_set_id}")
+    materialized[target_key] = copy.deepcopy(rule_set)
+    return materialized
+
+
 def resolve_guanyi_policy_modules(
     rules: dict[str, Any],
     platform_rules_dir: str | Path,
@@ -84,6 +111,7 @@ def resolve_guanyi_policy_modules(
         value = module.get("value")
         if not isinstance(value, dict):
             raise GuanyiPolicyModuleError(f"共享策略模块{module_id}缺少对象值")
+        value = _materialize_shared_rule_set(registry, module_id, value)
         target_overrides = overrides.get(target_key) or {}
         if not isinstance(target_overrides, dict):
             raise GuanyiPolicyModuleError(f"{target_key}的策略覆盖必须是对象")

@@ -106,7 +106,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | --- | --- | --- | --- | --- |
 | `DEC-GY-IMPORT-001` | 2026-09-29归档 | 管易改用“自定义订单导入”单文件方式，不使用主表和明细双模板 | 管易模板与上传流程 | 已确认 |
 | `DEC-CLARIFY-001` | 2026-09-29归档 | 文件缺少信息或用途不清楚时，Agent必须追问用户确认 | 来源识别、解析和规则门禁 | 已确认 |
-| `DEC-INBOUND-001` | 2026-09-29归档 | 玉米入仓订单暂定属于采购或入库资料；用途不明时先追问，不直接进入发货转换 | 玉米入仓来源 | 已确认处理方式 |
+| `DEC-INBOUND-001` | 2026-09-29归档 | 玉米入仓订单暂定属于采购或入库资料；用途不明时先追问，不直接进入发货转换 | 玉米入仓来源 | 已被`DEC-INBOUND-002`替代，禁止运行时继续引用 |
+| `DEC-INBOUND-002` | 2026-10-19用户确认 | 调用订单转换Skill即表示需要发货；采购/入仓标题不触发用途追问。孚泽标签式商品表读取页尾收件信息并进入转换 | 孚泽固定模板与未知Excel兜底 | 当前有效 |
 | `DEC-BLH-ROUTE-001` | 2026-09-29归档 | 百礼汇需要从专门后台取得订单，再导入管易；作为单独来源连接器推进 | 百礼汇路由 | 已确认 |
 | `DEC-SAM-DATE-001` | 2026-09-29归档 | SAM买家会员规则中的日期使用上传当日日期 | SAM转换 | 已确认 |
 | `DEC-GY-OPTIONS-001` | 2026-09-29归档 | 切换到自定义导入后，导入页面下面两项需要勾选 | 管易上传表单 | 已确认业务要求，待现行页面回读验收 |
@@ -119,7 +120,10 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-XV-STORE-001` | 2026-09-29 | PDF第3页“淘宝、店铺、日货定制”中的“店铺”是笔误或简称，实际指企业店，即KQYD订单 | 店铺选择 | 已确认 |
 | `DEC-XV-SOURCE-HINT-001` | 2026-09-29 | 现有手工单Excel本身可能看不出平台，人工流程依赖发送人附带的平台备注 | 来源识别 | 已确认现状；自动化必须要求显式来源提示 |
 | `DEC-USER-WHITELABEL-REPLACE-002` | 2026-10-10 | `商品白标.xlsx`是当前白标商品权威清单，完整替换旧3条临时记录；表中未列出的旧SKU不再视为白标 | 白标规则 | 已确认并实现131条精确商品代码+规格代码；旧版本由Git追溯 |
-| `DEC-USER-COMPANY-ABBREVIATIONS-001` | 2026-10-10 | 7组公司法定名称与简称同时用于公司识别和单号规则引用；简称不能自动启用尚无模板与规则的公司 | 公司身份与平台单号 | 已确认并接入公司库；FZ、KLD、MT当前仅登记身份，NDD、RZD、TT、SAM继续使用现有流程 |
+| `DEC-USER-COMPANY-ABBREVIATIONS-001` | 2026-10-10；2026-10-19修订 | 7组公司法定名称与简称用于公司识别和显式单号前缀；固定流程优先，只有公司库明确标记`fallback_enabled`时简称才可启动共享兜底 | 公司身份与平台单号 | FZ、KLD、MT已绑定共享兜底；其他公司继续使用固定流程 |
+| `DEC-USER-GENERIC-COMPANY-FALLBACK-001` | 2026-10-19 | 已登记公司没有固定工作流时，信息齐全的文字/截图订单仍应转换；缺号使用公司简称+YYYYMMDD+飞书中央日序号，未知Excel进入自适应字段计划，只追问缺少的必要事实 | 公司路由与未知格式 | 已实现共享来源、共享路由和公司级显式绑定；未登记公司不自动放行 |
+| `DEC-USER-GENERIC-FALLBACK-STORE-001` | 2026-10-19 | 店铺先执行固定/渠道规则，再查公司或来源SKU关系及`manual_all`；仍未命中时玉米进入光明满元气、非玉米进入淘橘子并在结果小节告知，混合店铺追问 | 店铺分配 | 已实现共享类别规则集和非阻断告知，不覆盖自营天猫/京东、SAM及其他更高优先级规则 |
+| `DEC-USER-MODULE-GOVERNANCE-CATALOG-001` | 2026-10-19 | 建立供AI维护使用的一级模块目录，登记职责、边界、唯一权威路径、依赖、实现引用和共享策略归属，并自动审计遗漏、重复、依赖环和过期污染 | 系统治理 | 已实现13个一级模块的机器目录、生成文档和审计脚本 |
 | `DEC-USER-NOTE-TARGET-001` | 2026-09-29 | 客户备注写入管易卖家备注 | 备注字段映射 | 已确认 |
 | `DEC-USER-STAGED-TEST-001` | 2026-09-29 | 先真实测试“原始订单转管易Excel”；业务验收通过后，才接入自动化上传 | 测试与发布门禁 | 已确认，转换和上传必须分阶段上线 |
 | `DEC-USER-LOGISTICS-INTERIM-001` | 2026-09-30 | 当前按包装规则执行：原表指定物流优先；8棒家庭装合计达到2件（16根）或玉米10根/10棒礼盒走中通重货，其余韵达 | 恬田物流规则 | 已确认并实现；未来如确认重量公式则直接更新现行规则 |
@@ -204,7 +208,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 
 | rule_id | 主题 | 直接证据 | 补充证据或决策 | 当前证据缺口 |
 | --- | --- | --- | --- | --- |
-| `GY-STORE-ASSIGNMENT` | 店铺选择 | `SRC-SOP-PDF-001` p.3、p.12 | `DEC-BLH-ROUTE-001`、`DEC-XV-STORE-001`、`DEC-USER-TT-STORE-BY-PRODUCT-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-RULE-MODULE-AUTHORITY-001` | 恬田、NDD、荣之达共同引用“玉米→光明满元气”模块；自营文字单按已确认天猫/京东渠道分配；其他商品继续追问 |
+| `GY-STORE-ASSIGNMENT` | 店铺选择 | `SRC-SOP-PDF-001` p.3、p.12 | `DEC-BLH-ROUTE-001`、`DEC-XV-STORE-001`、`DEC-USER-TT-STORE-BY-PRODUCT-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-RULE-MODULE-AUTHORITY-001`、`DEC-USER-GENERIC-FALLBACK-STORE-001` | 固定店铺/渠道与精确SKU关系优先；类别兜底把玉米送光明满元气、非玉米送淘橘子并在结果小节告知；混合店铺追问 |
 | `GY-PLATFORM-ORDER-NUMBER` | 平台单号 | `SRC-SOP-PDF-001` p.3、p.8、p.10、p.12 | `DEC-USER-ORDER-IDENTITY-PRIORITY-001`、`DEC-USER-AUTOMATION-SUFFIX-REMOVE-001`、`SRC-SAMPLE-TT-001`、`DEC-XV-ORDERNO-001`、`SRC-GY-LONG-ID-TEXT-UPLOAD-001` | 统一身份优先级为订单编号后来源单号；各来源前缀和缺号生成策略分别配置；新订单不追加公共尾缀 |
 | `GY-BUYER-MEMBER` | 买家会员 | `SRC-SOP-PDF-001` p.8、p.10、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-USER-BUYER-MEMBER-GLOBAL-001`、`DEC-USER-SAM-BUYER-MEMBER-002`、`DEC-USER-SAM-BUYER-MEMBER-003` | 普通来源填`张`；SAM有跟团号沿用日期+跟团号，无跟团号使用分钟+弹性序号；未知类型仍追问 |
 | `GY-PAYMENT-VALUES` | 价格、支付金额和运费 | `SRC-SOP-PDF-001` p.8、p.10、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-TT-AMOUNT-001`、`DEC-USER-SAM-ZERO-AMOUNT-001`、`DEC-USER-SAM-FREIGHT-BLANK-001` | 恬田与SAM已按各自规则确认；其他来源仍需分别确认 |
@@ -241,10 +245,10 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | 恬田 | `SRC-SAMPLE-TT-001`、`DEC-USER-ORDER-IDENTITY-PRIORITY-001`、`DEC-USER-AUTOMATION-SUFFIX-REMOVE-001`、`DEC-USER-LOGISTICS-INTERIM-001`、`DEC-USER-SKU-TT-001`、`DEC-USER-CONTACT-DUAL-001` | 来源结构、路由到管易、`TT+订单编号优先值`且无公共尾缀、当前包装物流、当前SKU、双联系方式和卖家备注 | 生成Excel后的员工真实核对与手工导入验收 |
 | 小红书寄样 | `SRC-SAMPLE-XHS-001` | 样本结构、3个商品、组合收件信息 | 固定数量规则、平台单号、店铺适用范围和目标路由确认 |
 | 地址清单 | `SRC-SAMPLE-ADDR-001` | 地址和备注结构 | 商品、数量、订单号和目标路由 |
-| 玉米入仓 | `SRC-SAMPLE-INBOUND-001`、`DEC-INBOUND-001` | 先追问用途，不直接发货 | 如果用户确认发货，需要补充逐单资料 |
+| 孚泽标签式玉米商品表 | `SRC-SAMPLE-INBOUND-001`、`DEC-INBOUND-002` | 读取商品表与页尾统一收件信息；标题不改变发货意图 | 必要字段缺失时才追问 |
 | SAM | `SRC-SOP-PDF-001` p.8、p.9、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002`及SAM确认决策 | 表格转管易；有跟团号会员按原格式，无跟团号按`sam+类型+分钟+_序号`；白糯、花糯、黄糯8+1展开；店铺`sam`；平台单号使用订单编号优先身份且不追加公共尾缀；价格与支付金额为0、运费留空 | 核心样本规则已完整；无跟团号逻辑已实现，尚和手套及其他商品类型继续作为扩展回归 |
 | 尚舆自营天猫/京东文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-JD-ZTO-CONTACT-SUFFIX-001`、`DEC-USER-AUTOMATION-SUFFIX-REMOVE-001` | 用户确认公司后按渠道选旗舰店；复制平台单号且不追加公共尾缀；袋匹配8棒家庭装；自营`京东中通`原样写入物流，并把姓名后的四位码追加到联系电话和联系手机 | 自营根尚未登记，首次出现时追问；新商品、新单位或未知渠道追问；京东中通四位码缺失或冲突时追问 |
-| 荣之达文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-RZD-TEXT-001`、`DEC-USER-RZD-MINUTE-001`、`DEC-USER-PACKAGE-SEMANTICS-002` | `RZD`可识别荣之达；根匹配彩袋单棒装并按根数写数量；玉米进入光明满元气；整批固定生成分钟与弹性序号生成基础单号；本机记录处理同一分钟第二批和重跑复用 | 袋等未登记表达追问；多电脑并发不在当前保证范围 |
+| 荣之达文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-RZD-TEXT-001`、`DEC-USER-DAILY-SEQUENCE-001`、`DEC-USER-PACKAGE-SEMANTICS-002` | `RZD`可识别荣之达；根匹配彩袋单棒装并按根数写数量；玉米进入光明满元气；缺号时使用`RZD+YYYYMMDD+最少三位飞书中央日序号`，同一来源重跑复用 | 袋等未登记表达追问；旧分钟规则仅用于历史复跑 |
 | NDD | `SRC-SOP-PDF-001` p.10、`SRC-SAMPLE-NDD-001`、`SRC-SAMPLE-NDD-MANUAL-001`、`DEC-USER-NDD-STANDARD-TEMPLATE-001` | 最终标准模板、福利套餐四展开、NDD单号、物流、备注和管易路由均已实现 | 新套餐或套餐组成变化时追问 |
 | 孚泽 | `SRC-SOP-PDF-001` p.10 | 店铺、单号示例、买家会员、金额和物流描述 | 原始Excel样本和基础编号规则确认 |
 | 百礼汇 | `SRC-SOP-PDF-001` p.11-p.14、`DEC-BLH-ROUTE-001` | 后台取单后导入管易，并在发货后回填物流 | 取单方式、订单样本、商品映射和写入授权 |

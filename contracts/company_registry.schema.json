@@ -30,7 +30,7 @@
           "legal_name": {"type": "string", "minLength": 1},
           "abbreviation": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,16}$"},
           "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
-          "status": {"enum": ["active", "identity_only", "paused", "retired", "pending"]},
+          "status": {"enum": ["active", "fallback_enabled", "identity_only", "paused", "retired", "pending"]},
           "enabled": {"type": "boolean"},
           "source_profiles": {
             "type": "array",
@@ -73,6 +73,28 @@
               "additionalProperties": false
             }
           },
+          "generic_fallback": {
+            "type": "object",
+            "required": [
+              "source_profile_id",
+              "route_id",
+              "target_platform",
+              "target_profile_id",
+              "platform_rules_profile_id",
+              "product_mapping_scope_id",
+              "runtime_enabled"
+            ],
+            "properties": {
+              "source_profile_id": {"const": "generic_company_manual_v1"},
+              "route_id": {"const": "generic_company_manual_to_guanyi_v1"},
+              "target_platform": {"const": "guanyi"},
+              "target_profile_id": {"const": "guanyi_order_import_v1"},
+              "platform_rules_profile_id": {"const": "guanyi_generic_company_manual_v1"},
+              "product_mapping_scope_id": {"const": "generic_company_manual_v1"},
+              "runtime_enabled": {"const": true}
+            },
+            "additionalProperties": false
+          },
           "capabilities": {"type": "object"},
           "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
           "last_verified_on": {"type": "string", "format": "date"}
@@ -90,8 +112,28 @@
                 "source_profiles": {"maxItems": 0},
                 "workflows": {"maxItems": 0}
               }
+            }
+          },
+          {
+            "if": {
+              "properties": {"status": {"const": "fallback_enabled"}},
+              "required": ["status"]
             },
-            "else": {
+            "then": {
+              "required": ["legal_name", "abbreviation", "generic_fallback"],
+              "properties": {
+                "enabled": {"const": true},
+                "source_profiles": {"maxItems": 0},
+                "workflows": {"maxItems": 0}
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {"status": {"const": "active"}},
+              "required": ["status"]
+            },
+            "then": {
               "properties": {
                 "source_profiles": {"minItems": 1}
               }

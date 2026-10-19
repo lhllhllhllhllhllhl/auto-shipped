@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "registry_id": "shangyu_company_registry_v1",
   "status": "active",
-  "design_note": "公司库保存稳定身份、法定名称、公司简称、模块引用和能力状态；简称可用于公司识别，只有规则显式引用时才作为平台单号或买家会员前缀，不会自动启用未配置公司的转换。",
+  "design_note": "公司库保存稳定身份、法定名称、公司简称、固定工作流引用和通用兜底绑定；固定模板优先，fallback_enabled公司仅在没有固定工作流时使用共享兜底。简称只在规则显式引用时作为单号前缀。",
   "companies": [
     {
       "company_id": "tiantian",
@@ -287,7 +287,7 @@
       "source_refs": [
         "文字订单截图样本：2026-10-08",
         "用户确认自营天猫/京东店铺、单号和袋商品规则：2026-10-08；根的含义待首次确认",
-        "用户确认淘宝与KQYD文字单均进入淘橘子并使用分钟弹性序号：2026-10-09",
+        "用户确认淘宝与KQYD文字单均进入淘橘子；原分钟序号已于2026-10-17被中央日序号替代：2026-10-09/2026-10-17",
         "docs/TEXT_ORDER_INTAKE_V0.1.md",
         "用户于2026-10-15确认JZDZ、DRJY作为员工可见的独立手工业务来源，底层归属尚舆自营。"
       ],
@@ -338,7 +338,7 @@
       },
       "source_refs": [
         "文字订单截图样本：2026-10-08",
-        "用户确认RZD代表荣之达、整批生成分钟弹性序号，以及玉米店铺与恬田/NDD一致：2026-10-08",
+        "用户确认RZD代表荣之达、玉米店铺与恬田/NDD一致；原分钟序号已于2026-10-17被中央日序号替代：2026-10-08/2026-10-17",
         "用户确认RZD根表示彩袋单棒装且裸棒禁止普通发货：2026-10-09",
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
@@ -354,19 +354,46 @@
       "aliases": [
         "FZ"
       ],
-      "status": "identity_only",
-      "enabled": false,
-      "source_profiles": [],
-      "workflows": [],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "corn_inbound_order_v1",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "fuze_corn_labeled_table_guanyi_v1",
+          "source_profile_id": "corn_inbound_order_v1",
+          "route_id": "fuze_corn_labeled_table_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_fuze_corn_inbound_v1",
+          "product_mapping_scope_id": "corn_inbound_order_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "generic_fallback": {
+        "source_profile_id": "generic_company_manual_v1",
+        "route_id": "generic_company_manual_to_guanyi_v1",
+        "target_platform": "guanyi",
+        "target_profile_id": "guanyi_order_import_v1",
+        "platform_rules_profile_id": "guanyi_generic_company_manual_v1",
+        "product_mapping_scope_id": "generic_company_manual_v1",
+        "runtime_enabled": true
+      },
       "capabilities": {
         "source_recognition": {
-          "status": "identity_only",
-          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+          "status": "fixed_template_and_generic_fallback_ready",
+          "reason": "孚泽标签式玉米商品表走固定解析；其他文字、截图或未知Excel进入共享兜底。"
         },
         "order_conversion": {
-          "status": "not_configured",
-          "runtime_enabled": false,
-          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+          "status": "generic_fallback_ready",
+          "runtime_enabled": true,
+          "reason": "信息齐全时可按共享兜底转换；缺少商品、数量、收件或店铺事实时集中追问。"
         },
         "automatic_upload": {
           "status": "not_enabled",
@@ -376,9 +403,10 @@
       },
       "source_refs": [
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
-        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
+        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10",
+        "玉米入仓订单20261019(1).xlsx及用户确认Skill输入均为待发货订单：2026-10-19"
       ],
-      "last_verified_on": "2026-10-10"
+      "last_verified_on": "2026-10-19"
     },
     {
       "company_id": "shanghai_shimao_plaza",
@@ -388,19 +416,31 @@
       "aliases": [
         "KLD"
       ],
-      "status": "identity_only",
-      "enabled": false,
+      "status": "fallback_enabled",
+      "enabled": true,
       "source_profiles": [],
       "workflows": [],
+      "generic_fallback": {
+        "source_profile_id": "generic_company_manual_v1",
+        "route_id": "generic_company_manual_to_guanyi_v1",
+        "target_platform": "guanyi",
+        "target_profile_id": "guanyi_order_import_v1",
+        "platform_rules_profile_id": "guanyi_generic_company_manual_v1",
+        "product_mapping_scope_id": "generic_company_manual_v1",
+        "mapping_source_profile_aliases": [
+          "kld_text_v1"
+        ],
+        "runtime_enabled": true
+      },
       "capabilities": {
         "source_recognition": {
-          "status": "identity_only",
-          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+          "status": "generic_fallback_ready",
+          "reason": "已登记法定名称与简称；没有固定模板时进入共享文字/截图或未知Excel兜底。"
         },
         "order_conversion": {
-          "status": "not_configured",
-          "runtime_enabled": false,
-          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+          "status": "generic_fallback_ready",
+          "runtime_enabled": true,
+          "reason": "信息齐全时可按共享兜底转换；缺少商品、数量、收件或店铺事实时集中追问。"
         },
         "automatic_upload": {
           "status": "not_enabled",
@@ -412,7 +452,7 @@
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
         "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
       ],
-      "last_verified_on": "2026-10-10"
+      "last_verified_on": "2026-10-19"
     },
     {
       "company_id": "meitian",
@@ -422,19 +462,28 @@
       "aliases": [
         "MT"
       ],
-      "status": "identity_only",
-      "enabled": false,
+      "status": "fallback_enabled",
+      "enabled": true,
       "source_profiles": [],
       "workflows": [],
+      "generic_fallback": {
+        "source_profile_id": "generic_company_manual_v1",
+        "route_id": "generic_company_manual_to_guanyi_v1",
+        "target_platform": "guanyi",
+        "target_profile_id": "guanyi_order_import_v1",
+        "platform_rules_profile_id": "guanyi_generic_company_manual_v1",
+        "product_mapping_scope_id": "generic_company_manual_v1",
+        "runtime_enabled": true
+      },
       "capabilities": {
         "source_recognition": {
-          "status": "identity_only",
-          "reason": "已登记法定名称与简称；缺少订单模板，不能自动路由。"
+          "status": "generic_fallback_ready",
+          "reason": "已登记法定名称与简称；没有固定模板时进入共享文字/截图或未知Excel兜底。"
         },
         "order_conversion": {
-          "status": "not_configured",
-          "runtime_enabled": false,
-          "reason": "尚未提供原始订单模板、商品规则和目标平台规则。"
+          "status": "generic_fallback_ready",
+          "runtime_enabled": true,
+          "reason": "信息齐全时可按共享兜底转换；缺少商品、数量、收件或店铺事实时集中追问。"
         },
         "automatic_upload": {
           "status": "not_enabled",
@@ -446,7 +495,7 @@
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
         "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
       ],
-      "last_verified_on": "2026-10-10"
+      "last_verified_on": "2026-10-19"
     }
   ]
 }

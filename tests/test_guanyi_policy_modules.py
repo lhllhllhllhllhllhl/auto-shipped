@@ -24,7 +24,7 @@ def load_rules(name: str) -> dict:
 
 
 class GuanyiPolicyModuleTests(unittest.TestCase):
-    def test_corn_store_policy_has_one_executable_authority(self) -> None:
+    def test_product_family_store_policy_has_one_executable_authority(self) -> None:
         policy_refs = []
         for name in (
             "tiantian_warehouse_v2.json",
@@ -45,7 +45,40 @@ class GuanyiPolicyModuleTests(unittest.TestCase):
                 resolved["store_assignment_policy"]["rules"][0]["store"],
                 "光明满元气",
             )
-        self.assertEqual(set(policy_refs), {"store.corn_to_guangming_manyuanqi.v1"})
+            self.assertEqual(
+                resolved["store_assignment_policy"]["rules"][1]["store"],
+                "淘橘子",
+            )
+        self.assertEqual(set(policy_refs), {"store.product_family_fallback.v1"})
+
+    def test_store_category_fallback_rules_are_materialized_from_one_rule_set(self) -> None:
+        direct = load_rules("tiantian_warehouse_v2.json")
+        linked = load_rules("jzdz_manual_v1.json")
+        generic = load_rules("generic_company_manual_v1.json")
+
+        direct_rules = direct["store_assignment_policy"]["rules"]
+        linked_rules = linked["store_assignment_policy"][
+            "product_fallback_rules"
+        ]
+        generic_rules = generic["store_assignment_policy"][
+            "product_fallback_rules"
+        ]
+        self.assertEqual(direct_rules, linked_rules)
+        self.assertEqual(direct_rules, generic_rules)
+        self.assertNotIn(
+            "shared_rule_set_ref",
+            direct["store_assignment_policy"],
+        )
+        non_corn = next(
+            rule
+            for rule in direct_rules
+            if rule["rule_id"] == "confirmed_non_corn_to_taojuzi"
+        )
+        self.assertEqual(non_corn["store"], "淘橘子")
+        self.assertEqual(
+            non_corn["result_notice"]["code"],
+            "NON_CORN_TO_TAOJUZI_FALLBACK",
+        )
 
     def test_common_policies_are_materialized_for_source_rule_pack(self) -> None:
         rules = load_rules("tiantian_warehouse_v2.json")

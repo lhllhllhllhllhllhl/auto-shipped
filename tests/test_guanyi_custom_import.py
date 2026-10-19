@@ -230,6 +230,152 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(line["订单创建时间"], "2026-09-20 14:09:15")
         self.assertEqual(line["物流公司"], "中通快递（重货）")
 
+    def test_generic_fallback_reuses_declared_legacy_item_expansion(self) -> None:
+        order = parsed_order()
+        order.source = ParsedSource(
+            profile_id="generic_company_manual_v1",
+            source_label="已登记公司通用手工订单兜底",
+            order_type="manual_channel_order",
+            source_order_no="KLD20261019001",
+            file_name="manual.txt",
+            file_fingerprint="sha256:kld",
+            sheet_name="",
+            row_numbers=(1,),
+        )
+        order.items = [
+            ParsedItem(
+                source_product_name="花糯玉米",
+                source_spec="9根装",
+                quantity=1,
+                source_line_no=1,
+            )
+        ]
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "花糯玉米", "S1", "8棒家庭装", 100, "上海仓")],
+            [],
+            item_expansion_rules=[
+                {
+                    "rule_id": "kld-flower-9",
+                    "company_id": "shanghai_shimao_plaza",
+                    "source_profile_id": "kld_text_v1",
+                    "target_platform": "guanyi",
+                    "identifier_type": "product_name",
+                    "source_value": "花糯玉米",
+                    "source_spec": "9根装",
+                    "reuse_scope": "future",
+                    "confirmed": True,
+                    "components": [
+                        {
+                            "product_code": "P1",
+                            "spec_code": "S1",
+                            "quantity_multiplier": 1,
+                        }
+                    ],
+                }
+            ],
+        )
+        rules = confirmed_rules()
+        rules["item_expansion_policy"] = {
+            "strategy": "confirmed_source_item_expansions",
+            "on_unmatched": "standard_product_mapping",
+            "confirmed": True,
+        }
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            rules,
+            self.profile,
+            source_company_id="shanghai_shimao_plaza",
+            source_profile_aliases=("kld_text_v1",),
+        )
+
+        self.assertEqual(result.status, "ready", result.clarifications)
+        self.assertEqual(len(result.lines), 1)
+        self.assertEqual(result.lines[0]["商品代码"], "P1")
+        self.assertEqual(result.lines[0]["规格代码"], "S1")
+
+    def test_generic_fallback_passes_company_scope_to_store_assignment(self) -> None:
+        catalog = ProductCatalog(
+            list(self.catalog.records),
+            list(self.catalog.mapping_records),
+            manual_store_routes=[
+                {
+                    "scope_id": "shanghai_shimao_plaza",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "store": "光明满元气",
+                    "status": "active",
+                },
+                {
+                    "scope_id": "fuze",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "store": "淘橘子",
+                    "status": "active",
+                },
+            ],
+        )
+        rules = confirmed_rules()
+        rules["store_assignment_policy"] = {
+            "strategy": "manual_store_route_then_product",
+            "confirmed": True,
+            "include_company_scope": True,
+            "include_source_profile_scope": False,
+            "fallback_scope_ids": ["manual_all"],
+            "allowed_stores": ["光明满元气", "淘橘子"],
+        }
+
+        result = build_custom_import_lines(
+            [parsed_order()],
+            catalog,
+            rules,
+            self.profile,
+            source_company_id="shanghai_shimao_plaza",
+        )
+
+        self.assertEqual(result.status, "ready", result.clarifications)
+        self.assertEqual(result.lines[0]["店铺"], "光明满元气")
+
+    def test_non_corn_store_fallback_is_ready_and_reported_non_blocking(self) -> None:
+        rules = confirmed_rules()
+        rules["store_assignment_policy"] = {
+            "strategy": "manual_store_route_then_product",
+            "confirmed": True,
+            "include_company_scope": True,
+            "include_source_profile_scope": False,
+            "fallback_scope_ids": ["manual_all"],
+            "allowed_stores": ["光明满元气", "淘橘子"],
+            "product_fallback_rules": [
+                {
+                    "rule_id": "confirmed_non_corn_to_taojuzi",
+                    "store": "淘橘子",
+                    "match": {"product_name_excludes_any": ["玉米"]},
+                    "result_notice": {
+                        "code": "NON_CORN_TO_TAOJUZI_FALLBACK",
+                        "message": "非玉米兜底",
+                    },
+                }
+            ],
+        }
+
+        result = build_custom_import_lines(
+            [parsed_order()],
+            self.catalog,
+            rules,
+            self.profile,
+            source_company_id="shanghai_shimao_plaza",
+        )
+
+        self.assertEqual(result.status, "ready", result.clarifications)
+        self.assertEqual(result.lines[0]["店铺"], "淘橘子")
+        self.assertEqual(len(result.store_assignment_notices), 1)
+        notice = result.store_assignment_notices[0]
+        self.assertEqual(notice["code"], "NON_CORN_TO_TAOJUZI_FALLBACK")
+        self.assertEqual(notice["store"], "淘橘子")
+        self.assertFalse(notice["blocking"])
+        self.assertNotIn("测试用户", json.dumps(notice, ensure_ascii=False))
+
     def test_platform_order_number_prefers_order_number_over_source_number(self) -> None:
         order = parsed_order()
         order.source = ParsedSource(

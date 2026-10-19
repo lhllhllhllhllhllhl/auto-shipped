@@ -39,6 +39,18 @@
       "type": "object",
       "additionalProperties": {"$ref": "#/$defs/fieldMapping"}
     },
+    "layout_mode": {
+      "enum": ["row_orders", "single_order_labeled_item_table"],
+      "description": "缺省为逐行订单；标签式商品表把多行商品与页尾统一收件信息组成一张订单。"
+    },
+    "batch_field_mapping": {
+      "type": "object",
+      "description": "只保存页尾标签对应的单元格位置，不保存姓名、电话或地址值。",
+      "propertyNames": {
+        "enum": ["recipient_name", "contact", "address", "combined_recipient_contact"]
+      },
+      "additionalProperties": {"$ref": "#/$defs/cellMapping"}
+    },
     "extension_mapping": {
       "type": "object",
       "description": "需要保留给公司规则使用、但不属于统一订单核心字段的来源扩展字段。",
@@ -63,6 +75,14 @@
         {
           "type": "object",
           "properties": {"strategy": {"const": "source_column"}},
+          "required": ["strategy"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "strategy": {"const": "central_daily_sequence"}
+          },
           "required": ["strategy"],
           "additionalProperties": false
         },
@@ -177,6 +197,14 @@
           "items": {"type": "string"}
         },
         "separator": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "cellMapping": {
+      "type": "object",
+      "required": ["cell"],
+      "properties": {
+        "cell": {"type": "string", "pattern": "^[A-Z]{1,3}[1-9][0-9]*$"}
       },
       "additionalProperties": false
     }

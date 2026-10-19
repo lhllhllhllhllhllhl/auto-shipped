@@ -201,6 +201,13 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("upload_manifest", schema["required"])
         self.assertIn("decision_bundle", schema["required"])
         self.assertIn("mapping_reuse_bundle", schema["required"])
+        self.assertIn("store_assignment_notices", schema["required"])
+        notice = schema["$defs"]["storeAssignmentNotice"]["properties"]
+        self.assertEqual(
+            notice["code"]["const"],
+            "NON_CORN_TO_TAOJUZI_FALLBACK",
+        )
+        self.assertFalse(notice["blocking"]["const"])
         self.assertFalse(schema["additionalProperties"])
 
     def test_adaptive_plan_can_carry_only_masked_text_recipient_preview(self):
@@ -238,7 +245,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertNotIn("store_assignment_policy", raw)
         self.assertEqual(
             raw["policy_module_refs"]["store_assignment_policy"]["module_id"],
-            "store.corn_to_guangming_manyuanqi.v1",
+            "store.product_family_fallback.v1",
         )
         rules = load_guanyi_rules("tiantian_warehouse_v2.json")
         self.assertNotIn("store", rules["defaults"])
@@ -250,6 +257,11 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertEqual(policy["rules"][0]["store"], "光明满元气")
         self.assertEqual(
             policy["rules"][0]["match"]["product_name_contains_all"],
+            ["玉米"],
+        )
+        self.assertEqual(policy["rules"][1]["store"], "淘橘子")
+        self.assertEqual(
+            policy["rules"][1]["match"]["product_name_excludes_any"],
             ["玉米"],
         )
 

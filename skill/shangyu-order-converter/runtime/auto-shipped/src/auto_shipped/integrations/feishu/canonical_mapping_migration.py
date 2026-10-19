@@ -8,7 +8,11 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from auto_shipped.catalog import ProductCatalog, clean_identifier
 
-from .owner_publisher import MappingPublishLogRecord
+from .owner_publisher import (
+    MappingPublishLogRecord,
+    _acquire_repository_write_lock,
+    _repository_accepts_new_write,
+)
 from .pending_mappings import FeishuIdentity
 
 
@@ -170,10 +174,10 @@ def migrate_canonical_mapping_schema(
         }
     metadata = gateway.get_official_repository_metadata()
     revision_before = clean_identifier(metadata.get("mapping_revision"))
-    if clean_identifier(metadata.get("repository_status")) != "active":
+    if not _repository_accepts_new_write(metadata):
         return {
             "status": "blocked",
-            "code": "OFFICIAL_REPOSITORY_NOT_ACTIVE",
+            "code": "OFFICIAL_REPOSITORY_WRITE_IN_PROGRESS",
             "mapping_revision": revision_before,
         }
     if not revision_before.isdigit():
@@ -209,12 +213,16 @@ def migrate_canonical_mapping_schema(
         revision_before,
         plan.canonical_schema_version,
     )
-    gateway.update_official_repository_metadata(
-        {
-            "repository_status": "publishing",
-            "publish_operation_id": stable_operation_id,
+    if not _acquire_repository_write_lock(
+        gateway,
+        revision_before=revision_before,
+        operation_id=stable_operation_id,
+    ):
+        return {
+            "status": "blocked",
+            "code": "CANONICAL_MAPPING_MIGRATION_REVISION_CHANGED",
+            "mapping_revision": revision_before,
         }
-    )
     gateway.migrate_official_mapping_canonical_fields(plan.records)
     gateway.upsert_mapping_publish_log(
         MappingPublishLogRecord(
@@ -251,8 +259,7 @@ def migrate_canonical_mapping_schema(
             "mapping_revision": revision_after,
             "canonical_schema_version": plan.canonical_schema_version,
             "mapping_sheet_schema_version": "2.0",
-            "repository_status": "active",
-            "publish_operation_id": stable_operation_id,
+            "publish_operation_id": "",
         }
     )
     return {

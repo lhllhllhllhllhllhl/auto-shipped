@@ -85,6 +85,22 @@
       "allow_exact_catalog_name": true,
       "name_matching": "semantic_name_and_unit_exact_unique",
       "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "generic_company_manual_v1": {
+      "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
+      "allow_direct_catalog_identifier": true,
+      "allow_exact_catalog_name": true,
+      "name_matching": "semantic_name_and_unit_exact_unique",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
+    },
+    "corn_inbound_order_v1": {
+      "source_identifier_type": "product_name",
+      "source_spec_matching": "exact_when_present",
+      "allow_direct_catalog_identifier": true,
+      "allow_exact_catalog_name": true,
+      "name_matching": "semantic_name_and_unit_exact_unique",
+      "fuzzy_name_action": "candidate_requires_user_confirmation"
     }
   },
   "mappings": []

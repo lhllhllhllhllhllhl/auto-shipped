@@ -15,6 +15,8 @@ from runtime_common import STATE_ROOT, resolve_project_root
 
 COMMANDS = {
     "status": "feishu-mapping-status",
+    "diagnose-recovery": "diagnose-official-repository-recovery",
+    "recover": "recover-official-repository",
     "sync": "sync-feishu-official-mappings",
     "sync-native": "sync-feishu-official-mappings-from-payload",
     "provision": "provision-pending-sheet",
@@ -39,7 +41,7 @@ def main() -> int:
                 {
                     "status": "invalid",
                     "code": "FEISHU_MAPPING_COMMAND_REQUIRED",
-                    "message": "用法：feishu_mapping.py status|sync|sync-native|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|plan-canonical|migrate-canonical|publish|add|add-store-route|add-expansion [参数]",
+                    "message": "用法：feishu_mapping.py status|sync|sync-native|diagnose-recovery|recover|provision|submit|build-feedback|submit-feedback|collect-feedback|plan-publish|plan-canonical|migrate-canonical|publish|add|add-store-route|add-expansion [参数]",
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -58,6 +60,8 @@ def main() -> int:
     if sys.argv[1] in {
         "sync",
         "sync-native",
+        "diagnose-recovery",
+        "recover",
         "plan-publish",
         "plan-canonical",
         "migrate-canonical",

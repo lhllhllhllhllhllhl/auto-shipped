@@ -6,6 +6,8 @@ from typing import Any, Iterable, Mapping
 
 from auto_shipped.catalog import ProductCatalog, clean_identifier
 
+from .versioned_repository import VersionedRepositoryError, record_is_visible
+
 
 ALLOWED_EXPANSION_IDENTIFIER_TYPES = {
     "product_code",
@@ -111,10 +113,6 @@ def normalize_item_expansion_rules(
         status = clean_identifier(source.get("status"))
         if status == "inactive":
             continue
-        if status != "active":
-            raise ItemExpansionRegistryError(
-                f"组合商品组件{source.get('component_id')!r}状态不是active/inactive。"
-            )
         component_id = clean_identifier(source.get("component_id"))
         rule_id = clean_identifier(source.get("rule_id"))
         company_id = clean_identifier(source.get("company_id"))
@@ -126,6 +124,16 @@ def normalize_item_expansion_rules(
         product_code = clean_identifier(source.get("product_code"))
         spec_code = clean_identifier(source.get("spec_code"))
         rule_version = clean_identifier(source.get("rule_version"))
+        try:
+            if not record_is_visible(
+                status=status,
+                record_version=rule_version,
+                repository_revision=revision,
+                record_label=f"组合商品组件{component_id or '<unknown>'}",
+            ):
+                continue
+        except VersionedRepositoryError as exc:
+            raise ItemExpansionRegistryError(str(exc)) from exc
         required = {
             "component_id": component_id,
             "rule_id": rule_id,
@@ -179,11 +187,6 @@ def normalize_item_expansion_rules(
             raise ItemExpansionRegistryError(
                 f"组合商品组件{component_id}的rule_key校验失败。"
             )
-        if revision.isdigit() and rule_version.isdigit():
-            if int(rule_version) > int(revision):
-                raise ItemExpansionRegistryError(
-                    f"组合商品组件{component_id}版本高于正式库版本。"
-                )
         active_rows.append(
             {
                 "component_id": component_id,

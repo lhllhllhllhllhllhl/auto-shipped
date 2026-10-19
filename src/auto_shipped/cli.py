@@ -44,6 +44,8 @@ from auto_shipped.integrations.feishu import (
     submit_pending_mapping_proposal,
     submit_correction_feedback,
     collect_correction_feedback,
+    diagnose_official_repository_recovery,
+    recover_official_repository,
     write_official_mapping_snapshot,
 )
 from auto_shipped.services.convert import convert_order_file
@@ -339,6 +341,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=str(DEFAULT_FEISHU_MAPPING_CONFIG),
     )
+
+    diagnose_recovery = subparsers.add_parser(
+        "diagnose-official-repository-recovery",
+        help="只读判断未封口正式写入能否安全切换版本并完成封口；不修改飞书",
+    )
+    diagnose_recovery.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    diagnose_recovery.add_argument("--catalog", required=True)
+    diagnose_recovery.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    diagnose_recovery.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+
+    recover_repository = subparsers.add_parser(
+        "recover-official-repository",
+        help="所有者专用：仅在目标记录、日志和目标快照一致时切换版本并完成封口",
+    )
+    recover_repository.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    recover_repository.add_argument("--catalog", required=True)
+    recover_repository.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    recover_repository.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    recover_repository.add_argument("--confirmation-token", required=True)
 
     sync_official = subparsers.add_parser(
         "sync-feishu-official-mappings",
@@ -805,6 +842,8 @@ def build_parser() -> argparse.ArgumentParser:
         convert_batch,
         sync_official,
         sync_official_native,
+        diagnose_recovery,
+        recover_repository,
         plan_publish,
         plan_canonical_migration,
         migrate_canonical,
@@ -1644,6 +1683,42 @@ def run_collect_correction_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registered_mapping_contexts(
+    registry: dict[str, Any],
+) -> tuple[list[str], list[str], list[tuple[str, str]]]:
+    companies: list[str] = []
+    source_profiles: list[str] = []
+    pairs: list[tuple[str, str]] = []
+    for company in registry.get("companies", []):
+        if company.get("enabled", True) is False or company.get("status") not in {
+            "active",
+            "fallback_enabled",
+        }:
+            continue
+        company_id = str(company.get("company_id") or "").strip()
+        if not company_id:
+            continue
+        companies.append(company_id)
+        profiles = [
+            str(item.get("source_profile_id") or "").strip()
+            for item in company.get("source_profiles", [])
+            if item.get("status") == "active"
+            and item.get("enabled", True) is not False
+            and str(item.get("source_profile_id") or "").strip()
+        ]
+        fallback = company.get("generic_fallback") or {}
+        if (
+            fallback.get("runtime_enabled") is True
+        ):
+            profile_id = str(fallback.get("source_profile_id") or "").strip()
+            if profile_id:
+                profiles.append(profile_id)
+        for profile_id in sorted(set(profiles)):
+            source_profiles.append(profile_id)
+            pairs.append((company_id, profile_id))
+    return sorted(set(companies)), sorted(set(source_profiles)), sorted(set(pairs))
+
+
 def _load_mapping_publisher_context(args: argparse.Namespace) -> tuple[
     LarkCliFeishuSheetGateway,
     ProductCatalog,
@@ -1661,17 +1736,7 @@ def _load_mapping_publisher_context(args: argparse.Namespace) -> tuple[
     ]
     if not owners:
         raise ValueError("飞书映射治理配置缺少publisher_policy.allowed_user_ids。")
-    companies: list[str] = []
-    source_profiles: list[str] = []
-    for company in registry.get("companies", []):
-        if company.get("status") != "active" or company.get("enabled", True) is False:
-            continue
-        companies.append(str(company.get("company_id") or ""))
-        source_profiles.extend(
-            str(item.get("source_profile_id") or "")
-            for item in company.get("source_profiles", [])
-            if item.get("status") == "active" and item.get("enabled", True) is not False
-        )
+    companies, source_profiles, _ = _registered_mapping_contexts(registry)
     catalog = ProductCatalog.from_files(
         args.catalog,
         args.mappings,
@@ -1713,6 +1778,41 @@ def run_plan_pending_mapping_publish(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps(plan.to_public_dict(), ensure_ascii=False, indent=2))
     return 0 if plan.status in {"ready", "no_changes"} else 2
+
+
+def run_diagnose_official_repository_recovery(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        result = diagnose_official_repository_recovery(gateway, catalog)
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(json.dumps({
+            "status": "failed",
+            "code": "OFFICIAL_REPOSITORY_RECOVERY_DIAGNOSIS_FAILED",
+            "message": str(exc),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"healthy", "recoverable"} else 2
+
+
+def run_recover_official_repository(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, owners, _, _ = _load_mapping_publisher_context(args)
+        result = recover_official_repository(
+            gateway,
+            catalog,
+            allowed_owner_user_ids=owners,
+            confirmation_token=args.confirmation_token,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(json.dumps({
+            "status": "failed",
+            "code": "OFFICIAL_REPOSITORY_RECOVERY_FAILED",
+            "message": str(exc),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"healthy", "recovered"} else 2
 
 
 def run_plan_canonical_mapping_migration(args: argparse.Namespace) -> int:
@@ -1897,10 +1997,26 @@ def run_direct_add_manual_store_route(args: argparse.Namespace) -> int:
         if policy.get("enabled") is not True:
             raise ValueError("飞书映射治理配置未启用受控手工单店铺关联新增。")
         gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        registry = load_company_registry(args.registry)
+        fallback_company_scopes = {
+            str(company.get("company_id") or "").strip()
+            for company in registry.get("companies", [])
+            if company.get("enabled", True) is not False
+            and company.get("status") == "fallback_enabled"
+            and (company.get("generic_fallback") or {}).get("runtime_enabled") is True
+            and str(company.get("company_id") or "").strip()
+        }
+        allowed_scope_ids = {
+            str(value).strip()
+            for value in policy.get("allowed_scope_ids") or ()
+            if str(value).strip()
+        }
+        if policy.get("allow_registered_fallback_company_ids") is True:
+            allowed_scope_ids.update(fallback_company_scopes)
         result = add_confirmed_manual_store_route_direct(
             gateway,
             catalog,
-            allowed_scope_ids=tuple(policy.get("allowed_scope_ids") or ()),
+            allowed_scope_ids=tuple(sorted(allowed_scope_ids)),
             allowed_stores=tuple(policy.get("allowed_stores") or ()),
             scope_id=args.scope_id,
             product_code=args.product_code,
@@ -1954,18 +2070,7 @@ def run_direct_add_item_expansion(args: argparse.Namespace) -> int:
             raise ValueError("components-json必须是JSON数组。")
         gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
         registry = load_company_registry(args.registry)
-        allowed_pairs = [
-            (
-                str(company.get("company_id") or "").strip(),
-                str(source.get("source_profile_id") or "").strip(),
-            )
-            for company in registry.get("companies", [])
-            if company.get("status") == "active"
-            and company.get("enabled", True) is not False
-            for source in company.get("source_profiles", [])
-            if source.get("status") == "active"
-            and source.get("enabled", True) is not False
-        ]
+        _, _, allowed_pairs = _registered_mapping_contexts(registry)
         result = add_confirmed_item_expansion_direct(
             gateway,
             catalog,
@@ -2172,15 +2277,18 @@ def run_save_batch_mapping_replacement(args: argparse.Namespace) -> int:
             company
             for company in registry.get("companies", [])
             if str(company.get("company_id") or "").strip() == args.company_id
-            and company.get("status") == "active"
+            and company.get("status") in {"active", "fallback_enabled"}
             and company.get("enabled", True) is not False
         ]
         if len(matching_companies) != 1:
             raise BatchMappingReplacementError("公司未在活动公司库中唯一登记")
+        _, _, allowed_pairs = _registered_mapping_contexts(
+            {"companies": matching_companies}
+        )
         profiles = {
-            str(item.get("source_profile_id") or "").strip()
-            for item in matching_companies[0].get("source_profiles", [])
-            if item.get("status") == "active" and item.get("enabled", True) is not False
+            profile_id
+            for company_id, profile_id in allowed_pairs
+            if company_id == args.company_id
         }
         if args.source_profile not in profiles:
             raise BatchMappingReplacementError("来源配置不属于指定公司或未启用")
@@ -2350,6 +2458,10 @@ def main() -> int:
         return run_build_mapping_proposal(args)
     if args.command == "feishu-mapping-status":
         return run_feishu_mapping_status(args)
+    if args.command == "diagnose-official-repository-recovery":
+        return run_diagnose_official_repository_recovery(args)
+    if args.command == "recover-official-repository":
+        return run_recover_official_repository(args)
     if args.command == "sync-feishu-official-mappings":
         return run_sync_feishu_official_mappings(args)
     if args.command == "sync-feishu-official-mappings-from-payload":

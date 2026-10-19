@@ -136,6 +136,92 @@ def item_expansion_rows() -> list[dict[str, str]]:
 
 
 class FeishuOfficialMappingTests(unittest.TestCase):
+    def test_staged_next_revision_is_invisible_until_revision_switch(self) -> None:
+        committed = record()
+        staged = record()
+        staged.update(
+            {
+                "mapping_id": "staged-gmbn1",
+                "source_value": "SOURCE-P2",
+                "product_code": "GMBN1",
+                "spec_code": "6974768564804",
+                "status": "staged",
+                "mapping_version": "2",
+            }
+        )
+        staged["mapping_key"] = build_mapping_key(
+            company_id=staged["company_id"],
+            source_profile_id=staged["source_profile_id"],
+            identifier_type=staged["identifier_type"],
+            source_value=staged["source_value"],
+            source_spec=staged["source_spec"],
+            target_platform=staged["target_platform"],
+        )
+
+        old_snapshot = build_official_mapping_snapshot(
+            [committed, staged],
+            {
+                "repository_status": "active",
+                "mapping_revision": "1",
+                "publish_operation_id": "publish-next",
+            },
+            catalog(),
+        )
+        new_snapshot = build_official_mapping_snapshot(
+            [committed, staged],
+            {
+                "repository_status": "active",
+                "mapping_revision": "2",
+                "publish_operation_id": "publish-next",
+            },
+            catalog(),
+        )
+
+        self.assertEqual(len(old_snapshot["mappings"]), 1)
+        self.assertEqual(len(new_snapshot["mappings"]), 2)
+        self.assertEqual(new_snapshot["repository_status"], "active")
+
+    def test_legacy_publishing_metadata_keeps_committed_revision_readable(self) -> None:
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {
+                "repository_status": "publishing",
+                "mapping_revision": "1",
+                "publish_operation_id": "legacy-operation",
+            },
+            catalog(),
+        )
+
+        self.assertEqual(len(snapshot["mappings"]), 1)
+        self.assertEqual(snapshot["repository_status"], "active")
+
+    def test_staged_routes_and_expansions_follow_same_revision_pointer(self) -> None:
+        route = store_route()
+        route.update({"status": "staged", "route_version": "2"})
+        expansions = item_expansion_rows()
+        for component in expansions:
+            component.update({"status": "staged", "rule_version": "2"})
+
+        old_snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            manual_store_route_records=[route],
+            item_expansion_records=expansions,
+        )
+        new_snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "2"},
+            catalog(),
+            manual_store_route_records=[route],
+            item_expansion_records=expansions,
+        )
+
+        self.assertEqual(old_snapshot["manual_store_routes"], [])
+        self.assertEqual(old_snapshot["item_expansions"], [])
+        self.assertEqual(len(new_snapshot["manual_store_routes"]), 1)
+        self.assertEqual(len(new_snapshot["item_expansions"]), 1)
+
     def test_legacy_name_row_gets_program_managed_canonical_fields(self) -> None:
         name_record = record()
         name_record.update(

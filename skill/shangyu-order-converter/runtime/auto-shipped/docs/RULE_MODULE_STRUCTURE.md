@@ -4,6 +4,8 @@
 
 每条可执行业务规则只有一个权威定义。公司、路由、证据文档和代码只引用它，不各自复制一份值。
 
+完整的13个一级模块、依赖和实现归属见[系统模块治理目录](MODULE_GOVERNANCE.md)。该文档由`config/governance/system_module_catalog_v1.json`生成；每次增删模块、实现注册或共享策略后必须运行`python3 scripts/audit_modules.py --write-doc`。
+
 ## 分层与唯一职责
 
 | 层 | 权威位置 | 只负责 |
@@ -11,7 +13,7 @@
 | 公司身份 | `config/companies/company_registry_v1.json` | 稳定公司ID、法定名称、简称、来源和工作流索引；简称只有被规则显式引用时才成为输出前缀 |
 | 来源识别与原始单号 | `config/source_profiles/` | 文件/文字来源证据、字段结构、来源侧单号生成 |
 | 路由 | `config/routing/order_routes_v1.json` | 来源配置进入哪个目标平台和规则包 |
-| 跨公司共享策略 | `config/platform_rules/guanyi/policy_modules_v1.json` | 玉米店铺、普通买家会员、公共默认值、物流和备注等唯一可执行定义 |
+| 跨公司共享策略 | `config/platform_rules/guanyi/policy_modules_v1.json` | 商品类别店铺兜底、普通买家会员、公共默认值、物流和备注等唯一可执行定义 |
 | 公司平台规则包 | `config/platform_rules/guanyi/<source>.json` | 公司特有单号、字段显示、套餐规则，以及对共享模块的引用 |
 | 商品身份 | `config/catalog/`与正式飞书映射 | 来源商品如何唯一变成管易商品和规格 |
 | 规则覆盖门禁 | `config/business_rules/shangyu_sop_rule_catalog_v1.json` | 每条路由必须具备哪些规则，不保存重复业务值 |
@@ -23,8 +25,10 @@
 
 | module_id | 规则 |
 | --- | --- |
-| `store.corn_to_guangming_manyuanqi.v1` | 恬田、NDD、荣之达的已确认玉米商品进入“光明满元气”；非玉米或无法唯一判断时追问 |
+| `store.product_family_fallback.v1` | 没有更高优先级店铺规则时，已映射玉米进入“光明满元气”，非玉米进入“淘橘子”并输出非阻断结果说明 |
 | `store.sam_fixed.v1` | SAM订单固定进入`sam`店铺；仍通过统一店铺策略执行 |
+| `store.manual_linked_routes.v1` | JZDZ、DRJY先按来源/SKU关系表分配店铺，缺失时使用共享商品类别兜底 |
+| `store.generic_company_manual_fallback.v1` | 无固定流程的已登记公司先按`company_id`查SKU店铺关系，再查`manual_all`，最后使用共享商品类别兜底 |
 | `buyer.normal_zhang.v1` | 普通来源买家会员填写“张”；SAM不引用该模块 |
 | `defaults.standard_sales.v1` | 金额、仓库、支付、订单类型和标记的唯一公共默认值；SAM、NDD只覆盖运费为空 |
 | `logistics.source_override_then_corn_packaging.v1` | 来源指定物流优先；否则执行已确认玉米包装规则 |
@@ -40,6 +44,7 @@
 | 荣之达 | 公司简称引用+YYYYMMDD+最少三位飞书中央日序号；当前公司库简称为`RZD`，玉米店铺等引用共享模块 |
 | 尚舆自营 | 使用订单编号优先、来源单号回退；店铺由自营渠道决定；京东中通的姓名四位码追加联系方式也只保留在自营规则包 |
 | SAM | 使用优先订单身份、SAM买家会员和组合商品展开策略；具体组合组成从飞书中央规则表读取。无跟团号会员按商品类型完整前缀使用飞书中央日序号，店铺`sam`引用统一店铺模块，运费仅做字段级覆盖 |
+| 通用兜底公司（当前FZ/KLD/MT） | 公司库只绑定共享兜底并提供简称；没有复制工作流。缺号时按简称+YYYYMMDD+中央日序号，店铺按独立共享模块决定 |
 
 ## 防止规则重新散开
 
@@ -65,9 +70,9 @@
 4. 文字入口可以在`source_extensions.delivery_instruction`提供显式结构化指令；Excel来源仍由同一共享关键词策略处理。
 5. 关键词、包裹符号和分隔符只在共享模块定义一次；公司规则包不得复制。
 
-## 共享分钟弹性序号边界
+## 中央日序号边界
 
-同一批订单冻结一个上海时区生成分钟，序号格式最小宽度2：`01`至`99`保持两位，`100`开始自然扩为三位。本机占号记录以“用途+来源配置+来源SHA-256”复用原分配，不同用途互不占号；当前RZD/淘橘子平台单号与SAM无跟团号会员名称复用同一分配器。当前按单电脑场景设计，不宣称解决多电脑并发；如果实际出现并发，再把占号接口替换为中央原子分配器。
+当前RZD、淘橘子、JZDZ、DRJY、通用兜底平台单号与SAM无跟团号会员名称统一使用飞书中央日序号：按“用途+完整前缀+业务日期”隔离，最小宽度3，超过999自然扩位，第二天按新日期重新从001开始；同一来源重跑复用原号段。旧分钟分配器只保留历史批次复跑兼容，不得用于新订单。
 
 ## 包装语义模块
 

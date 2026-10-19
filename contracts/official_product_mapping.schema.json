@@ -23,7 +23,7 @@
     "target_platform": {"const": "guanyi"},
     "product_code": {"type": "string", "minLength": 1},
     "spec_code": {"type": "string"},
-    "status": {"enum": ["active", "inactive"]},
+    "status": {"enum": ["active", "inactive", "staged"]},
     "mapping_version": {"type": "string", "minLength": 1},
     "confirmed_by": {"type": "string"},
     "confirmed_at": {"type": "string"},

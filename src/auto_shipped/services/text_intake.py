@@ -15,6 +15,7 @@ from openpyxl import Workbook
 
 from auto_shipped.companies import (
     CompanyRegistryError,
+    generic_fallback_for_company,
     load_company_registry,
     resolve_company_abbreviation_references,
     resolve_company_by_identity,
@@ -231,12 +232,16 @@ def _active_workflow_profiles(
             for item in registry.get("companies", [])
             if item.get("company_id") == company_id
             and item.get("enabled", True) is not False
-            and item.get("status") == "active"
+            and item.get("status") in {"active", "fallback_enabled"}
         ),
         None,
     )
     if company is None:
         return []
+    fallback = generic_fallback_for_company(registry, company_id)
+    if fallback is not None:
+        profile_id = _text(fallback.get("source_profile_id"))
+        return [profile_id] if profile_id else []
     return sorted(
         {
             _text(item.get("source_profile_id"))
@@ -370,6 +375,10 @@ def _target_automation_suffix(
             ):
                 target_profile_id = _text(workflow.get("target_profile_id"))
                 break
+        if not target_profile_id:
+            fallback = generic_fallback_for_company(registry, company_id)
+            if fallback is not None and fallback.get("source_profile_id") == profile_id:
+                target_profile_id = _text(fallback.get("target_profile_id"))
         break
     if not target_profile_id:
         return ""
@@ -406,12 +415,15 @@ def _manual_text_routes(
         if isinstance(company, dict)
     }
     routes: list[dict[str, Any]] = []
+    profiles_by_id: dict[str, dict[str, Any]] = {}
     for profile_path in sorted(source_profiles_dir.rglob("*.json")):
         try:
             profile = json.loads(profile_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         profile_id = _text(profile.get("profile_id"))
+        if profile_id:
+            profiles_by_id[profile_id] = profile
         company_id = _text(profile.get("company_id"))
         if (
             profile.get("enabled", True) is False
@@ -427,6 +439,36 @@ def _manual_text_routes(
             for marker in text_intake.get(key, [])
             if _text(marker)
         }
+        if markers:
+            routes.append(
+                {
+                    "company_id": company_id,
+                    "rule_source_profile_id": profile_id,
+                    "markers": tuple(sorted(markers)),
+                }
+            )
+    for company in registry.get("companies", []):
+        if not isinstance(company, dict):
+            continue
+        company_id = _text(company.get("company_id"))
+        fallback = generic_fallback_for_company(registry, company_id)
+        if fallback is None:
+            continue
+        profile_id = _text(fallback.get("source_profile_id"))
+        profile = profiles_by_id.get(profile_id) or {}
+        if (
+            profile.get("fallback_only") is not True
+            or profile.get("source_kind") != "text_or_image"
+            or profile.get("order_type") != "manual_channel_order"
+        ):
+            continue
+        markers = {
+            _text(company.get("abbreviation")),
+            _text(company.get("display_name")),
+            _text(company.get("legal_name")),
+            *(_text(value) for value in company.get("aliases") or []),
+        }
+        markers.discard("")
         if markers:
             routes.append(
                 {
@@ -1331,6 +1373,12 @@ def _prepare_single_text_order_materialized(
                 order_number_policy.get("sequence_separator")
             ),
             sequence_start=order_number_policy["sequence_start"],
+            source_partition=(
+                materialized["company_id"]
+                if materialized["rule_source_profile_id"]
+                == "generic_company_manual_v1"
+                else ""
+            ),
             state_dir=order_number_state_dir,
             gateway=order_number_gateway,
         )

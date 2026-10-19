@@ -46,13 +46,15 @@ class CompanyRegistryTests(unittest.TestCase):
             self.assertEqual(result.company.company_id, "tiantian")
             self.assertEqual(result.company.abbreviation, "TT")
 
-    def test_identity_only_company_does_not_enable_conversion(self) -> None:
-        for value in ("上海孚泽经贸有限公司", "FZ"):
+    def test_registered_company_without_fixed_template_resolves_to_fallback(self) -> None:
+        for value in ("上海孚泽经贸有限公司", "FZ", "KLD", "MT"):
             result = resolve_company_by_identity(self.registry, value)
-            self.assertEqual(result.status, "needs_input")
+            self.assertEqual(result.status, "resolved")
             self.assertIsNotNone(result.company)
-            self.assertEqual(result.company.company_id, "fuze")
-            self.assertEqual(result.code, "COMPANY_WORKFLOW_NOT_REGISTERED")
+            self.assertIn(
+                result.company.company_id,
+                {"fuze", "shanghai_shimao_plaza", "meitian"},
+            )
 
     def test_company_abbreviation_resolves_only_explicit_rule_references(self) -> None:
         result = resolve_company_by_identity(self.registry, "NDD")
@@ -101,7 +103,29 @@ class CompanyRegistryTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ready", result["issues"])
         self.assertEqual(result["company_count"], 8)
-        self.assertEqual(result["workflow_count"], 9)
+        self.assertEqual(result["workflow_count"], 10)
+        self.assertEqual(result["fallback_company_count"], 3)
+
+    def test_kld_generic_fallback_matches_shared_route(self) -> None:
+        result = validate_company_workflow(
+            self.registry,
+            "shanghai_shimao_plaza",
+            source_profile_id="generic_company_manual_v1",
+            route_id="generic_company_manual_to_guanyi_v1",
+            target_platform="guanyi",
+            target_profile_id="guanyi_order_import_v1",
+            platform_rules_profile_id="guanyi_generic_company_manual_v1",
+        )
+        self.assertEqual(result.status, "resolved", result.reason)
+        company = next(
+            item
+            for item in self.registry["companies"]
+            if item["company_id"] == "shanghai_shimao_plaza"
+        )
+        self.assertEqual(
+            company["generic_fallback"]["mapping_source_profile_aliases"],
+            ["kld_text_v1"],
+        )
 
     def test_taojuzi_text_profiles_belong_to_self_operated_company(self) -> None:
         for profile_id in (

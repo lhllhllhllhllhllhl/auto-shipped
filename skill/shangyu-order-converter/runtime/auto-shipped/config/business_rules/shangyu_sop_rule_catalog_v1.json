@@ -19,7 +19,8 @@
         "guanyi.store_assignment.fixed",
         "guanyi.store_assignment.by_product",
         "guanyi.store_assignment.by_source_channel",
-        "guanyi.store_assignment.by_manual_route"
+        "guanyi.store_assignment.by_manual_route",
+        "guanyi.store_assignment.by_manual_route_then_product"
       ]
     },
     "GY-PLATFORM-ORDER-NUMBER": {
@@ -445,6 +446,32 @@
     },
     "drjy_manual_to_guanyi_v1": {
       "route_id": "drjy_manual_to_guanyi_v1",
+      "required_rules": {
+        "conversion": [
+          "GY-STORE-ASSIGNMENT",
+          "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
+          "GY-PAYMENT-VALUES",
+          "GY-WAREHOUSE-ASSIGNMENT",
+          "GY-PAYMENT-METHOD",
+          "GY-ORDER-TYPE",
+          "GY-ORDER-FLAGS",
+          "GY-PRODUCT-MAPPING",
+          "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
+          "GY-SELLER-REMARK-POLICY",
+          "GY-DAILY-GOODS-WHITE-LABEL",
+          "GY-DELIVERY-INSTRUCTION-ADDRESS"
+        ],
+        "upload": [
+          "GY-IMPORT-STATUS-PENDING-REVIEW",
+          "GY-IMPORT-OPTIONS",
+          "GY-UPLOAD-SUBMISSION"
+        ]
+      }
+    },
+    "generic_company_manual_to_guanyi_v1": {
+      "route_id": "generic_company_manual_to_guanyi_v1",
       "required_rules": {
         "conversion": [
           "GY-STORE-ASSIGNMENT",

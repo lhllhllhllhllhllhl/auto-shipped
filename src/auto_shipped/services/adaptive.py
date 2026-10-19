@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from auto_shipped.domain import ClarificationRequest
+from auto_shipped.companies import generic_fallback_for_company
 from auto_shipped.source_adapters import inspect_excel_structure, propose_field_mapping
 
 
@@ -44,7 +45,17 @@ def _active_company_workflows(
     )
     if company is None:
         return None, []
-    if company.get("enabled", True) is False or company.get("status") != "active":
+    if company.get("enabled", True) is False:
+        return company, []
+    fallback = generic_fallback_for_company(registry, company_id)
+    if fallback is not None:
+        return company, [
+            {
+                "workflow_id": f"{company_id}_generic_fallback",
+                **fallback,
+            }
+        ]
+    if company.get("status") != "active":
         return company, []
     workflows = [
         item
@@ -179,20 +190,47 @@ def propose_adaptive_excel_plan(
         "header_row": sheet["candidate_header_row"],
         "structure_signature": sheet["structure_signature"],
         "field_mapping": field_mapping,
+        "batch_field_mapping": {},
         "batch_defaults": {},
         "order_number": {"strategy": "source_column"},
         "unresolved_fields": [],
     }
+    labeled_fields = sheet.get("labeled_fields") or {}
+    batch_field_mapping = {
+        field: {"cell": spec["value_cell"]}
+        for field, spec in labeled_fields.items()
+        if isinstance(spec, dict) and spec.get("value_cell")
+    }
+    plan["batch_field_mapping"] = batch_field_mapping
+    single_order_item_table = bool(
+        batch_field_mapping.get("address")
+        and (
+            batch_field_mapping.get("combined_recipient_contact")
+            or (
+                batch_field_mapping.get("recipient_name")
+                and batch_field_mapping.get("contact")
+            )
+        )
+        and (field_mapping.get("product_code") or field_mapping.get("product_name"))
+        and field_mapping.get("quantity")
+    )
+    if single_order_item_table:
+        plan["layout_mode"] = "single_order_labeled_item_table"
+        plan["order_number"] = {"strategy": "central_daily_sequence"}
     unresolved: list[str] = []
     for field in ("recipient_name", "contact", "address"):
         spec = field_mapping.get(field)
-        if spec is None or not _column_has_values(sheet, spec):
+        batch_has_value = field in batch_field_mapping or (
+            field in {"recipient_name", "contact"}
+            and "combined_recipient_contact" in batch_field_mapping
+        )
+        if not batch_has_value and (spec is None or not _column_has_values(sheet, spec)):
             unresolved.append(field)
     order_specs = [
         field_mapping.get("order_no"),
         field_mapping.get("source_order_no"),
     ]
-    if not any(
+    if not single_order_item_table and not any(
         spec is not None and _column_has_values(sheet, spec)
         for spec in order_specs
     ):
