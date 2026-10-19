@@ -412,7 +412,10 @@ class AdaptiveExcelParsedAdapter:
             raise AdaptiveExcelPlanError(
                 "order_source_sha256必须是64位小写SHA-256。"
             )
-        if plan.get("company_id") != profile.get("company_id"):
+        profile_company_id = str(profile.get("company_id") or "")
+        if plan.get("company_id") != profile_company_id and not (
+            profile_company_id == "*" and profile.get("fallback_only") is True
+        ):
             raise AdaptiveExcelPlanError("自适应计划公司与业务规则来源公司不一致。")
         if plan.get("rule_source_profile_id") != profile.get("profile_id"):
             raise AdaptiveExcelPlanError("自适应计划绑定的规则来源配置不一致。")
@@ -606,7 +609,8 @@ class AdaptiveExcelParsedAdapter:
                 record_key = str(
                     uuid.uuid5(
                         uuid.NAMESPACE_URL,
-                        f"adaptive:{profile['profile_id']}:{order_source_sha}:{order_identity.value}",
+                        f"adaptive:{plan.get('company_id')}:{profile['profile_id']}:"
+                        f"{order_source_sha}:{order_identity.value}",
                     )
                 )
                 orders.append(

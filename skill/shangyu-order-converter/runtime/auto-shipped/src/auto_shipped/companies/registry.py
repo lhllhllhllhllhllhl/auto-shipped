@@ -92,11 +92,22 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
 
         status = str(company.get("status") or "").strip()
         enabled = company.get("enabled")
-        if status not in {"active", "identity_only", "paused", "retired", "pending"}:
+        if status not in {
+            "active",
+            "fallback_enabled",
+            "identity_only",
+            "paused",
+            "retired",
+            "pending",
+        }:
             raise CompanyRegistryError(f"公司{company_id}的status无效：{status!r}")
         if status == "identity_only" and enabled is not False:
             raise CompanyRegistryError(
                 f"仅登记身份的公司{company_id}必须设置enabled=false。"
+            )
+        if status == "fallback_enabled" and enabled is not True:
+            raise CompanyRegistryError(
+                f"启用通用兜底的公司{company_id}必须设置enabled=true。"
             )
 
         legal_name = str(company.get("legal_name") or "").strip()
@@ -151,6 +162,10 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             raise CompanyRegistryError(
                 f"仅登记身份的公司{company_id}不能绑定source_profile。"
             )
+        if status == "fallback_enabled" and source_profiles:
+            raise CompanyRegistryError(
+                f"使用通用兜底的公司{company_id}不能把共享兜底来源冒充固定模板。"
+            )
         for source in source_profiles:
             profile_id = str(source.get("source_profile_id") or "").strip()
             if not profile_id:
@@ -169,6 +184,10 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             raise CompanyRegistryError(
                 f"仅登记身份的公司{company_id}不能启用workflow。"
             )
+        if status == "fallback_enabled" and workflows:
+            raise CompanyRegistryError(
+                f"使用通用兜底的公司{company_id}不能把共享兜底流程复制为公司工作流。"
+            )
         for workflow in workflows:
             workflow_id = str(workflow.get("workflow_id") or "").strip()
             if not workflow_id:
@@ -176,6 +195,37 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             if workflow_id in workflow_ids:
                 raise CompanyRegistryError(f"公司工作流ID重复：{workflow_id}")
             workflow_ids.add(workflow_id)
+
+        generic_fallback = company.get("generic_fallback")
+        if status == "fallback_enabled":
+            if not isinstance(generic_fallback, dict):
+                raise CompanyRegistryError(
+                    f"启用通用兜底的公司{company_id}缺少generic_fallback配置。"
+                )
+            required_fallback_fields = (
+                "source_profile_id",
+                "route_id",
+                "target_platform",
+                "target_profile_id",
+                "platform_rules_profile_id",
+                "product_mapping_scope_id",
+            )
+            missing = [
+                key
+                for key in required_fallback_fields
+                if not str(generic_fallback.get(key) or "").strip()
+            ]
+            if generic_fallback.get("runtime_enabled") is not True:
+                missing.append("runtime_enabled=true")
+            if missing:
+                raise CompanyRegistryError(
+                    f"公司{company_id}的generic_fallback配置不完整："
+                    + ", ".join(missing)
+                )
+        elif generic_fallback is not None:
+            raise CompanyRegistryError(
+                f"只有fallback_enabled公司可以配置generic_fallback：{company_id}"
+            )
     return registry
 
 
@@ -215,7 +265,9 @@ def resolve_company_by_identity(
         )
     record = matches[0]
     context = _company_context(registry, record)
-    if record.get("status") != "active" or record.get("enabled") is not True:
+    if record.get("status") not in {"active", "fallback_enabled"} or record.get(
+        "enabled"
+    ) is not True:
         return CompanyResolution(
             status="needs_input",
             company=context,
@@ -226,6 +278,32 @@ def resolve_company_by_identity(
             ),
         )
     return CompanyResolution(status="resolved", company=context)
+
+
+def generic_fallback_for_company(
+    registry: dict[str, Any],
+    company_id: str,
+) -> dict[str, Any] | None:
+    """Return one enabled shared-fallback binding for a registered company."""
+
+    company = next(
+        (
+            item
+            for item in registry.get("companies", [])
+            if item.get("company_id") == company_id
+        ),
+        None,
+    )
+    if (
+        not isinstance(company, dict)
+        or company.get("status") != "fallback_enabled"
+        or company.get("enabled") is not True
+    ):
+        return None
+    fallback = company.get("generic_fallback")
+    if not isinstance(fallback, dict) or fallback.get("runtime_enabled") is not True:
+        return None
+    return fallback
 
 
 def resolve_company_abbreviation_references(
@@ -365,6 +443,39 @@ def validate_company_workflow(
         if item.get("source_profile_id") == source_profile_id
         and item.get("route_id") == route_id
     ]
+    fallback = generic_fallback_for_company(registry, company_id)
+    if not workflows and fallback is not None:
+        expected_fallback = {
+            "source_profile_id": source_profile_id,
+            "route_id": route_id,
+            "target_platform": target_platform,
+            "target_profile_id": target_profile_id,
+            "platform_rules_profile_id": platform_rules_profile_id,
+        }
+        mismatches = [
+            f"{key}={fallback.get(key)!r}，路由={value!r}"
+            for key, value in expected_fallback.items()
+            if fallback.get(key) != value
+        ]
+        if mismatches:
+            return CompanyResolution(
+                status="needs_input",
+                code="COMPANY_FALLBACK_REFERENCE_MISMATCH",
+                reason="；".join(mismatches),
+            )
+        record = next(
+            item
+            for item in registry.get("companies", [])
+            if item.get("company_id") == company_id
+        )
+        return CompanyResolution(
+            status="resolved",
+            company=_company_context(
+                registry,
+                record,
+                source_profile_id=source_profile_id,
+            ),
+        )
     if len(workflows) != 1:
         return CompanyResolution(
             status="needs_input",
@@ -494,12 +605,72 @@ def audit_company_registry(
             if mapping_scope and mapping_scope not in mapping_scopes:
                 add("PRODUCT_MAPPING_SCOPE_MISSING", location, mapping_scope)
 
+        fallback = generic_fallback_for_company(registry, company_id)
+        if fallback is not None:
+            location = f"companies.{company_id}.generic_fallback"
+            profile_id = str(fallback.get("source_profile_id") or "")
+            profile = source_profiles.get(profile_id)
+            if profile is None:
+                add("SOURCE_PROFILE_REFERENCE_MISSING", location, profile_id)
+            elif profile.get("company_id") != "*" or profile.get("fallback_only") is not True:
+                add(
+                    "GENERIC_FALLBACK_PROFILE_INVALID",
+                    location,
+                    "共享兜底来源必须使用company_id='*'并标记fallback_only=true。",
+                )
+            route = routes.get(str(fallback.get("route_id") or ""))
+            if route is None:
+                add("ROUTE_REFERENCE_MISSING", location, "通用兜底路由不存在。")
+                continue
+            for key in (
+                "source_profile_id",
+                "target_platform",
+                "target_profile_id",
+                "platform_rules_profile_id",
+            ):
+                if fallback.get(key) != route.get(key):
+                    add(
+                        "ROUTE_REFERENCE_MISMATCH",
+                        f"{location}.{key}",
+                        f"公司库={fallback.get(key)!r}，路由={route.get(key)!r}。",
+                    )
+            target_profile_id = str(fallback.get("target_profile_id") or "")
+            if target_profile_id not in platform_profiles:
+                add("TARGET_PROFILE_REFERENCE_MISSING", location, target_profile_id)
+            rules_profile_id = str(fallback.get("platform_rules_profile_id") or "")
+            if rules_profile_id not in platform_rules:
+                add("PLATFORM_RULES_REFERENCE_MISSING", location, rules_profile_id)
+            else:
+                try:
+                    resolved_rules = resolve_guanyi_policy_modules(
+                        platform_rules[rules_profile_id],
+                        platform_rules_dir,
+                    )
+                    resolve_company_abbreviation_references(
+                        resolved_rules,
+                        _company_context(
+                            registry,
+                            company,
+                            source_profile_id=profile_id,
+                        ),
+                    )
+                except (GuanyiPolicyModuleError, CompanyRegistryError) as exc:
+                    add("PLATFORM_POLICY_MODULE_INVALID", location, str(exc))
+            mapping_scope = str(fallback.get("product_mapping_scope_id") or "")
+            if mapping_scope not in mapping_scopes:
+                add("PRODUCT_MAPPING_SCOPE_MISSING", location, mapping_scope)
+
     return {
         "status": "ready" if not issues else "invalid",
         "registry_id": registry.get("registry_id"),
         "company_count": len(registry.get("companies", [])),
         "workflow_count": sum(
             len(company.get("workflows", []))
+            for company in registry.get("companies", [])
+        ),
+        "fallback_company_count": sum(
+            generic_fallback_for_company(registry, str(company.get("company_id") or ""))
+            is not None
             for company in registry.get("companies", [])
         ),
         "issues": issues,

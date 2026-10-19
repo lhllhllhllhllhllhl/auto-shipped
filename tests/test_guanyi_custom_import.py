@@ -230,6 +230,48 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(line["订单创建时间"], "2026-09-20 14:09:15")
         self.assertEqual(line["物流公司"], "中通快递（重货）")
 
+    def test_generic_fallback_passes_company_scope_to_store_assignment(self) -> None:
+        catalog = ProductCatalog(
+            list(self.catalog.records),
+            list(self.catalog.mapping_records),
+            manual_store_routes=[
+                {
+                    "scope_id": "shanghai_shimao_plaza",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "store": "光明满元气",
+                    "status": "active",
+                },
+                {
+                    "scope_id": "fuze",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "store": "淘橘子",
+                    "status": "active",
+                },
+            ],
+        )
+        rules = confirmed_rules()
+        rules["store_assignment_policy"] = {
+            "strategy": "manual_store_route_then_product",
+            "confirmed": True,
+            "include_company_scope": True,
+            "include_source_profile_scope": False,
+            "fallback_scope_ids": ["manual_all"],
+            "allowed_stores": ["光明满元气", "淘橘子"],
+        }
+
+        result = build_custom_import_lines(
+            [parsed_order()],
+            catalog,
+            rules,
+            self.profile,
+            source_company_id="shanghai_shimao_plaza",
+        )
+
+        self.assertEqual(result.status, "ready", result.clarifications)
+        self.assertEqual(result.lines[0]["店铺"], "光明满元气")
+
     def test_platform_order_number_prefers_order_number_over_source_number(self) -> None:
         order = parsed_order()
         order.source = ParsedSource(

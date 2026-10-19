@@ -165,6 +165,90 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(numbers["jzdz_manual_v1"], "JZDZ20261015001")
             self.assertEqual(numbers["drjy_manual_v1"], "DRJY20261015001")
 
+    def test_kld_without_fixed_workflow_uses_company_daily_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "draft.json"
+            payload = _draft(company_id=None)
+            payload["draft_id"] = "kld-generic-fallback"
+            payload["routing_mode"] = "registered_manual_channels"
+            payload.pop("order_number_policy")
+            order = payload["orders"][0]
+            order["source_channel"] = "KLD"
+            order["source_order_no"] = None
+            order["field_provenance"]["source_order_no"] = "missing"
+            order["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_product_name": "花糯玉米",
+                    "source_spec": "9根装",
+                    "quantity": 1,
+                    "unit": "件",
+                }
+            ]
+            _write(path, payload)
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 10, 19, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                intake = prepare_text_order_draft(
+                    path,
+                    root / "prepared",
+                    company_registry_path=REGISTRY,
+                    order_number_state_dir=root / "state",
+                )
+
+            self.assertEqual(intake.status, "ready", intake.to_public_dict())
+            self.assertEqual(
+                intake.routed_groups,
+                [
+                    {
+                        "company_id": "shanghai_shimao_plaza",
+                        "rule_source_profile_id": "generic_company_manual_v1",
+                        "order_count": 1,
+                    }
+                ],
+            )
+            workbook = load_workbook(intake.conversion_inputs[0]["source"])
+            try:
+                self.assertEqual(
+                    workbook["TextOrders"].cell(2, 2).value,
+                    "KLD20261019001",
+                )
+            finally:
+                workbook.close()
+
+            second_path = root / "fz-draft.json"
+            second = json.loads(json.dumps(payload, ensure_ascii=False))
+            second["draft_id"] = "fz-generic-fallback"
+            second["orders"][0]["source_channel"] = "FZ"
+            _write(second_path, second)
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 10, 19, 9, 31, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                second_intake = prepare_text_order_draft(
+                    second_path,
+                    root / "prepared-fz",
+                    company_registry_path=REGISTRY,
+                    order_number_state_dir=root / "state",
+                )
+            second_workbook = load_workbook(
+                second_intake.conversion_inputs[0]["source"]
+            )
+            try:
+                self.assertEqual(
+                    second_workbook["TextOrders"].cell(2, 2).value,
+                    "FZ20261019001",
+                )
+            finally:
+                second_workbook.close()
+
     def test_registered_manual_channels_route_each_order_and_merge_conversion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

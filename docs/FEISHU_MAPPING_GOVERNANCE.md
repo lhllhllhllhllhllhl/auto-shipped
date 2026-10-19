@@ -324,11 +324,11 @@ python3 <skill-dir>/scripts/save_item_expansion.py \
 
 转换重跑时只把该文件作为本批`--mapping-overlay`传入；来源文件指纹不同即不命中。
 
-JZDZ、DRJY等手工业务来源完成商品映射后，再读取“手工单商品店铺”关系。`scope_id`可使用具体来源配置（如`jzdz_manual_v1`、`drjy_manual_v1`）或通用回退`manual_all`；具体来源优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
+JZDZ、DRJY等固定手工业务来源完成商品映射后，再读取“手工单商品店铺”关系，`scope_id`使用具体来源配置；通用兜底公司则使用稳定`company_id`，不能使用共享的`generic_company_manual_v1`，以免多家公司相同SKU互相污染。两者均可回退`manual_all`，具体作用域优先。关系键只包含作用域和规范化后的管易商品+规格，不把公司别名或来源商品名重复存一遍。用户明确“以后沿用”后，纯新增关系使用：
 
 ```bash
 python3 <skill-dir>/scripts/feishu_mapping.py add-store-route \
-  --scope-id <manual_all|jzdz_manual_v1|drjy_manual_v1> \
+  --scope-id <manual_all|jzdz_manual_v1|drjy_manual_v1|fallback_company_id> \
   --product-code <管易商品代码> \
   --spec-code <管易规格代码；唯一单规格商品可省略> \
   --store <光明满元气|淘橘子> \

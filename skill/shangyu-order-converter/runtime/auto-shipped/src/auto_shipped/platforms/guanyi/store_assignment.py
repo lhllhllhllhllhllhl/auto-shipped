@@ -17,6 +17,7 @@ def select_store(
     rules: dict[str, Any],
     *,
     source_extensions: dict[str, Any] | None = None,
+    source_company_id: str = "",
     source_profile_id: str = "",
     manual_store_routes: Iterable[dict[str, Any]] = (),
 ) -> str:
@@ -55,13 +56,21 @@ def select_store(
                 f"来源字段{field}的值“{source_value}”命中多个店铺"
             )
         return next(iter(matched_stores))
-    if strategy == "manual_store_route_table":
+    if strategy in {
+        "manual_store_route_table",
+        "manual_store_route_then_product",
+    }:
         if policy.get("confirmed") is not True:
             raise GuanyiStoreAssignmentError("手工单商品店铺关联策略尚未确认")
         items = tuple(resolved_items)
         if not items:
             raise GuanyiStoreAssignmentError("订单没有可用于店铺分配的商品")
+        company = str(source_company_id or "").strip()
         profile = str(source_profile_id or "").strip()
+        include_company_scope = policy.get("include_company_scope") is True
+        include_source_profile_scope = policy.get(
+            "include_source_profile_scope", True
+        ) is not False
         fallback_scopes = tuple(
             str(value).strip()
             for value in policy.get("fallback_scope_ids") or ["manual_all"]
@@ -80,7 +89,16 @@ def select_store(
         stores: set[str] = set()
         for item in items:
             matched_store = ""
-            for scope in (profile, *fallback_scopes):
+            lookup_scopes = tuple(
+                dict.fromkeys(
+                    (
+                        *((company,) if include_company_scope and company else ()),
+                        *((profile,) if include_source_profile_scope and profile else ()),
+                        *fallback_scopes,
+                    )
+                )
+            )
+            for scope in lookup_scopes:
                 if not scope:
                     continue
                 matches = {
@@ -100,8 +118,21 @@ def select_store(
                     matched_store = next(iter(matches))
                     break
             if not matched_store:
+                product_fallback_stores = {
+                    str(rule.get("store") or "").strip()
+                    for rule in policy.get("product_fallback_rules") or []
+                    if matches_resolved_item(item, rule.get("match") or {})
+                    and str(rule.get("store") or "").strip()
+                }
+                if len(product_fallback_stores) > 1:
+                    raise GuanyiStoreAssignmentError(
+                        f"商品代码{item.product_code}、规格代码{item.spec_code}命中多个兜底店铺"
+                    )
+                if product_fallback_stores:
+                    matched_store = next(iter(product_fallback_stores))
+            if not matched_store:
                 raise GuanyiStoreAssignmentError(
-                    f"商品代码{item.product_code}、规格代码{item.spec_code}没有已确认的手工单店铺关联"
+                    f"商品代码{item.product_code}、规格代码{item.spec_code}没有已确认的手工单店铺关联或商品兜底规则"
                 )
             if allowed_stores and matched_store not in allowed_stores:
                 raise GuanyiStoreAssignmentError(

@@ -1,0 +1,26 @@
+{
+  "profile_id": "generic_company_manual_v1",
+  "company_id": "*",
+  "source_label": "已登记公司通用手工订单兜底",
+  "source_kind": "text_or_image",
+  "order_type": "manual_channel_order",
+  "adapter": "adaptive_excel_parsed",
+  "version": 1,
+  "enabled": true,
+  "fallback_only": true,
+  "detection": {},
+  "text_intake": {
+    "product_identity": "agent_structured_product_phrase_then_catalog_mapping",
+    "order_number_policy": {
+      "strategy": "current_date_sequence",
+      "prefix_source": "company_abbreviation",
+      "date_format": "%Y%m%d",
+      "sequence_start": 1,
+      "minimum_sequence_width": 3,
+      "timezone": "Asia/Shanghai",
+      "sequence_scope": "feishu_central_daily_namespace",
+      "confirmed": true
+    },
+    "evidence": "用户于2026-10-19确认：已登记公司没有固定工作流时，文字或截图订单按公司简称+YYYYMMDD+最少三位飞书中央日序号兜底；固定流程始终优先。"
+  }
+}

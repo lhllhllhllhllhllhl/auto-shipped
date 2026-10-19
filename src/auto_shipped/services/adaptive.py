@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from auto_shipped.domain import ClarificationRequest
+from auto_shipped.companies import generic_fallback_for_company
 from auto_shipped.source_adapters import inspect_excel_structure, propose_field_mapping
 
 
@@ -44,7 +45,17 @@ def _active_company_workflows(
     )
     if company is None:
         return None, []
-    if company.get("enabled", True) is False or company.get("status") != "active":
+    if company.get("enabled", True) is False:
+        return company, []
+    fallback = generic_fallback_for_company(registry, company_id)
+    if fallback is not None:
+        return company, [
+            {
+                "workflow_id": f"{company_id}_generic_fallback",
+                **fallback,
+            }
+        ]
+    if company.get("status") != "active":
         return company, []
     workflows = [
         item

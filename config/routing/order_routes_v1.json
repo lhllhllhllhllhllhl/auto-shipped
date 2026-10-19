@@ -160,6 +160,20 @@
       "approval_status": "approved_for_conversion_test"
     },
     {
+      "route_id": "generic_company_manual_to_guanyi_v1",
+      "source_profile_id": "generic_company_manual_v1",
+      "source_label": "已登记公司通用手工订单兜底",
+      "source_kind": "text_or_image",
+      "order_type": "manual_channel_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_generic_company_manual_v1",
+      "business_rule_scope_id": "generic_company_manual_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "user_confirmed_generic_fallback",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
       "route_id": "bailihui_backend_to_guanyi_v1",
       "source_profile_id": "bailihui_dropship_v1",
       "source_label": "百礼汇供应商后台代发订单",

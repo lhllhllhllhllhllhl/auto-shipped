@@ -1047,6 +1047,7 @@ def build_custom_import_lines(
                     resolved_order_items,
                     rules,
                     source_extensions=order.source_extensions,
+                    source_company_id=source_company_id,
                     source_profile_id=order.source.profile_id,
                     manual_store_routes=catalog.manual_store_routes,
                 )

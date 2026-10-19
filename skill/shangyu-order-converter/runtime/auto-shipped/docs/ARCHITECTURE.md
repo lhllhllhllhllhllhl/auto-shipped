@@ -2,7 +2,7 @@
 
 状态：恬田、SAM、NDD、自营文字单和荣之达文字单的管易Excel转换链路已实现；自动上传仍受独立门禁控制。
 
-业务规则讨论稿见 [ORDER_AUTOMATION_RULES_V0.1.md](ORDER_AUTOMATION_RULES_V0.1.md)，完整规则判断流程见 [RULE_DECISION_FLOW_V0.1.md](RULE_DECISION_FLOW_V0.1.md)，规则的唯一权威结构见 [RULE_MODULE_STRUCTURE.md](RULE_MODULE_STRUCTURE.md)，规则来源和证据追溯见 [RULE_SOURCE_LEDGER.md](RULE_SOURCE_LEDGER.md)。架构文档不替代业务规则和来源台账。
+业务规则讨论稿见 [ORDER_AUTOMATION_RULES_V0.1.md](ORDER_AUTOMATION_RULES_V0.1.md)，完整规则判断流程见 [RULE_DECISION_FLOW_V0.1.md](RULE_DECISION_FLOW_V0.1.md)，规则的唯一权威结构见 [RULE_MODULE_STRUCTURE.md](RULE_MODULE_STRUCTURE.md)，AI维护入口见 [MODULE_GOVERNANCE.md](MODULE_GOVERNANCE.md)，规则来源和证据追溯见 [RULE_SOURCE_LEDGER.md](RULE_SOURCE_LEDGER.md)。架构文档不替代业务规则和来源台账。
 
 ## 1. 目标与边界
 
@@ -113,12 +113,12 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 - `medium` 或多个配置并列时，Agent 必须让用户确认。
 - `low` 或没有匹配时停止，不选择最相似的配置继续转换。
 - 用户明确提供公司且文件命中该公司的已登记模板时走脚本快线。
-- 用户明确提供公司但没有命中已登记模板时进入自适应通道，不再把固定模板ID当作公司ID强行校验。
+- 用户明确提供公司但没有命中已登记模板时：固定工作流公司进入其自适应通道；`fallback_enabled`公司进入共享兜底的自适应通道，不再把固定模板ID当作公司ID强行校验。
 - 只有格式匹配、没有公司字段或稳定位置证据时返回 `COMPANY_IDENTITY_UNCONFIRMED`。
 
 ### 3.2.1 自适应来源通道
 
-自适应通道只服务于公司库中已经登记、并且已有可运行目标工作流的公司。它不创造新的公司规则，也不直接生成平台Excel。
+自适应通道只服务于公司库中已经登记，并且拥有固定工作流或显式`generic_fallback`绑定的公司。固定模板优先；共享兜底不创造公司专属规则，也不直接生成平台Excel。
 
 流程：
 
@@ -128,6 +128,8 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 4. 原表同时缺少订单编号和来源单号，或缺少商品、数量时返回批次级追问；只有用户确认后才允许写入批次默认值或日期顺序号。
 5. 自适应解析器重新读取原文件并生成`ParsedOrder`，之后复用原公司的路由、SOP门禁、商品映射、平台规则和预检。
 6. 一次性计划不自动成为永久规则。经员工核对和真实导入验收后，才能将其字段映射提升为版本化来源配置，使后续相同格式回到脚本快线。
+
+通用兜底只复用已确认公共规则：公司简称日序号、普通买家会员、公共金额默认值、来源物流优先和备注分流。店铺先按稳定`company_id`查正式SKU—店铺关系，再查`manual_all`；共享来源配置不作为店铺作用域。没有关系时只有已确认玉米商品可进入“光明满元气”，非玉米或混合店铺继续追问。因此新增兜底不会改变任何现有固定规则包，也不会让不同兜底公司的店铺事实互相污染。
 
 计划合同位于`contracts/adaptive_source_plan.schema.json`。计划只保存列映射、结构签名和经确认的批次默认值，不保存姓名、电话、地址或订单数据行。
 

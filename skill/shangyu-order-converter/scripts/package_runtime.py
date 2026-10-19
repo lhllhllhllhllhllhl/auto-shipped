@@ -18,6 +18,7 @@ INCLUDED_PATHS = [
     "src",
     "config",
     "contracts",
+    "scripts/audit_modules.py",
     "assets",
     "browser/guanyi",
     "docs/ARCHITECTURE.md",
@@ -32,6 +33,7 @@ INCLUDED_PATHS = [
     "docs/CORRECTION_FEEDBACK_GOVERNANCE.md",
     "docs/TEXT_ORDER_INTAKE_V0.1.md",
     "docs/RULE_MODULE_STRUCTURE.md",
+    "docs/MODULE_GOVERNANCE.md",
     "docs/PACKAGE_SEMANTICS_GOVERNANCE.md",
 ]
 

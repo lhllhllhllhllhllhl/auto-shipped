@@ -13,6 +13,7 @@ from auto_shipped.catalog import (
 )
 from auto_shipped.companies import (
     CompanyRegistryError,
+    generic_fallback_for_company,
     load_company_registry,
     resolve_company_abbreviation_references,
     resolve_company_by_identity,
@@ -168,7 +169,10 @@ def _adaptive_detection(
     if company_hint and company_hint != company_id:
         raise AdaptiveExcelPlanError("用户指定公司与自适应计划公司不一致。")
     profile = _find_profile(profiles, profile_id)
-    if profile.get("company_id") != company_id:
+    profile_company_id = str(profile.get("company_id") or "").strip()
+    if profile_company_id != company_id and not (
+        profile_company_id == "*" and profile.get("fallback_only") is True
+    ):
         raise AdaptiveExcelPlanError("自适应计划公司与规则来源配置归属不一致。")
     return DetectionResult(
         status="matched",
@@ -193,6 +197,8 @@ def _known_detection_for_company(
 ) -> tuple[DetectionResult | None, list[str]]:
     matched: list[DetectionResult] = []
     for profile in profiles:
+        if profile.get("fallback_only") is True:
+            continue
         if profile.get("company_id") != company_id:
             continue
         profile_id = str(profile.get("profile_id") or "")
@@ -474,10 +480,16 @@ def convert_order_file(
                 detection=detection,
                 route=route,
             )
-    company_resolution = resolve_company_by_source_profile(
-        company_registry,
-        detection.source_profile_id,
-    )
+    if source_profile.get("fallback_only") is True:
+        company_resolution = resolve_company_by_identity(
+            company_registry,
+            str(detection.company_id or company_hint or ""),
+        )
+    else:
+        company_resolution = resolve_company_by_source_profile(
+            company_registry,
+            detection.source_profile_id,
+        )
     if company_resolution.status != "resolved" or company_resolution.company is None:
         return _needs_input(
             source_file,
@@ -494,7 +506,15 @@ def convert_order_file(
             route=route,
         )
     company = company_resolution.company
-    if source_profile.get("company_id") != company.company_id:
+    source_profile_company_id = str(source_profile.get("company_id") or "")
+    fallback = generic_fallback_for_company(company_registry, company.company_id)
+    fallback_binding_valid = (
+        source_profile.get("fallback_only") is True
+        and source_profile_company_id == "*"
+        and fallback is not None
+        and fallback.get("source_profile_id") == detection.source_profile_id
+    )
+    if source_profile_company_id != company.company_id and not fallback_binding_valid:
         return _needs_input(
             source_file,
             [
@@ -795,7 +815,7 @@ def convert_order_file(
         rules,
         platform_profile,
         white_label_library=white_label_library,
-        source_company_id=str(source_profile.get("company_id") or ""),
+        source_company_id=company.company_id,
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )

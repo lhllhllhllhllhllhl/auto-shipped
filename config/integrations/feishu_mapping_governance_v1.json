@@ -70,6 +70,7 @@
       "jzdz_manual_v1",
       "drjy_manual_v1"
     ],
+    "allow_registered_fallback_company_ids": true,
     "allowed_stores": [
       "光明满元气",
       "淘橘子"

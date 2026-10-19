@@ -43,6 +43,35 @@ def build_manual_address_list(path: Path, *, marker: str = "") -> None:
 
 
 class AdaptiveExcelTests(unittest.TestCase):
+    def test_fallback_company_unknown_excel_reaches_adaptive_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "kld-unknown.xlsx"
+            build_manual_address_list(source)
+            registry = load_company_registry(
+                PROJECT_ROOT / "config/companies/company_registry_v1.json"
+            )
+
+            proposal = propose_adaptive_excel_plan(
+                source,
+                "shanghai_shimao_plaza",
+                registry,
+            )
+
+            self.assertIsNotNone(proposal.plan)
+            assert proposal.plan is not None
+            self.assertEqual(
+                proposal.plan["rule_source_profile_id"],
+                "generic_company_manual_v1",
+            )
+            self.assertEqual(
+                {item.code for item in proposal.clarifications},
+                {
+                    "ADAPTIVE_ORDER_NUMBER_REQUIRED",
+                    "ADAPTIVE_PRODUCT_REQUIRED",
+                    "ADAPTIVE_QUANTITY_REQUIRED",
+                },
+            )
+
     def test_structure_inspection_never_returns_order_values(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "manual.xlsx"
