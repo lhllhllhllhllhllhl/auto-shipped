@@ -173,6 +173,42 @@ test("closes a top-frame Ant speed notice before clicking import inside an ifram
 });
 
 
+test("reuses an already-open custom-import dialog without clicking import again", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <button id="import-button">订单导入</button>
+      <div class="ant-modal-wrap order-import-modal"
+        style="position:fixed;inset:0;z-index:1000;background:white">
+        <h2>订单导入</h2>
+        <button role="tab">自定义导入</button>
+        <p>导入表格可增加、删除列</p>
+      </div>
+      <script>
+        window.importClickCount = 0;
+        document.querySelector('#import-button').addEventListener('click', () => {
+          window.importClickCount += 1;
+        });
+      </script>
+    `);
+
+    const result = await navigateToCustomImport(page);
+
+    assert.equal(result.status, "import_dialog_ready");
+    assert.equal(result.route, "existing_import_dialog");
+    assert.equal(await page.evaluate(() => window.importClickCount), 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test("selects pending-review and confirms the rendered value without a file", async () => {
   const browser = await chromium.launch({
     executablePath: CHROME_EXECUTABLE,

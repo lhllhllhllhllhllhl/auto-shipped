@@ -224,6 +224,19 @@ export async function ensureOrderPage(page) {
 
 
 export async function navigateToCustomImport(page) {
+  const current = await detectState(page);
+  if (current.state === BrowserState.IMPORT_DIALOG_READY) {
+    await ensurePageGeometry(page, "existing_import_dialog_ready");
+    return {
+      status: "import_dialog_ready",
+      state: current.state,
+      url: current.url,
+      route: "existing_import_dialog",
+      dismissedPopups: [],
+      safety: "The existing import dialog was reused; no file was selected or uploaded.",
+    };
+  }
+
   const orderPage = await ensureOrderPage(page);
   await ensurePageGeometry(page, "before_open_import_dialog");
   let importButton = await findImportButton(page);
