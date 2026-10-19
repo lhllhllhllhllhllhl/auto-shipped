@@ -94,7 +94,11 @@ export function validateFileSelectionOperation(record, verifiedManifest) {
   }
   if (
     record.manifest?.path !== verifiedManifest.manifestPath ||
+    (record.manifest?.artifactPath !== undefined &&
+      record.manifest.artifactPath !== verifiedManifest.manifestArtifactPath) ||
     record.artifact?.path !== verifiedManifest.workbookPath ||
+    (record.artifact?.pathBinding !== undefined &&
+      record.artifact.pathBinding !== verifiedManifest.artifactPathBinding) ||
     record.artifact?.sha256 !== verifiedManifest.artifactSha256 ||
     record.artifact?.sizeBytes !== verifiedManifest.artifactSizeBytes
   ) {
@@ -239,7 +243,10 @@ export async function prepareFileSelectionTarget(
   directory,
 ) {
   const loaded = await loadOperation(operationId, directory);
-  const verified = await verifyUploadManifest(loaded.record.manifest.path);
+  const verified = await verifyUploadManifest(
+    loaded.record.manifest.path,
+    loaded.record.artifact.path,
+  );
   validateFileSelectionOperation(loaded.record, verified);
   const form = await prepareCustomImportForm(page);
   const target = await locateOrderInfoFileInput(page);

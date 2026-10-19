@@ -18,7 +18,7 @@
 - `capture-task-baseline`：在 `prepared` 状态合并保存“执行中 + 已完成”两个页签经过双重验证的任务 ID 集合；文件选择开始后不得覆盖。
 - `inspect-file-selection`：复核 manifest、文件哈希、任务基线和唯一的“订单信息上传”输入框，但不选择文件。
 - `select-import-file`：当前用户明确授权后，使用精确授权口令选择一次文件，不点“确定”；动作前后持久化状态并记录脱敏网络元数据。
-- `verify-manifest`：校验 Excel 的路径、大小和 SHA-256，不打开文件选择器。
+- `verify-manifest`：校验当前 Excel 的文件名、大小和 SHA-256；跨环境时只接受明确传入的当前路径，不扫描或猜测文件，也不打开文件选择器。
 
 ## 登录人工验证
 

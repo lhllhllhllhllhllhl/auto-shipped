@@ -168,9 +168,10 @@ function help() {
         "只读轮询任务中心，以唯一任务 ID、类型和状态核验提交结果。",
       "resolve-no-task":
         `任务中心确认没有新增任务后把旧操作标为可重试；需要口令 ${NO_TASK_RESOLUTION_AUTHORIZATION}。`,
-      "verify-manifest": "校验预检 manifest 与 Excel 哈希，不打开文件选择器。",
+      "verify-manifest":
+        "校验预检 manifest 与当前 Excel 的文件名、大小和哈希；可显式传入迁移后的当前路径，不打开文件选择器。",
       "prepare-operation":
-        "校验 manifest 并建立 prepared 操作记录；不选择文件或上传。",
+        "校验 manifest、绑定当前 Excel 路径并建立 prepared 操作记录；不选择文件或上传。",
     },
   });
 }
@@ -1218,12 +1219,16 @@ async function main() {
 
   if (["verify-manifest", "prepare-operation"].includes(command)) {
     const manifestPath = process.argv[3];
+    const currentArtifactPath = process.argv[4] || null;
     if (!manifestPath) {
       printJson({ status: "failed", code: "MANIFEST_PATH_REQUIRED" });
       return 1;
     }
     try {
-      const verified = await verifyUploadManifest(manifestPath);
+      const verified = await verifyUploadManifest(
+        manifestPath,
+        currentArtifactPath,
+      );
       if (command === "verify-manifest") {
         printJson(verified);
         return 0;
@@ -1238,6 +1243,7 @@ async function main() {
         receiptPath: prepared.receiptPath,
         orders: prepared.record.counts.orders,
         itemRows: prepared.record.counts.itemRows,
+        artifactPathBinding: prepared.record.artifact.pathBinding,
         safety: "No file chooser was opened and no upload was performed.",
       });
       return 0;

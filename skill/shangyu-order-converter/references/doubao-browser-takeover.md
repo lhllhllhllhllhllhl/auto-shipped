@@ -35,6 +35,13 @@ Skill 的 `guanyi_browser.py` 会在 Linux 上只读探测该本机端点，确�
 
 登录、弹窗处理、导航、上传和任务核验继续调用`browser/guanyi`原模块，不建立豆包专用副本。命令结束只断开Playwright的CDP连接并释放会话锁，不关闭平台浏览器、默认context或其他标签，因此平台可以自行保留当前页面与Cookie。
 
+## Excel 与 manifest 附件绑定
+
+- 豆包工作把用户附件保存到云工作区路径后，原manifest里的macOS、Windows或其他机器路径通常不可访问；这不是预检失败，也不需要重建manifest。
+- Agent必须取得本次对话中用户明确指定的manifest附件路径和Excel附件路径，并按`verify-manifest <manifest> <current-excel>`、`prepare-operation <manifest> <current-excel>`传入两个精确路径。
+- 执行器只在Excel文件名、大小和SHA-256都与原manifest一致时建立operation；operation同时保存原始路径和当前绑定路径，后续文件选择继续复核当前文件。
+- 不得扫描下载目录、按时间或名称近似猜测Excel，不得把文件复制到manifest写过的旧路径，也不得仅因路径变化重新生成manifest。找不到明确附件或出现任一不一致时停止并请用户重新提供正确的一对文件。
+
 ## 任务结束后的会话复用
 
 - 同一豆包工作对话完成一次任务后，不主动退出管易、关闭管易标签、关闭平台浏览器或默认context，也不清理平台profile。成功、失败关闭和等待人工处理都遵守这一约束；执行器只释放自己的会话锁和CDP连接。

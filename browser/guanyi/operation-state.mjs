@@ -282,10 +282,12 @@ export async function createPreparedOperation(
     updatedAt: now,
     manifest: {
       path: verifiedManifest.manifestPath,
+      artifactPath: verifiedManifest.manifestArtifactPath,
       profileId: verifiedManifest.profileId,
     },
     artifact: {
       path: verifiedManifest.workbookPath,
+      pathBinding: verifiedManifest.artifactPathBinding,
       fileName: verifiedManifest.artifactFileName,
       sizeBytes: verifiedManifest.artifactSizeBytes,
       sha256: verifiedManifest.artifactSha256,

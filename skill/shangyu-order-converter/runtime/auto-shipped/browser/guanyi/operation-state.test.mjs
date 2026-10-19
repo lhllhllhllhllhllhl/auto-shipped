@@ -22,7 +22,9 @@ function manifest() {
   return {
     status: "manifest_verified",
     manifestPath: "/tmp/preflight.json",
+    manifestArtifactPath: "/original-machine/exports/orders.xlsx",
     workbookPath: "/tmp/orders.xlsx",
+    artifactPathBinding: "explicit_current_path",
     artifactFileName: "orders.xlsx",
     artifactSizeBytes: 123,
     artifactSha256: "a".repeat(64),
@@ -77,6 +79,15 @@ test("prepared operation records hash and blocks skipped write states", async ()
     assert.equal(created.record.state, OperationState.PREPARED);
     assert.equal(created.record.retryOf, null);
     assert.equal(created.record.attemptNumber, 1);
+    assert.equal(
+      created.record.manifest.artifactPath,
+      "/original-machine/exports/orders.xlsx",
+    );
+    assert.equal(created.record.artifact.path, "/tmp/orders.xlsx");
+    assert.equal(
+      created.record.artifact.pathBinding,
+      "explicit_current_path",
+    );
     assert.equal(created.record.artifact.sha256, "a".repeat(64));
     assert.equal(created.record.write.requestSent, false);
 

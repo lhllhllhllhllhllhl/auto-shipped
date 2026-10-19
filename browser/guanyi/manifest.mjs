@@ -27,7 +27,10 @@ function requireValue(condition, code, message) {
 }
 
 
-export async function verifyUploadManifest(manifestPath) {
+export async function verifyUploadManifest(
+  manifestPath,
+  currentArtifactPath = null,
+) {
   const manifestFile = path.resolve(manifestPath);
   let manifest;
   try {
@@ -67,9 +70,23 @@ export async function verifyUploadManifest(manifestPath) {
     "ARTIFACT_PATH_MISSING",
     "manifest 缺少待上传文件路径。",
   );
-  const workbookPath = path.isAbsolute(configuredPath)
+  requireValue(
+    currentArtifactPath === null ||
+      (typeof currentArtifactPath === "string" &&
+        currentArtifactPath.trim().length > 0),
+    "CURRENT_ARTIFACT_PATH_INVALID",
+    "当前待上传 Excel 路径无效。",
+  );
+  const manifestWorkbookPath = path.isAbsolute(configuredPath)
     ? configuredPath
     : path.resolve(path.dirname(manifestFile), configuredPath);
+  const workbookPath = currentArtifactPath === null
+    ? manifestWorkbookPath
+    : path.resolve(currentArtifactPath);
+  const artifactPathBinding =
+    currentArtifactPath === null || workbookPath === manifestWorkbookPath
+      ? "manifest_path"
+      : "explicit_current_path";
   requireValue(
     path.extname(workbookPath).toLowerCase() === ".xlsx",
     "ARTIFACT_TYPE_UNSUPPORTED",
@@ -107,7 +124,9 @@ export async function verifyUploadManifest(manifestPath) {
   return {
     status: "manifest_verified",
     manifestPath: manifestFile,
+    manifestArtifactPath: configuredPath,
     workbookPath,
+    artifactPathBinding,
     artifactSha256: actualHash,
     artifactSizeBytes: stat.size,
     artifactFileName: path.basename(workbookPath),
