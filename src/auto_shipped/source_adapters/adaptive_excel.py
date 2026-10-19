@@ -53,14 +53,21 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "product_code": ("商品编码", "商品代码", "来源商品编码"),
     "source_item_text": ("商品原文", "原始商品短语"),
     "source_brand": ("商品品牌", "品牌"),
-    "product_name": ("商品名称", "礼品名称", "套餐名称", "商品", "品名"),
-    "source_spec": ("规格编码", "规格代码", "商品规格", "礼品规格", "规格"),
-    "quantity": ("数量", "商品数量", "件数"),
+    "product_name": ("商品名称", "产品名称", "礼品名称", "套餐名称", "商品", "品名"),
+    "source_spec": ("规格编码", "规格代码", "商品规格", "礼品规格", "规格", "克重"),
+    "quantity": ("数量", "商品数量", "件数", "订货数量（根/袋）"),
     "unit": ("单位", "计量单位"),
     "carrier": ("快递公司", "物流公司", "指定物流"),
     "tracking_no": ("快递单号", "物流单号"),
     "source_note": ("备注", "客户备注", "买家备注", "卖家备注", "送货时间"),
     "ordered_at": ("订单生成时间", "订单创建时间", "下单时间"),
+}
+
+LABELED_BATCH_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "address": ("收货地址", "收件地址", "地址"),
+    "combined_recipient_contact": ("联系人", "收货联系人", "收件人及电话"),
+    "recipient_name": ("收件人", "收货人"),
+    "contact": ("联系方式", "联系电话", "手机", "电话"),
 }
 
 ADDRESS_COMPONENT_ALIASES = {
@@ -176,6 +183,31 @@ def inspect_excel_structure(source_path: str | Path) -> dict[str, Any]:
                         "value_type_counts": counts,
                     }
                 )
+            labeled_fields: dict[str, dict[str, str]] = {}
+            normalized_labels = {
+                _normalized(alias): field
+                for field, aliases in LABELED_BATCH_FIELD_ALIASES.items()
+                for alias in aliases
+            }
+            for row_no in range(1, min(sheet.max_row, 40) + 1):
+                for column_no in range(1, sheet.max_column + 1):
+                    field = normalized_labels.get(
+                        _normalized(sheet.cell(row_no, column_no).value)
+                    )
+                    if not field or field in labeled_fields:
+                        continue
+                    value_column = column_no + 1
+                    while (
+                        value_column <= sheet.max_column
+                        and not _text(sheet.cell(row_no, value_column).value)
+                    ):
+                        value_column += 1
+                    if value_column > sheet.max_column:
+                        continue
+                    labeled_fields[field] = {
+                        "label_cell": f"{get_column_letter(column_no)}{row_no}",
+                        "value_cell": f"{get_column_letter(value_column)}{row_no}",
+                    }
             signature_source = {
                 "sheet_name": sheet.title,
                 "header_row": header_row,
@@ -197,6 +229,7 @@ def inspect_excel_structure(source_path: str | Path) -> dict[str, Any]:
                     "candidate_header_row": header_row,
                     "structure_signature": signature,
                     "columns": columns,
+                    "labeled_fields": labeled_fields,
                 }
             )
         return {
@@ -204,7 +237,7 @@ def inspect_excel_structure(source_path: str | Path) -> dict[str, Any]:
             "source_file": path.name,
             "source_sha256": _sha256(path),
             "sheets": sheets,
-            "privacy": "headers_and_type_counts_only_no_data_values",
+            "privacy": "headers_labels_cell_refs_and_type_counts_only_no_data_values",
         }
     finally:
         workbook.close()
@@ -419,6 +452,46 @@ class AdaptiveExcelParsedAdapter:
             raise AdaptiveExcelPlanError("自适应计划公司与业务规则来源公司不一致。")
         if plan.get("rule_source_profile_id") != profile.get("profile_id"):
             raise AdaptiveExcelPlanError("自适应计划绑定的规则来源配置不一致。")
+
+        if plan.get("layout_mode") == "single_order_labeled_item_table":
+            from .labeled_table import LabeledTableOrderParsedAdapter
+
+            field_mapping = plan.get("field_mapping") or {}
+            batch_mapping = plan.get("batch_field_mapping") or {}
+
+            def mapped_header(field: str) -> str:
+                headers = list((field_mapping.get(field) or {}).get("expected_headers") or ())
+                return str(headers[0]) if headers else ""
+
+            source_spec_headers = [
+                value
+                for value in (
+                    mapped_header("source_spec"),
+                    "箱规" if "箱规" in {
+                        str(column.get("header") or "")
+                        for sheet in inspect_excel_structure(path).get("sheets") or ()
+                        if sheet.get("sheet_name") == plan.get("sheet_name")
+                        for column in sheet.get("columns") or ()
+                    } else "",
+                )
+                if value
+            ]
+            layout = {
+                "sheet_name": str(plan.get("sheet_name") or "Sheet1"),
+                "header_row": int(plan.get("header_row") or 1),
+                "item_fields": {
+                    "product_code": mapped_header("product_code"),
+                    "product_name": mapped_header("product_name"),
+                    "quantity": mapped_header("quantity"),
+                    "source_spec_headers": source_spec_headers,
+                },
+                "batch_fields": {
+                    field: str((spec or {}).get("cell") or "")
+                    for field, spec in batch_mapping.items()
+                },
+                "stop_labels": ["合计", "总计"],
+            }
+            return LabeledTableOrderParsedAdapter().parse(path, profile, layout)
 
         mapping = plan.get("field_mapping") or {}
         if not isinstance(mapping, dict):

@@ -55,13 +55,16 @@ def _matches_registered_rule(
     *,
     company_id: str,
     source_profile_id: str,
+    source_profile_aliases: tuple[str, ...] = (),
     source_fingerprint: str,
 ) -> bool:
     if clean_identifier(rule.get("company_id")) != clean_identifier(company_id):
         return False
-    if clean_identifier(rule.get("source_profile_id")) != clean_identifier(
-        source_profile_id
-    ):
+    compatible_profiles = {
+        clean_identifier(source_profile_id),
+        *(clean_identifier(value) for value in source_profile_aliases),
+    }
+    if clean_identifier(rule.get("source_profile_id")) not in compatible_profiles:
         return False
     if clean_identifier(rule.get("target_platform")) != "guanyi":
         return False
@@ -96,6 +99,25 @@ def _registered_rule_to_local(rule: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _registered_component_signature(
+    rule: dict[str, Any],
+) -> tuple[tuple[str, str, float], ...]:
+    values: list[tuple[str, str, float]] = []
+    for component in rule.get("components") or []:
+        try:
+            multiplier = float(component.get("quantity_multiplier"))
+        except (TypeError, ValueError):
+            multiplier = 0
+        values.append(
+            (
+                clean_identifier(component.get("product_code")),
+                clean_identifier(component.get("spec_code")),
+                multiplier,
+            )
+        )
+    return tuple(values)
+
+
 def _looks_like_unregistered_expansion(item: ParsedItem) -> bool:
     text = " ".join(
         filter(
@@ -120,6 +142,7 @@ def expand_source_item(
     *,
     company_id: str = "",
     source_profile_id: str = "",
+    source_profile_aliases: tuple[str, ...] = (),
     source_fingerprint: str = "",
     registered_rules: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
 ) -> ItemExpansionResult:
@@ -141,15 +164,21 @@ def expand_source_item(
             rule,
             company_id=company_id,
             source_profile_id=source_profile_id,
+            source_profile_aliases=source_profile_aliases,
             source_fingerprint=source_fingerprint,
         )
     ]
     if len(registered_matched) > 1:
-        return ItemExpansionResult(
-            applied=True,
-            error_code="GUANYI_ITEM_EXPANSION_AMBIGUOUS",
-            reason="同一来源商品命中多个正式组合商品规则",
-        )
+        signatures = {
+            _registered_component_signature(rule) for rule in registered_matched
+        }
+        if len(signatures) > 1:
+            return ItemExpansionResult(
+                applied=True,
+                error_code="GUANYI_ITEM_EXPANSION_AMBIGUOUS",
+                reason="同一来源商品命中多个组成不同的正式组合商品规则",
+            )
+        registered_matched = [registered_matched[0]]
     matched = [
         rule
         for rule in policy.get("rules") or []

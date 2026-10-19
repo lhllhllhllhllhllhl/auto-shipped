@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from auto_shipped.catalog import (
     ProductCatalog,
@@ -17,9 +19,11 @@ from auto_shipped.companies import (
     load_company_registry,
     resolve_company_abbreviation_references,
     resolve_company_by_identity,
+    resolve_company_from_text_evidence,
     resolve_company_by_source_profile,
     validate_company_workflow,
 )
+from openpyxl import load_workbook
 from auto_shipped.detection import DetectionResult, detect_source, load_source_profiles
 from auto_shipped.domain import (
     ClarificationRequest,
@@ -44,6 +48,7 @@ from auto_shipped.source_adapters import (
     AdaptiveExcelParsedAdapter,
     AdaptiveExcelPlanError,
     ConfiguredExcelParsedAdapter,
+    LabeledTableOrderParsedAdapter,
     NddGiftOrderParsedAdapter,
     TiantianWarehouseParsedAdapter,
     load_adaptive_plan,
@@ -53,6 +58,11 @@ from auto_shipped.services.adaptive import (
     write_adaptive_plan,
 )
 from auto_shipped.services.decision_orchestrator import converge_decisions
+from auto_shipped.services.order_number_allocations import (
+    DailySequenceLedgerGateway,
+    OrderNumberAllocationError,
+    reserve_daily_sequence,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -216,6 +226,145 @@ def _known_detection_for_company(
     ]
 
 
+def _company_hint_from_workbook(
+    source: Path,
+    registry: dict[str, Any],
+) -> str | None:
+    if source.suffix.lower() not in {".xlsx", ".xlsm"}:
+        return None
+    try:
+        workbook = load_workbook(source, read_only=True, data_only=True)
+    except Exception:
+        return None
+    try:
+        values = [
+            str(cell.value)
+            for sheet in workbook.worksheets
+            for row in sheet.iter_rows(
+                min_row=1,
+                max_row=min(sheet.max_row, 40),
+                min_col=1,
+                max_col=min(sheet.max_column, 20),
+            )
+            for cell in row
+            if cell.value not in (None, "")
+        ]
+    finally:
+        workbook.close()
+    resolution = resolve_company_from_text_evidence(registry, values)
+    if resolution.status == "resolved" and resolution.company is not None:
+        return resolution.company.company_id
+    return None
+
+
+def _source_sha256(order: Any) -> str:
+    fingerprint = str(order.source.file_fingerprint or "")
+    if fingerprint.startswith("sha256:"):
+        fingerprint = fingerprint.removeprefix("sha256:")
+    return fingerprint if re.fullmatch(r"[0-9a-f]{64}", fingerprint) else ""
+
+
+def _allocate_missing_order_identities(
+    orders: list[Any],
+    rules: dict[str, Any],
+    *,
+    company_id: str,
+    state_dir: str | Path | None,
+    gateway: DailySequenceLedgerGateway | None,
+) -> list[ClarificationRequest]:
+    missing = [
+        order
+        for order in orders
+        if not str(order.source.order_no or "").strip()
+        and not str(order.source.source_order_no or "").strip()
+    ]
+    if not missing:
+        return []
+    policy = rules.get("platform_order_number") or {}
+    if policy.get("on_missing") != "generate_daily_sequence":
+        return [
+            ClarificationRequest(
+                code="MISSING_SOURCE_ORDER_IDENTITY",
+                scope="batch",
+                field="平台单号",
+                question="原表没有订单编号或来源单号，请补充可用单号规则。",
+                reason="当前来源规则未登记缺失单号的中央日序号策略。",
+                answer_type="text",
+            )
+        ]
+    prefix = str(policy.get("prefix") or "").strip()
+    timezone_name = str(policy.get("timezone") or "Asia/Shanghai")
+    try:
+        business_now = datetime.now(ZoneInfo(timezone_name))
+    except ZoneInfoNotFoundError:
+        return [
+            ClarificationRequest(
+                code="PLATFORM_ORDER_NUMBER_POLICY_INVALID",
+                scope="batch",
+                field="平台单号",
+                question="平台单号时区配置无效，请先修复规则。",
+                reason=timezone_name,
+                answer_type="text",
+            )
+        ]
+    profile_ids = {str(order.source.profile_id or "") for order in missing}
+    source_hashes = {_source_sha256(order) for order in missing}
+    if len(profile_ids) != 1 or len(source_hashes) != 1 or "" in source_hashes:
+        return [
+            ClarificationRequest(
+                code="PLATFORM_ORDER_NUMBER_SOURCE_INVALID",
+                scope="batch",
+                field="平台单号",
+                question="无法为当前文件安全分配中央日序号，请重新提供原始文件。",
+                reason="来源配置或文件SHA-256不唯一。",
+                answer_type="file",
+            )
+        ]
+    try:
+        allocation = reserve_daily_sequence(
+            purpose="platform_order_number",
+            profile_id=next(iter(profile_ids)),
+            company_id=company_id,
+            prefix=prefix,
+            business_date=business_now.strftime("%Y%m%d"),
+            source_sha256=next(iter(source_hashes)),
+            sequence_count=len(missing),
+            sequence_width=int(policy.get("sequence_width") or 3),
+            stamp_format=str(policy.get("date_format") or "%Y%m%d"),
+            sequence_separator=str(policy.get("sequence_separator") or ""),
+            source_partition=company_id,
+            sequence_start=int(policy.get("sequence_start") or 1),
+            state_dir=state_dir,
+            gateway=gateway,
+        )
+    except OrderNumberAllocationError as exc:
+        return [
+            ClarificationRequest(
+                code="PLATFORM_ORDER_NUMBER_ALLOCATION_FAILED",
+                scope="batch",
+                field="平台单号",
+                question="飞书中央日序号暂时无法占号，请恢复台账连接后重试。",
+                reason=str(exc),
+                answer_type="text",
+                next_action="retry_after_daily_sequence_ledger_ready",
+            )
+        ]
+    date_stamp = datetime.strptime(
+        allocation.business_date,
+        "%Y%m%d",
+    ).strftime(allocation.stamp_format)
+    for offset, order in enumerate(missing):
+        sequence = allocation.sequence_start + offset
+        generated = (
+            f"{allocation.prefix}{date_stamp}{allocation.sequence_separator}"
+            f"{sequence:0{allocation.sequence_width}d}"
+        )
+        order.source = replace(order.source, source_order_no=generated)
+        order.source_extensions["order_number_allocation"] = allocation.to_public_dict()
+        order.source_extensions["selected_order_identity_field"] = "source_order_no"
+    return []
+
+
 def convert_order_file(
     source_path: str | Path,
     catalog_csv: str | Path,
@@ -244,11 +393,19 @@ def convert_order_file(
     mapping_replacement_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
+    order_number_state_dir: str | Path | None = None,
+    order_number_gateway: DailySequenceLedgerGateway | None = None,
 ) -> ConversionResult:
     source = Path(source_path)
     source_file = source.name
     profiles = load_source_profiles(source_profiles_dir)
     company_registry: dict[str, Any] | None = None
+    if not company_hint:
+        try:
+            company_registry = load_company_registry(company_registry_path)
+            company_hint = _company_hint_from_workbook(source, company_registry)
+        except (OSError, json.JSONDecodeError, CompanyRegistryError):
+            company_registry = None
     if company_hint:
         try:
             company_registry = load_company_registry(company_registry_path)
@@ -585,6 +742,7 @@ def convert_order_file(
         adapter_types = {
             TiantianWarehouseParsedAdapter.adapter_id: TiantianWarehouseParsedAdapter,
             ConfiguredExcelParsedAdapter.adapter_id: ConfiguredExcelParsedAdapter,
+            LabeledTableOrderParsedAdapter.adapter_id: LabeledTableOrderParsedAdapter,
             NddGiftOrderParsedAdapter.adapter_id: NddGiftOrderParsedAdapter,
         }
         adapter_type = adapter_types.get(str(adapter_id or ""))
@@ -717,6 +875,22 @@ def convert_order_file(
             parsed_order_count=len(parsed.orders),
         )
 
+    allocation_clarifications = _allocate_missing_order_identities(
+        parsed.orders,
+        rules,
+        company_id=company.company_id,
+        state_dir=order_number_state_dir,
+        gateway=order_number_gateway,
+    )
+    if allocation_clarifications:
+        return _needs_input(
+            source_file,
+            allocation_clarifications,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+        )
+
     if not route.business_rule_scope_id:
         return _needs_input(
             source_file,
@@ -816,6 +990,14 @@ def convert_order_file(
         platform_profile,
         white_label_library=white_label_library,
         source_company_id=company.company_id,
+        source_profile_aliases=tuple(
+            str(value)
+            for value in (
+                (fallback or {}).get("mapping_source_profile_aliases") or []
+            )
+        )
+        if fallback_binding_valid
+        else (),
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
     )

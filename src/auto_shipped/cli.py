@@ -44,6 +44,8 @@ from auto_shipped.integrations.feishu import (
     submit_pending_mapping_proposal,
     submit_correction_feedback,
     collect_correction_feedback,
+    diagnose_official_repository_recovery,
+    recover_official_repository,
     write_official_mapping_snapshot,
 )
 from auto_shipped.services.convert import convert_order_file
@@ -339,6 +341,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=str(DEFAULT_FEISHU_MAPPING_CONFIG),
     )
+
+    diagnose_recovery = subparsers.add_parser(
+        "diagnose-official-repository-recovery",
+        help="只读判断publishing正式库能否安全完成封口；不修改飞书",
+    )
+    diagnose_recovery.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    diagnose_recovery.add_argument("--catalog", required=True)
+    diagnose_recovery.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    diagnose_recovery.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+
+    recover_repository = subparsers.add_parser(
+        "recover-official-repository",
+        help="所有者专用：仅在目标记录、日志、版本和快照全部一致时完成publishing封口",
+    )
+    recover_repository.add_argument(
+        "--config", default=str(DEFAULT_FEISHU_MAPPING_CONFIG)
+    )
+    recover_repository.add_argument("--catalog", required=True)
+    recover_repository.add_argument(
+        "--mappings",
+        default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
+    )
+    recover_repository.add_argument(
+        "--registry",
+        default=str(PROJECT_ROOT / "config/companies/company_registry_v1.json"),
+    )
+    recover_repository.add_argument("--confirmation-token", required=True)
 
     sync_official = subparsers.add_parser(
         "sync-feishu-official-mappings",
@@ -805,6 +842,8 @@ def build_parser() -> argparse.ArgumentParser:
         convert_batch,
         sync_official,
         sync_official_native,
+        diagnose_recovery,
+        recover_repository,
         plan_publish,
         plan_canonical_migration,
         migrate_canonical,
@@ -1669,8 +1708,7 @@ def _registered_mapping_contexts(
         ]
         fallback = company.get("generic_fallback") or {}
         if (
-            company.get("status") == "fallback_enabled"
-            and fallback.get("runtime_enabled") is True
+            fallback.get("runtime_enabled") is True
         ):
             profile_id = str(fallback.get("source_profile_id") or "").strip()
             if profile_id:
@@ -1740,6 +1778,41 @@ def run_plan_pending_mapping_publish(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps(plan.to_public_dict(), ensure_ascii=False, indent=2))
     return 0 if plan.status in {"ready", "no_changes"} else 2
+
+
+def run_diagnose_official_repository_recovery(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, _, _, _ = _load_mapping_publisher_context(args)
+        result = diagnose_official_repository_recovery(gateway, catalog)
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(json.dumps({
+            "status": "failed",
+            "code": "OFFICIAL_REPOSITORY_RECOVERY_DIAGNOSIS_FAILED",
+            "message": str(exc),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"healthy", "recoverable"} else 2
+
+
+def run_recover_official_repository(args: argparse.Namespace) -> int:
+    try:
+        gateway, catalog, owners, _, _ = _load_mapping_publisher_context(args)
+        result = recover_official_repository(
+            gateway,
+            catalog,
+            allowed_owner_user_ids=owners,
+            confirmation_token=args.confirmation_token,
+        )
+    except (OSError, ValueError, json.JSONDecodeError, LarkCliGatewayError) as exc:
+        print(json.dumps({
+            "status": "failed",
+            "code": "OFFICIAL_REPOSITORY_RECOVERY_FAILED",
+            "message": str(exc),
+        }, ensure_ascii=False, indent=2))
+        return 2
+    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    return 0 if result.status in {"healthy", "recovered"} else 2
 
 
 def run_plan_canonical_mapping_migration(args: argparse.Namespace) -> int:
@@ -2385,6 +2458,10 @@ def main() -> int:
         return run_build_mapping_proposal(args)
     if args.command == "feishu-mapping-status":
         return run_feishu_mapping_status(args)
+    if args.command == "diagnose-official-repository-recovery":
+        return run_diagnose_official_repository_recovery(args)
+    if args.command == "recover-official-repository":
+        return run_recover_official_repository(args)
     if args.command == "sync-feishu-official-mappings":
         return run_sync_feishu_official_mappings(args)
     if args.command == "sync-feishu-official-mappings-from-payload":

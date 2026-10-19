@@ -14,8 +14,15 @@
   },
   "platform_order_number": {
     "strategy": "preferred_order_identity",
+    "on_missing": "generate_daily_sequence",
+    "prefix_source": "company_abbreviation",
+    "date_format": "%Y%m%d",
+    "sequence_width": 3,
+    "sequence_start": 1,
+    "sequence_separator": "",
+    "timezone": "Asia/Shanghai",
     "confirmed": true,
-    "source": "优先使用订单编号、缺失时使用来源单号；两者均无时由文字入口按公司简称+YYYYMMDD+飞书中央日序号生成；不追加A。"
+    "source": "优先使用订单编号、缺失时使用来源单号；两者均无时由共享转换入口按公司简称+YYYYMMDD+飞书中央日序号生成；不追加A。"
   },
   "field_output_policy": {
     "product_name": {"strategy": "catalog_product_name", "confirmed": true, "source": "使用有效商品目录名称"},

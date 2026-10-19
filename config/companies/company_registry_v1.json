@@ -354,10 +354,28 @@
       "aliases": [
         "FZ"
       ],
-      "status": "fallback_enabled",
+      "status": "active",
       "enabled": true,
-      "source_profiles": [],
-      "workflows": [],
+      "source_profiles": [
+        {
+          "source_profile_id": "corn_inbound_order_v1",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "fuze_corn_labeled_table_guanyi_v1",
+          "source_profile_id": "corn_inbound_order_v1",
+          "route_id": "fuze_corn_labeled_table_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_fuze_corn_inbound_v1",
+          "product_mapping_scope_id": "corn_inbound_order_v1",
+          "runtime_enabled": true
+        }
+      ],
       "generic_fallback": {
         "source_profile_id": "generic_company_manual_v1",
         "route_id": "generic_company_manual_to_guanyi_v1",
@@ -369,8 +387,8 @@
       },
       "capabilities": {
         "source_recognition": {
-          "status": "generic_fallback_ready",
-          "reason": "已登记法定名称与简称；没有固定模板时进入共享文字/截图或未知Excel兜底。"
+          "status": "fixed_template_and_generic_fallback_ready",
+          "reason": "孚泽标签式玉米商品表走固定解析；其他文字、截图或未知Excel进入共享兜底。"
         },
         "order_conversion": {
           "status": "generic_fallback_ready",
@@ -385,7 +403,8 @@
       },
       "source_refs": [
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）",
-        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10"
+        "用户确认简称同时用于公司识别与显式单号前缀规则：2026-10-10",
+        "玉米入仓订单20261019(1).xlsx及用户确认Skill输入均为待发货订单：2026-10-19"
       ],
       "last_verified_on": "2026-10-19"
     },
@@ -408,6 +427,9 @@
         "target_profile_id": "guanyi_order_import_v1",
         "platform_rules_profile_id": "guanyi_generic_company_manual_v1",
         "product_mapping_scope_id": "generic_company_manual_v1",
+        "mapping_source_profile_aliases": [
+          "kld_text_v1"
+        ],
         "runtime_enabled": true
       },
       "capabilities": {

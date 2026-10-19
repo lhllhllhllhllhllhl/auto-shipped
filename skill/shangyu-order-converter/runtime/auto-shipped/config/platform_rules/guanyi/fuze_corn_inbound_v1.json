@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "guanyi_fuze_corn_inbound_v1",
+  "source_profile_id": "corn_inbound_order_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 1,
+  "policy_module_refs": {
+    "store_assignment_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "store.generic_company_manual_fallback.v1"},
+    "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
+    "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
+    "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
+    "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
+  },
+  "platform_order_number": {
+    "strategy": "preferred_order_identity",
+    "on_missing": "generate_daily_sequence",
+    "prefix_source": "company_abbreviation",
+    "date_format": "%Y%m%d",
+    "sequence_width": 3,
+    "sequence_start": 1,
+    "sequence_separator": "",
+    "timezone": "Asia/Shanghai",
+    "confirmed": true,
+    "source": "有订单编号优先使用；两者都没有时按公司简称+YYYYMMDD+飞书中央日序号生成。"
+  },
+  "field_output_policy": {
+    "product_name": {"strategy": "catalog_product_name", "confirmed": true, "source": "有效商品目录"},
+    "spec_name": {"strategy": "catalog_spec_name", "confirmed": true, "source": "有效商品目录"},
+    "order_created_at": {"strategy": "blank", "confirmed": true, "source": "来源未提供真实下单时间"},
+    "contact_columns": {"strategy": "mobile_to_both_phone_preserved", "confirmed": true, "source": "号码及隐私号尾缀整体保留"},
+    "recipient_region": {"strategy": "source_components", "confirmed": true, "source": "来源完整地址"}
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "generic_company_manual_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.by_manual_route_then_product", "evidence": "已确认玉米商品进入光明满元气。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.prefix_daily_sequence", "evidence": "无来源单号时使用公司简称和飞书中央日序号。"},
+      "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通来源固定张。"},
+      "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通订单金额规则。"},
+      "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "共享仓库策略。"},
+      "GY-PAYMENT-METHOD": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.payment_method", "evidence": "网银在线。"},
+      "GY-ORDER-TYPE": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_type", "evidence": "销售订单。"},
+      "GY-ORDER-FLAGS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_flags", "evidence": "导入标记为0。"},
+      "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "编码、条码和正式映射优先。"},
+      "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "标签式页尾字段必须完整。"},
+      "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.corn_packaging_policy", "evidence": "共享玉米包装物流规则。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "备注统一分流。"},
+      "GY-DAILY-GOODS-WHITE-LABEL": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.white_label_sku_library", "evidence": "白标SKU库。"},
+      "GY-DELIVERY-INSTRUCTION-ADDRESS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.note_routing.courier_instruction_to_address", "evidence": "快递备注进入地址末尾。"}
+    }
+  }
+}

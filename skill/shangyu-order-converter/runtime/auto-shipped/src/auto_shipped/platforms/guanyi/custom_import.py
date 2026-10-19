@@ -10,7 +10,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openpyxl import load_workbook
 
-from auto_shipped.catalog import ProductCatalog, WhiteLabelLibrary
+from auto_shipped.catalog import (
+    ProductCatalog,
+    ProductResolution,
+    WhiteLabelLibrary,
+)
 from auto_shipped.domain import (
     ClarificationRequest,
     DecisionItem,
@@ -238,6 +242,74 @@ def _rule_clarifications(rules: dict[str, Any]) -> list[ClarificationRequest]:
             )
         )
     return requests
+
+
+def _resolve_product_with_profile_aliases(
+    catalog: ProductCatalog,
+    item: ParsedItem,
+    *,
+    source_profile_id: str,
+    source_profile_aliases: tuple[str, ...],
+    source_fingerprint: str,
+) -> ProductResolution:
+    """Reuse exact mappings from explicitly compatible legacy source profiles.
+
+    The current source profile always wins.  Legacy profiles are consulted only
+    when the current profile did not produce a confirmed result, and they may be
+    reused only when every confirmed legacy hit points to the same Guanyi SKU.
+    """
+
+    kwargs = {
+        "source_item_text": item.source_item_text,
+        "source_brand": item.source_brand,
+        "source_product_name": item.source_product_name,
+        "source_spec": item.source_spec,
+        "unit": item.unit,
+        "source_fingerprint": source_fingerprint,
+    }
+    primary = catalog.resolve(
+        item.source_product_code,
+        source_profile_id=source_profile_id,
+        **kwargs,
+    )
+    if primary.confirmed or not source_profile_aliases:
+        return primary
+
+    confirmed_by_target: dict[tuple[str, str], ProductResolution] = {}
+    for alias in dict.fromkeys(source_profile_aliases):
+        candidate = catalog.resolve(
+            item.source_product_code,
+            source_profile_id=alias,
+            **kwargs,
+        )
+        if candidate.confirmed and candidate.product is not None:
+            key = (candidate.product.product_code, candidate.product.spec_code)
+            confirmed_by_target[key] = candidate
+    if len(confirmed_by_target) == 1:
+        candidate = next(iter(confirmed_by_target.values()))
+        return replace(
+            candidate,
+            reason=(
+                f"{candidate.reason}；通过公司库声明的旧来源入口兼容复用"
+            ),
+            match_method=f"compatible_source_profile:{candidate.match_method}",
+        )
+    if len(confirmed_by_target) > 1:
+        return ProductResolution(
+            status="ambiguous",
+            external_sku=primary.external_sku,
+            product=None,
+            confirmed=False,
+            reason="同公司兼容的旧来源入口指向多个不同管易商品，必须确认。",
+            match_method="compatible_source_profile_conflict",
+            identifier_type=primary.identifier_type,
+            candidates=tuple(
+                resolution.product
+                for resolution in confirmed_by_target.values()
+                if resolution.product is not None
+            ),
+        )
+    return primary
 
 
 def _platform_order_no(
@@ -554,6 +626,7 @@ def build_custom_import_lines(
     buyer_member_sequence_state_dir: str | Path | None = None,
     buyer_member_sequence_gateway: Any = None,
     source_company_id: str = "",
+    source_profile_aliases: tuple[str, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
 ) -> GuanyiBuildResult:
@@ -572,6 +645,7 @@ def build_custom_import_lines(
                 rules,
                 company_id=source_company_id,
                 source_profile_id=order.source.profile_id,
+                source_profile_aliases=source_profile_aliases,
                 source_fingerprint=order.source.file_fingerprint,
                 registered_rules=catalog.item_expansion_rules,
             )
@@ -642,14 +716,11 @@ def build_custom_import_lines(
             resolution_key = _product_resolution_key(order, item)
             resolution = resolved_products.get(resolution_key)
             if resolution is None:
-                resolution = catalog.resolve(
-                    item.source_product_code,
+                resolution = _resolve_product_with_profile_aliases(
+                    catalog,
+                    item,
                     source_profile_id=order.source.profile_id,
-                    source_item_text=item.source_item_text,
-                    source_brand=item.source_brand,
-                    source_product_name=item.source_product_name,
-                    source_spec=item.source_spec,
-                    unit=item.unit,
+                    source_profile_aliases=source_profile_aliases,
                     source_fingerprint=order.source.file_fingerprint,
                 )
                 resolved_products[resolution_key] = resolution

@@ -15,11 +15,14 @@ from auto_shipped.integrations.feishu import (
     PendingMappingProposal,
     PendingSheetMetadata,
     build_pending_mapping_proposal,
+    build_mapping_key,
     add_confirmed_mapping_direct,
     add_confirmed_item_expansion_direct,
     add_confirmed_manual_store_route_direct,
+    diagnose_official_repository_recovery,
     plan_pending_mapping_publish,
     publish_pending_mappings,
+    recover_official_repository,
 )
 
 
@@ -167,6 +170,91 @@ class FakePublisherGateway:
         if len(matches) != 1:
             raise ValueError("log not unique")
         matches[0]["status"] = status
+
+
+class OfficialRepositoryRecoveryTests(unittest.TestCase):
+    def _recoverable_gateway(self) -> FakePublisherGateway:
+        gateway = FakePublisherGateway()
+        operation_id = "direct-add-test"
+        gateway.metadata = {
+            "repository_status": "publishing",
+            "mapping_revision": "3",
+            "publish_operation_id": operation_id,
+        }
+        mapping_key = build_mapping_key(
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_code",
+            source_value="SOURCE-P1",
+            source_spec="",
+            target_platform="guanyi",
+        )
+        record = OfficialMappingRecord(
+            mapping_id="mapping-test",
+            mapping_key=mapping_key,
+            company_id="company-a",
+            source_profile_id="profile-a",
+            identifier_type="product_code",
+            source_value="SOURCE-P1",
+            source_spec="",
+            target_platform="guanyi",
+            product_code="P1",
+            spec_code="S1",
+            status="active",
+            mapping_version="3",
+            confirmed_by=OWNER,
+            confirmed_at=NOW,
+            evidence="用户确认以后沿用",
+        )
+        gateway.official.append(record.to_dict())
+        gateway.logs.append(
+            MappingPublishLogRecord(
+                event_id="event-test",
+                operation_id=operation_id,
+                action="DIRECT_CREATE",
+                mapping_key=record.mapping_key,
+                old_value="{}",
+                new_value='{"product_code":"P1","spec_code":"S1","status":"active"}',
+                source_proposal_id="",
+                submitted_by=OWNER,
+                approved_by=OWNER,
+                reason="用户确认以后沿用",
+                official_revision_before="2",
+                official_revision_after="3",
+                status="staged",
+                created_at=NOW,
+            ).to_dict()
+        )
+        return gateway
+
+    def test_diagnose_and_recover_completed_publish(self) -> None:
+        gateway = self._recoverable_gateway()
+
+        diagnosis = diagnose_official_repository_recovery(gateway, catalog())
+        self.assertEqual(diagnosis.status, "recoverable")
+
+        recovered = recover_official_repository(
+            gateway,
+            catalog(),
+            allowed_owner_user_ids=(OWNER,),
+            confirmation_token="CONFIRM_RECOVER_OFFICIAL_REPOSITORY",
+        )
+        self.assertEqual(recovered.status, "recovered")
+        self.assertEqual(gateway.metadata["repository_status"], "active")
+        self.assertEqual(gateway.metadata["publish_operation_id"], "")
+        self.assertEqual(gateway.logs[0]["status"], "published")
+
+    def test_recovery_refuses_revision_that_has_not_reached_target(self) -> None:
+        gateway = self._recoverable_gateway()
+        gateway.metadata["mapping_revision"] = "2"
+
+        diagnosis = diagnose_official_repository_recovery(gateway, catalog())
+
+        self.assertEqual(diagnosis.status, "blocked")
+        self.assertEqual(
+            diagnosis.code,
+            "OFFICIAL_REPOSITORY_RECOVERY_REVISION_UNPROVEN",
+        )
 
 
 def catalog() -> ProductCatalog:

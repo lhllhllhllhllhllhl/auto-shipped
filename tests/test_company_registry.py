@@ -103,7 +103,7 @@ class CompanyRegistryTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ready", result["issues"])
         self.assertEqual(result["company_count"], 8)
-        self.assertEqual(result["workflow_count"], 9)
+        self.assertEqual(result["workflow_count"], 10)
         self.assertEqual(result["fallback_company_count"], 3)
 
     def test_kld_generic_fallback_matches_shared_route(self) -> None:
@@ -117,6 +117,15 @@ class CompanyRegistryTests(unittest.TestCase):
             platform_rules_profile_id="guanyi_generic_company_manual_v1",
         )
         self.assertEqual(result.status, "resolved", result.reason)
+        company = next(
+            item
+            for item in self.registry["companies"]
+            if item["company_id"] == "shanghai_shimao_plaza"
+        )
+        self.assertEqual(
+            company["generic_fallback"]["mapping_source_profile_aliases"],
+            ["kld_text_v1"],
+        )
 
     def test_taojuzi_text_profiles_belong_to_self_operated_company(self) -> None:
         for profile_id in (

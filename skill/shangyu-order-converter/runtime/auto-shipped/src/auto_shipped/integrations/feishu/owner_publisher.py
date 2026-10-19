@@ -32,6 +32,7 @@ PUBLISH_CONFIRMATION_TOKEN = "CONFIRM_PUBLISH_ALL_PENDING_MAPPINGS"
 DIRECT_ADD_CONFIRMATION_TOKEN = "CONFIRM_ADD_NEW_OFFICIAL_MAPPING"
 DIRECT_STORE_ROUTE_CONFIRMATION_TOKEN = "CONFIRM_ADD_MANUAL_STORE_ROUTE"
 DIRECT_ITEM_EXPANSION_CONFIRMATION_TOKEN = "CONFIRM_ADD_ITEM_EXPANSION_RULE"
+REPOSITORY_RECOVERY_CONFIRMATION_TOKEN = "CONFIRM_RECOVER_OFFICIAL_REPOSITORY"
 
 
 class OwnerMappingPublishError(ValueError):
@@ -186,6 +187,17 @@ class DirectItemExpansionAddResult:
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class OfficialRepositoryRecoveryResult:
+    status: str
+    operation_id: str
+    repository_status: str
+    mapping_revision: str
+    log_count: int
+    code: str = ""
+    reason: str = ""
+
+
 class OwnerMappingPublisherGateway(Protocol):
     def get_current_identity(self) -> FeishuIdentity: ...
 
@@ -260,6 +272,197 @@ def _item_expansion_records(
 ) -> list[dict[str, str]]:
     reader = getattr(gateway, "list_item_expansion_component_records", None)
     return list(reader()) if callable(reader) else []
+
+
+def diagnose_official_repository_recovery(
+    gateway: OwnerMappingPublisherGateway,
+    catalog: ProductCatalog,
+) -> OfficialRepositoryRecoveryResult:
+    """Prove whether an interrupted publish only needs its final unlock step."""
+
+    metadata = gateway.get_official_repository_metadata()
+    repository_status = clean_identifier(metadata.get("repository_status"))
+    revision = clean_identifier(metadata.get("mapping_revision"))
+    operation_id = clean_identifier(metadata.get("publish_operation_id"))
+    if repository_status == "active":
+        return OfficialRepositoryRecoveryResult(
+            status="healthy",
+            operation_id="",
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=0,
+            reason="正式库已经是active，无需恢复。",
+        )
+    if repository_status != "publishing" or not operation_id:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id=operation_id,
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=0,
+            code="OFFICIAL_REPOSITORY_RECOVERY_METADATA_INVALID",
+            reason="只有带publish_operation_id的publishing状态可自动诊断。",
+        )
+
+    logs = [
+        item
+        for item in gateway.list_mapping_publish_logs()
+        if clean_identifier(item.get("operation_id")) == operation_id
+    ]
+    after_revisions = {
+        clean_identifier(item.get("official_revision_after")) for item in logs
+    }
+    if not logs or len(after_revisions) != 1 or revision not in after_revisions:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id=operation_id,
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=len(logs),
+            code="OFFICIAL_REPOSITORY_RECOVERY_REVISION_UNPROVEN",
+            reason="发布日志不存在、目标版本不唯一，或元数据尚未到达目标版本。",
+        )
+    if any(clean_identifier(item.get("status")) not in {"staged", "published"} for item in logs):
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id=operation_id,
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=len(logs),
+            code="OFFICIAL_REPOSITORY_RECOVERY_LOG_INVALID",
+            reason="发布日志含有无法识别的状态。",
+        )
+
+    mappings = gateway.list_official_mapping_records()
+    routes = _manual_store_routes(gateway)
+    expansions = _item_expansion_records(gateway)
+    mapping_by_key = {
+        clean_identifier(item.get("mapping_key")): item for item in mappings
+    }
+    route_by_key = {
+        clean_identifier(item.get("route_key")): item for item in routes
+    }
+    expansion_by_key: dict[str, list[dict[str, str]]] = {}
+    for item in expansions:
+        expansion_by_key.setdefault(clean_identifier(item.get("rule_key")), []).append(item)
+    for log in logs:
+        action = clean_identifier(log.get("action"))
+        key = clean_identifier(log.get("mapping_key"))
+        if action in {"CREATE", "DIRECT_CREATE"}:
+            records = [mapping_by_key.get(key)]
+        elif action == "DIRECT_CREATE_MANUAL_STORE_ROUTE":
+            records = [route_by_key.get(key)]
+        elif action == "DIRECT_CREATE_ITEM_EXPANSION":
+            records = expansion_by_key.get(key, [])
+        else:
+            records = []
+        if not records or any(
+            record is None or clean_identifier(record.get("status")) != "active"
+            for record in records
+        ):
+            return OfficialRepositoryRecoveryResult(
+                status="blocked",
+                operation_id=operation_id,
+                repository_status=repository_status,
+                mapping_revision=revision,
+                log_count=len(logs),
+                code="OFFICIAL_REPOSITORY_RECOVERY_TARGET_INCOMPLETE",
+                reason=f"操作{action or 'unknown'}的目标记录尚未全部处于active。",
+            )
+    try:
+        build_official_mapping_snapshot(
+            mappings,
+            {**metadata, "repository_status": "active"},
+            catalog,
+            manual_store_route_records=routes,
+            item_expansion_records=expansions,
+            synced_at=_now(),
+        )
+    except OfficialMappingSyncError as exc:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id=operation_id,
+            repository_status=repository_status,
+            mapping_revision=revision,
+            log_count=len(logs),
+            code="OFFICIAL_REPOSITORY_RECOVERY_SNAPSHOT_INVALID",
+            reason=str(exc),
+        )
+    return OfficialRepositoryRecoveryResult(
+        status="recoverable",
+        operation_id=operation_id,
+        repository_status=repository_status,
+        mapping_revision=revision,
+        log_count=len(logs),
+        reason="目标记录、发布日志、版本号和完整快照一致；只需完成日志封口并解锁。",
+    )
+
+
+def recover_official_repository(
+    gateway: OwnerMappingPublisherGateway,
+    catalog: ProductCatalog,
+    *,
+    allowed_owner_user_ids: Sequence[str],
+    confirmation_token: str,
+) -> OfficialRepositoryRecoveryResult:
+    identity = gateway.get_current_identity()
+    owners = {clean_identifier(value) for value in allowed_owner_user_ids if value}
+    if identity.identity_type != "user" or identity.user_id not in owners:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id="",
+            repository_status="",
+            mapping_revision="",
+            log_count=0,
+            code="OWNER_PUBLISHER_IDENTITY_REQUIRED",
+            reason="只有正式库所有者可以执行恢复。",
+        )
+    if confirmation_token != REPOSITORY_RECOVERY_CONFIRMATION_TOKEN:
+        return OfficialRepositoryRecoveryResult(
+            status="blocked",
+            operation_id="",
+            repository_status="",
+            mapping_revision="",
+            log_count=0,
+            code="OFFICIAL_REPOSITORY_RECOVERY_CONFIRMATION_REQUIRED",
+            reason="缺少正式库恢复确认令牌。",
+        )
+    diagnosis = diagnose_official_repository_recovery(gateway, catalog)
+    if diagnosis.status == "healthy":
+        return diagnosis
+    if diagnosis.status != "recoverable":
+        return diagnosis
+    try:
+        for log in gateway.list_mapping_publish_logs():
+            if clean_identifier(log.get("operation_id")) != diagnosis.operation_id:
+                continue
+            if clean_identifier(log.get("status")) == "staged":
+                gateway.update_mapping_publish_log_status(
+                    clean_identifier(log.get("event_id")),
+                    "published",
+                )
+        gateway.update_official_repository_metadata(
+            {"repository_status": "active", "publish_operation_id": ""}
+        )
+        verified = gateway.get_official_repository_metadata()
+        if (
+            clean_identifier(verified.get("repository_status")) != "active"
+            or clean_identifier(verified.get("publish_operation_id"))
+        ):
+            raise OwnerMappingPublishError("恢复写入后元数据回读不一致。")
+    except Exception as exc:
+        return replace(
+            diagnosis,
+            status="failed_closed",
+            code="OFFICIAL_REPOSITORY_RECOVERY_WRITE_FAILED",
+            reason=str(exc),
+        )
+    return replace(
+        diagnosis,
+        status="recovered",
+        repository_status="active",
+        reason="发布日志已封口，正式库已恢复active。",
+    )
 
 
 def _stable_id(prefix: str, *parts: str) -> str:

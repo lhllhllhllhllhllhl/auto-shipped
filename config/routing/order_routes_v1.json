@@ -63,6 +63,20 @@
       "approval_status": "pending_sample"
     },
     {
+      "route_id": "fuze_corn_labeled_table_to_guanyi_v1",
+      "source_profile_id": "corn_inbound_order_v1",
+      "source_label": "上海孚泽玉米标签式商品表",
+      "source_kind": "excel",
+      "order_type": "standard_order",
+      "target_platform": "guanyi",
+      "target_profile_id": "guanyi_order_import_v1",
+      "platform_rules_profile_id": "guanyi_fuze_corn_inbound_v1",
+      "business_rule_scope_id": "generic_company_manual_to_guanyi_v1",
+      "post_fulfillment_profile_id": null,
+      "evidence_status": "user_confirmed_shipping_intent_and_real_sample",
+      "approval_status": "approved_for_conversion_test"
+    },
+    {
       "route_id": "ndd_to_guanyi_v1",
       "source_profile_id": "ndd_order_v1",
       "source_label": "NDD",
@@ -187,15 +201,6 @@
       "approval_status": "route_confirmed_implementation_pending"
     }
   ],
-  "unrouted_sources": [
-    {
-      "source_profile_id": "corn_inbound_order_v1",
-      "source_label": "玉米入仓订单",
-      "reason": "样本包含商品和订货数量，但没有收件人、联系方式和地址，不能确定是入仓资料还是发货订单。",
-      "resolution": "ask_user",
-      "clarification_code": "ORDER_PURPOSE_UNCLEAR",
-      "approval_status": "requires_runtime_clarification"
-    }
-  ],
+  "unrouted_sources": [],
   "deferred_workflows": []
 }

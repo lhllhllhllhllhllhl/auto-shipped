@@ -79,6 +79,7 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
     abbreviations: dict[str, str] = {}
     identities: dict[str, str] = {}
     source_owners: dict[str, str] = {}
+    mapping_alias_owners: dict[str, str] = {}
     workflow_ids: set[str] = set()
     for company in companies:
         company_id = str(company.get("company_id") or "").strip()
@@ -162,10 +163,6 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             raise CompanyRegistryError(
                 f"仅登记身份的公司{company_id}不能绑定source_profile。"
             )
-        if status == "fallback_enabled" and source_profiles:
-            raise CompanyRegistryError(
-                f"使用通用兜底的公司{company_id}不能把共享兜底来源冒充固定模板。"
-            )
         for source in source_profiles:
             profile_id = str(source.get("source_profile_id") or "").strip()
             if not profile_id:
@@ -184,10 +181,6 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             raise CompanyRegistryError(
                 f"仅登记身份的公司{company_id}不能启用workflow。"
             )
-        if status == "fallback_enabled" and workflows:
-            raise CompanyRegistryError(
-                f"使用通用兜底的公司{company_id}不能把共享兜底流程复制为公司工作流。"
-            )
         for workflow in workflows:
             workflow_id = str(workflow.get("workflow_id") or "").strip()
             if not workflow_id:
@@ -197,7 +190,7 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
             workflow_ids.add(workflow_id)
 
         generic_fallback = company.get("generic_fallback")
-        if status == "fallback_enabled":
+        if status in {"active", "fallback_enabled"} and generic_fallback is not None:
             if not isinstance(generic_fallback, dict):
                 raise CompanyRegistryError(
                     f"启用通用兜底的公司{company_id}缺少generic_fallback配置。"
@@ -222,9 +215,43 @@ def load_company_registry(path: str | Path) -> dict[str, Any]:
                     f"公司{company_id}的generic_fallback配置不完整："
                     + ", ".join(missing)
                 )
+            aliases = generic_fallback.get("mapping_source_profile_aliases") or []
+            if not isinstance(aliases, list) or any(
+                not str(value or "").strip() for value in aliases
+            ):
+                raise CompanyRegistryError(
+                    f"公司{company_id}的mapping_source_profile_aliases必须是非空字符串数组。"
+                )
+            normalized_aliases = [str(value).strip() for value in aliases]
+            if len(normalized_aliases) != len(set(normalized_aliases)):
+                raise CompanyRegistryError(
+                    f"公司{company_id}的mapping_source_profile_aliases存在重复值。"
+                )
+            if str(generic_fallback.get("source_profile_id")) in normalized_aliases:
+                raise CompanyRegistryError(
+                    f"公司{company_id}的映射兼容入口不能包含当前兜底入口自身。"
+                )
+            for alias in normalized_aliases:
+                owner = mapping_alias_owners.get(alias)
+                if owner and owner != company_id:
+                    raise CompanyRegistryError(
+                        f"旧来源映射兼容入口{alias}同时属于{owner}和{company_id}。"
+                    )
+                mapping_alias_owners[alias] = company_id
+        elif status == "fallback_enabled":
+            raise CompanyRegistryError(
+                f"启用通用兜底的公司{company_id}缺少generic_fallback配置。"
+            )
         elif generic_fallback is not None:
             raise CompanyRegistryError(
                 f"只有fallback_enabled公司可以配置generic_fallback：{company_id}"
+            )
+    for alias, company_id in mapping_alias_owners.items():
+        source_owner = source_owners.get(alias)
+        if source_owner and source_owner != company_id:
+            raise CompanyRegistryError(
+                f"旧来源映射兼容入口{alias}实际属于{source_owner}，"
+                f"不能由{company_id}复用。"
             )
     return registry
 
@@ -280,6 +307,63 @@ def resolve_company_by_identity(
     return CompanyResolution(status="resolved", company=context)
 
 
+def resolve_company_from_text_evidence(
+    registry: dict[str, Any],
+    values: list[str],
+) -> CompanyResolution:
+    """Resolve one company from legal/display names found inside a source file.
+
+    Short abbreviations are intentionally excluded here because ordinary workbook
+    content may contain the same letters for unrelated reasons.  Abbreviations
+    remain valid when the user states them explicitly.
+    """
+
+    normalized_values = [str(value or "").strip().casefold() for value in values]
+    matches: list[dict[str, Any]] = []
+    for company in registry.get("companies", []):
+        stable_names = [
+            company.get("legal_name"),
+            company.get("display_name"),
+            *(
+                alias
+                for alias in company.get("aliases") or ()
+                if len(str(alias or "").strip()) >= 4
+            ),
+        ]
+        tokens = {
+            str(value or "").strip().casefold()
+            for value in stable_names
+            if str(value or "").strip()
+        }
+        if any(token in value for token in tokens for value in normalized_values):
+            matches.append(company)
+    if len(matches) != 1:
+        return CompanyResolution(
+            status="needs_input",
+            code=(
+                "COMPANY_NOT_FOUND_IN_SOURCE"
+                if not matches
+                else "COMPANY_SOURCE_EVIDENCE_AMBIGUOUS"
+            ),
+            reason=f"source_company_match_count={len(matches)}",
+        )
+    record = matches[0]
+    if record.get("enabled") is not True or record.get("status") not in {
+        "active",
+        "fallback_enabled",
+    }:
+        return CompanyResolution(
+            status="needs_input",
+            company=_company_context(registry, record),
+            code="COMPANY_WORKFLOW_NOT_REGISTERED",
+            reason="来源中识别出公司，但该公司没有启用转换流程。",
+        )
+    return CompanyResolution(
+        status="resolved",
+        company=_company_context(registry, record),
+    )
+
+
 def generic_fallback_for_company(
     registry: dict[str, Any],
     company_id: str,
@@ -296,7 +380,7 @@ def generic_fallback_for_company(
     )
     if (
         not isinstance(company, dict)
-        or company.get("status") != "fallback_enabled"
+        or company.get("status") not in {"active", "fallback_enabled"}
         or company.get("enabled") is not True
     ):
         return None

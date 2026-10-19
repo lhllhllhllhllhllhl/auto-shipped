@@ -392,6 +392,16 @@ python3 <skill-dir>/scripts/feishu_mapping.py publish \
 
 完全相同的正式映射会跳过且不增加重复行；同一`mapping_key`指向不同商品时整批阻断，禁止覆盖。发布期间正式库状态改为`publishing`，订单转换会失败关闭；全部记录、日志、元数据和快照校验通过后才恢复`active`。
 
+`publishing`不是“整张表读不到”，而是一次正式写入已经取得事务锁、尚未完成最终封口。此时表内可能已存在新记录，但系统无法证明记录、版本、日志和快照已经一致，因此转换端拒绝把它当作正式数据。先只读诊断；只有目标记录均为active、日志目标版本与元数据一致、整库快照可重新构建时，所有者才可完成日志封口并清锁：
+
+```bash
+python3 <skill-dir>/scripts/feishu_mapping.py diagnose-recovery
+python3 <skill-dir>/scripts/feishu_mapping.py recover \
+  --confirmation-token CONFIRM_RECOVER_OFFICIAL_REPOSITORY
+```
+
+若诊断返回`blocked`，不得手工把状态改成`active`；应按`publish_operation_id`继续核对缺失的记录或日志。
+
 如果未来需要强用户隔离，应把待确认仓库替换为每用户独立工作簿、飞书多维表格或数据库；`FeishuSheetGateway`上层业务合同无需改变。
 
 ## 7. 当前状态

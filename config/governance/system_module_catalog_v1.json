@@ -12,7 +12,7 @@
     {
       "module_id": "source_intake",
       "title": "输入识别与字段完整性",
-      "responsibility": "接收已知Excel、未知Excel、文字和截图草稿，并校验收件、商品、数量等必要字段。",
+      "responsibility": "接收已知Excel、未知Excel、文字和截图草稿，并校验收件、商品、数量等必要字段；Skill调用默认表示待发货，文件标题不单独决定用途。",
       "boundary": "不决定公司业务规则、店铺或商品目标SKU。",
       "authority_paths": ["src/auto_shipped/services/text_intake.py", "src/auto_shipped/source_adapters"],
       "dependencies": [],
@@ -34,9 +34,9 @@
     {
       "module_id": "adaptive_excel",
       "title": "未知Excel自适应解析",
-      "responsibility": "只读探测表头和结构，形成字段映射计划，并只对无法确定的必要字段追问。",
+      "responsibility": "只读探测表头、标签和结构，形成字段映射计划；行式订单和页尾统一收件信息的标签式商品表共用配置化解析，只对无法确定的必要字段追问；共享兜底只按公司库显式声明复用同公司旧来源映射。",
       "boundary": "不得凭文件外观猜公司；不得绕过公司与工作流路由。",
-      "authority_paths": ["src/auto_shipped/services/adaptive.py", "src/auto_shipped/source_adapters/adaptive_excel.py", "contracts/adaptive_source_plan.schema.json"],
+      "authority_paths": ["src/auto_shipped/services/adaptive.py", "src/auto_shipped/source_adapters/adaptive_excel.py", "src/auto_shipped/source_adapters/labeled_table.py", "contracts/adaptive_source_plan.schema.json"],
       "dependencies": ["company_workflow_routing"],
       "implementation_refs": [],
       "policy_module_ids": [],
@@ -56,7 +56,7 @@
     {
       "module_id": "mapping_governance",
       "title": "正式、待确认与本批临时映射治理",
-      "responsibility": "同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突。",
+      "responsibility": "同步飞书正式映射，保存本批替换，串行新增用户确认的长期映射并校验冲突；诊断publishing事务，只在记录、日志、版本和快照一致时由所有者完成封口。",
       "boundary": "本批临时替换不得伪装成正式映射；已有映射的替换必须走管理员治理。",
       "authority_paths": ["src/auto_shipped/integrations/feishu", "contracts/official_product_mapping.schema.json", "contracts/current_batch_mapping_replacement.schema.json"],
       "dependencies": ["product_resolution", "feishu_integration"],
@@ -112,7 +112,7 @@
     {
       "module_id": "feishu_integration",
       "title": "飞书CLI统一网关",
-      "responsibility": "统一身份探测、表格读写、映射同步、中央序号和错误分类。",
+      "responsibility": "统一身份探测、表格读写、映射同步、中央序号、publishing恢复和错误分类。",
       "boundary": "业务模块不得各自拼接不兼容的lark-cli身份探针或直接并发写同一revision表。",
       "authority_paths": ["src/auto_shipped/integrations/feishu/lark_cli_gateway.py", "config/integrations/feishu_mapping_governance_v1.json", "config/integrations/feishu_daily_sequence_v1.json"],
       "dependencies": [],
