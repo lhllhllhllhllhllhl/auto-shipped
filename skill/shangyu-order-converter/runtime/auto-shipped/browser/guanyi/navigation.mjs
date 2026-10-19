@@ -35,6 +35,36 @@ async function clickFirstVisible(locator) {
 }
 
 
+async function activateVisibleTab(page, locator, timeoutMs = 5_000) {
+  const target = await firstVisible(locator);
+  if (!target) {
+    return false;
+  }
+  await target.click();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const activated = await target
+      .evaluate((element) => {
+        const tab = element.closest('[role="tab"], .ant-tabs-tab') || element;
+        return (
+          tab.getAttribute("aria-selected") === "true" ||
+          tab.classList.contains("ant-tabs-tab-active") ||
+          Boolean(tab.closest(".ant-tabs-tab-active"))
+        );
+      })
+      .catch(() => false);
+    if (activated) {
+      return true;
+    }
+    await page.waitForTimeout(100);
+  }
+  throw new NavigationError(
+    "ORDER_QUERY_TAB_NOT_ACTIVATED",
+    "已点击订单查询页签，但未能确认该页签已激活。",
+  );
+}
+
+
 async function hasImportButton(page) {
   return Boolean(
     await firstVisibleInFrames(
@@ -131,11 +161,15 @@ export async function ensureOrderPage(page) {
       { popupSummaries: popups.unknown },
     );
   }
-  if (await hasImportButton(page)) {
-    return { route: "already_on_order_page", popups };
-  }
+  // Guanyi keeps inactive tab panels mounted. After reading the task-center
+  // baseline, the order-query panel can still expose a visible import button
+  // in the DOM while the active task-center panel covers it. Prefer activating
+  // the existing order-query tab before treating that button as proof that the
+  // page is ready.
+  const importButtonPresent = await hasImportButton(page);
 
-  let orderQueryClicked = await clickFirstVisible(
+  let orderQueryClicked = await activateVisibleTab(
+    page,
     page.getByRole("tab", { name: /订单查询/ }),
   );
   if (!orderQueryClicked) {
@@ -152,6 +186,10 @@ export async function ensureOrderPage(page) {
     if (existingTab) {
       return existingTab;
     }
+  }
+
+  if (importButtonPresent) {
+    return { route: "already_on_order_page", popups };
   }
 
   const menuOpened = await clickFirstVisible(

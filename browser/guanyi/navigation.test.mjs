@@ -15,6 +15,65 @@ import {
 } from "./navigation.mjs";
 
 
+test("reactivates the order-query tab when task center covers a mounted import button", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    const guard = registerPageGeometry(page.context(), page);
+    guard.ensureStable = async () => ({ stable: true });
+    await page.setContent(`
+      <div role="tablist" style="position:relative;z-index:3">
+        <button id="order-tab" role="tab" aria-selected="false">订单查询</button>
+        <button id="task-tab" role="tab" aria-selected="true">任务中心</button>
+      </div>
+      <section id="order-panel" style="position:absolute;inset:50px 0 0;z-index:1">
+        <button id="import-button">订单导入</button>
+      </section>
+      <section id="task-panel" role="tabpanel"
+        style="position:absolute;inset:50px 0 0;z-index:2;background:white">
+        <h2>任务中心</h2>
+      </section>
+      <section id="import-dialog"
+        style="display:none;position:fixed;inset:100px;z-index:4;background:white">
+        <h2>订单导入</h2>
+        <button role="tab">自定义导入</button>
+        <p>导入表格可增加、删除列</p>
+      </section>
+      <script>
+        document.querySelector('#order-tab').addEventListener('click', () => {
+          setTimeout(() => {
+            document.querySelector('#order-tab').setAttribute('aria-selected', 'true');
+            document.querySelector('#task-tab').setAttribute('aria-selected', 'false');
+            document.querySelector('#task-panel').style.display = 'none';
+          }, 100);
+        });
+        document.querySelector('#import-button').addEventListener('click', () => {
+          document.querySelector('#import-dialog').style.display = 'block';
+        });
+      </script>
+    `);
+
+    assert.equal(await page.locator("#task-panel").isVisible(), true);
+    assert.equal(await page.locator("#import-button").isVisible(), true);
+
+    const result = await navigateToCustomImport(page);
+
+    assert.equal(result.status, "import_dialog_ready");
+    assert.equal(result.route, "existing_order_query_tab");
+    assert.equal(
+      await page.locator("#order-tab").getAttribute("aria-selected"),
+      "true",
+    );
+    assert.equal(await page.locator("#task-panel").isVisible(), false);
+  } finally {
+    await browser.close();
+  }
+});
+
+
 test("recovers once when the exact speed-edition notice appears during the import click", async () => {
   const browser = await chromium.launch({
     executablePath: CHROME_EXECUTABLE,
