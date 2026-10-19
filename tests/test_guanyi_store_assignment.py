@@ -5,6 +5,7 @@ import unittest
 from auto_shipped.platforms.guanyi.order_policies import ResolvedOrderItem
 from auto_shipped.platforms.guanyi.store_assignment import (
     GuanyiStoreAssignmentError,
+    resolve_store_assignment,
     select_store,
 )
 
@@ -234,7 +235,7 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
             "光明满元气",
         )
 
-    def test_generic_fallback_does_not_guess_non_corn_store(self) -> None:
+    def test_generic_fallback_assigns_non_corn_to_taojuzi_with_notice(self) -> None:
         rules = {
             "store_assignment_policy": {
                 "strategy": "manual_store_route_then_product",
@@ -247,15 +248,97 @@ class GuanyiStoreAssignmentTests(unittest.TestCase):
                     {
                         "store": "光明满元气",
                         "match": {"product_name_contains_all": ["玉米"]},
+                    },
+                    {
+                        "rule_id": "confirmed_non_corn_to_taojuzi",
+                        "store": "淘橘子",
+                        "match": {"product_name_excludes_any": ["玉米"]},
+                        "result_notice": {
+                            "code": "NON_CORN_TO_TAOJUZI_FALLBACK",
+                            "message": "非玉米兜底",
+                        },
                     }
+                ],
+            }
+        }
+        assignment = resolve_store_assignment(
+            [named_item("TOWEL", "蓝色搓澡巾")],
+            rules,
+            source_profile_id="generic_company_manual_v1",
+        )
+
+        self.assertEqual(assignment.store, "淘橘子")
+        self.assertEqual(len(assignment.notices), 1)
+        self.assertEqual(
+            assignment.notices[0].code,
+            "NON_CORN_TO_TAOJUZI_FALLBACK",
+        )
+
+    def test_exact_store_route_overrides_non_corn_fallback_without_notice(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "manual_store_route_then_product",
+                "confirmed": True,
+                "include_company_scope": True,
+                "include_source_profile_scope": False,
+                "fallback_scope_ids": ["manual_all"],
+                "allowed_stores": ["光明满元气", "淘橘子"],
+                "product_fallback_rules": [
+                    {
+                        "rule_id": "confirmed_non_corn_to_taojuzi",
+                        "store": "淘橘子",
+                        "match": {"product_name_excludes_any": ["玉米"]},
+                        "result_notice": {
+                            "code": "NON_CORN_TO_TAOJUZI_FALLBACK",
+                            "message": "非玉米兜底",
+                        },
+                    }
+                ],
+            }
+        }
+        assignment = resolve_store_assignment(
+            [named_item("TOWEL", "蓝色搓澡巾")],
+            rules,
+            source_company_id="company-a",
+            manual_store_routes=[
+                {
+                    "scope_id": "company-a",
+                    "product_code": "TOWEL",
+                    "spec_code": "S1",
+                    "store": "光明满元气",
+                    "status": "active",
+                }
+            ],
+        )
+
+        self.assertEqual(assignment.store, "光明满元气")
+        self.assertEqual(assignment.notices, ())
+
+    def test_corn_and_non_corn_fallbacks_still_reject_mixed_store_order(self) -> None:
+        rules = {
+            "store_assignment_policy": {
+                "strategy": "all_items_same_store_by_product",
+                "rules": [
+                    {
+                        "rule_id": "corn",
+                        "store": "光明满元气",
+                        "match": {"product_name_contains_all": ["玉米"]},
+                    },
+                    {
+                        "rule_id": "non-corn",
+                        "store": "淘橘子",
+                        "match": {"product_name_excludes_any": ["玉米"]},
+                    },
                 ],
             }
         }
         with self.assertRaises(GuanyiStoreAssignmentError):
             select_store(
-                [named_item("TOWEL", "蓝色搓澡巾")],
+                [
+                    named_item("CORN", "花糯玉米"),
+                    named_item("TOWEL", "蓝色搓澡巾"),
+                ],
                 rules,
-                source_profile_id="generic_company_manual_v1",
             )
 
     def test_generic_fallback_company_store_routes_do_not_cross_companies(self) -> None:

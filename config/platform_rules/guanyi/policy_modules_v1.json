@@ -1,24 +1,37 @@
 {
   "schema_version": "1.0",
   "registry_id": "guanyi_policy_modules_v1",
-  "version": 5,
+  "version": 6,
   "design_note": "跨公司的同类管易规则只在此保存一份可执行定义；公司平台规则包只引用模块并保存公司特有规则。",
+  "rule_sets": {
+    "store.corn_or_non_corn_fallback_rules.v1": [
+      {
+        "rule_id": "confirmed_corn_to_guangming_manyuanqi",
+        "store": "光明满元气",
+        "match": {"product_name_contains_all": ["玉米"]}
+      },
+      {
+        "rule_id": "confirmed_non_corn_to_taojuzi",
+        "store": "淘橘子",
+        "match": {"product_name_excludes_any": ["玉米"]},
+        "result_notice": {
+          "code": "NON_CORN_TO_TAOJUZI_FALLBACK",
+          "message": "未命中更高优先级店铺规则；商品已完成映射并判定为非玉米，已按通用兜底进入淘橘子。"
+        }
+      }
+    ]
+  },
   "modules": {
-    "store.corn_to_guangming_manyuanqi.v1": {
+    "store.product_family_fallback.v1": {
       "target_key": "store_assignment_policy",
       "value": {
         "strategy": "all_items_same_store_by_product",
         "confirmed": true,
+        "shared_rule_set_ref": "store.corn_or_non_corn_fallback_rules.v1",
+        "shared_rule_set_target": "rules",
         "on_unmatched": "ask_user",
         "on_multiple_stores": "ask_user",
-        "rules": [
-          {
-            "rule_id": "all_confirmed_corn_products",
-            "store": "光明满元气",
-            "match": {"product_name_contains_all": ["玉米"]}
-          }
-        ],
-        "source": "用户于2026-10-08确认：恬田、NDD、荣之达的已确认玉米商品统一进入光明满元气；非玉米或混合店铺订单追问。"
+        "source": "用户确认：没有更高优先级店铺规则时，已映射玉米进入光明满元气，已映射非玉米进入淘橘子并在结果小节告知；混合店铺订单追问。"
       }
     },
     "store.taojuzi_manual_channels.v1": {
@@ -55,8 +68,10 @@
     "store.manual_linked_routes.v1": {
       "target_key": "store_assignment_policy",
       "value": {
-        "strategy": "manual_store_route_table",
+        "strategy": "manual_store_route_then_product",
         "confirmed": true,
+        "shared_rule_set_ref": "store.corn_or_non_corn_fallback_rules.v1",
+        "shared_rule_set_target": "product_fallback_rules",
         "fallback_scope_ids": [
           "manual_all"
         ],
@@ -66,7 +81,7 @@
         ],
         "on_unmatched": "ask_user",
         "on_multiple_stores": "ask_user",
-        "source": "用户于2026-10-15确认：JZDZ、DRJY手工单先完成商品映射，再按独立SKU—店铺关联表决定店铺；玉米进光明满元气，日用品进淘橘子；混合店铺必须追问。"
+        "source": "用户确认：JZDZ、DRJY手工单先查独立SKU—店铺关联；未命中时玉米进光明满元气，非玉米进淘橘子并在结果小节告知；混合店铺必须追问。"
       }
     },
     "store.generic_company_manual_fallback.v1": {
@@ -74,6 +89,8 @@
       "value": {
         "strategy": "manual_store_route_then_product",
         "confirmed": true,
+        "shared_rule_set_ref": "store.corn_or_non_corn_fallback_rules.v1",
+        "shared_rule_set_target": "product_fallback_rules",
         "include_company_scope": true,
         "include_source_profile_scope": false,
         "fallback_scope_ids": [
@@ -83,16 +100,9 @@
           "光明满元气",
           "淘橘子"
         ],
-        "product_fallback_rules": [
-          {
-            "rule_id": "confirmed_corn_to_guangming_manyuanqi",
-            "store": "光明满元气",
-            "match": {"product_name_contains_all": ["玉米"]}
-          }
-        ],
         "on_unmatched": "ask_user",
         "on_multiple_stores": "ask_user",
-        "source": "用户于2026-10-19确认：已登记公司无固定流程时，先复用当前公司SKU—店铺关联，再查manual_all；未登记时只有已确认玉米商品可兜底到光明满元气，其他商品或混合店铺停止追问。"
+        "source": "用户于2026-10-19确认：已登记公司无固定流程时，先复用当前公司SKU—店铺关联，再查manual_all；仍未命中时玉米进光明满元气，非玉米进淘橘子并在结果小节告知；混合店铺停止追问。"
       }
     },
     "buyer.normal_zhang.v1": {

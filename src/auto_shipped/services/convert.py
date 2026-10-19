@@ -99,6 +99,7 @@ class ConversionResult:
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -119,6 +120,7 @@ class ConversionResult:
                 else []
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
+            "store_assignment_notices": self.store_assignment_notices,
             "errors": self.errors,
         }
 
@@ -1114,6 +1116,7 @@ def convert_order_file(
             decisions=built.decisions,
             mapping_reuse_candidates=built.mapping_reuse_candidates,
             mapping_evidence=built.mapping_evidence,
+            store_assignment_notices=built.store_assignment_notices,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
         report_path.write_text(
@@ -1136,6 +1139,7 @@ def convert_order_file(
         upload_manifest=str(manifest_path),
         mapping_reuse_candidates=built.mapping_reuse_candidates,
         mapping_evidence=built.mapping_evidence,
+        store_assignment_notices=built.store_assignment_notices,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"
     report_path.write_text(

@@ -13,7 +13,7 @@
 | 公司身份 | `config/companies/company_registry_v1.json` | 稳定公司ID、法定名称、简称、来源和工作流索引；简称只有被规则显式引用时才成为输出前缀 |
 | 来源识别与原始单号 | `config/source_profiles/` | 文件/文字来源证据、字段结构、来源侧单号生成 |
 | 路由 | `config/routing/order_routes_v1.json` | 来源配置进入哪个目标平台和规则包 |
-| 跨公司共享策略 | `config/platform_rules/guanyi/policy_modules_v1.json` | 玉米店铺、普通买家会员、公共默认值、物流和备注等唯一可执行定义 |
+| 跨公司共享策略 | `config/platform_rules/guanyi/policy_modules_v1.json` | 商品类别店铺兜底、普通买家会员、公共默认值、物流和备注等唯一可执行定义 |
 | 公司平台规则包 | `config/platform_rules/guanyi/<source>.json` | 公司特有单号、字段显示、套餐规则，以及对共享模块的引用 |
 | 商品身份 | `config/catalog/`与正式飞书映射 | 来源商品如何唯一变成管易商品和规格 |
 | 规则覆盖门禁 | `config/business_rules/shangyu_sop_rule_catalog_v1.json` | 每条路由必须具备哪些规则，不保存重复业务值 |
@@ -25,10 +25,10 @@
 
 | module_id | 规则 |
 | --- | --- |
-| `store.corn_to_guangming_manyuanqi.v1` | 恬田、NDD、荣之达的已确认玉米商品进入“光明满元气”；非玉米或无法唯一判断时追问 |
+| `store.product_family_fallback.v1` | 没有更高优先级店铺规则时，已映射玉米进入“光明满元气”，非玉米进入“淘橘子”并输出非阻断结果说明 |
 | `store.sam_fixed.v1` | SAM订单固定进入`sam`店铺；仍通过统一店铺策略执行 |
-| `store.manual_linked_routes.v1` | JZDZ、DRJY先按来源/SKU关系表分配店铺，缺失时追问 |
-| `store.generic_company_manual_fallback.v1` | 无固定流程的已登记公司先按`company_id`查SKU店铺关系，再查`manual_all`；仅已确认玉米可兜底到“光明满元气”，其他商品追问 |
+| `store.manual_linked_routes.v1` | JZDZ、DRJY先按来源/SKU关系表分配店铺，缺失时使用共享商品类别兜底 |
+| `store.generic_company_manual_fallback.v1` | 无固定流程的已登记公司先按`company_id`查SKU店铺关系，再查`manual_all`，最后使用共享商品类别兜底 |
 | `buyer.normal_zhang.v1` | 普通来源买家会员填写“张”；SAM不引用该模块 |
 | `defaults.standard_sales.v1` | 金额、仓库、支付、订单类型和标记的唯一公共默认值；SAM、NDD只覆盖运费为空 |
 | `logistics.source_override_then_corn_packaging.v1` | 来源指定物流优先；否则执行已确认玉米包装规则 |

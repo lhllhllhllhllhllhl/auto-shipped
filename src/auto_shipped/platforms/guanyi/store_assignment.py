@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 from auto_shipped.platforms.guanyi.order_policies import (
@@ -12,7 +13,52 @@ class GuanyiStoreAssignmentError(ValueError):
     """Raised when a store cannot be assigned from confirmed product rules."""
 
 
-def select_store(
+@dataclass(frozen=True, slots=True)
+class StoreAssignmentNotice:
+    """Non-blocking evidence for a store fallback that must be reported."""
+
+    code: str
+    rule_id: str
+    store: str
+    message: str
+    product_code: str
+    spec_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoreAssignmentResult:
+    store: str
+    notices: tuple[StoreAssignmentNotice, ...] = ()
+
+
+def _notice_from_rule(
+    rule: dict[str, Any],
+    item: ResolvedOrderItem,
+    store: str,
+) -> StoreAssignmentNotice | None:
+    notice = rule.get("result_notice")
+    if notice is None:
+        return None
+    if not isinstance(notice, dict):
+        raise GuanyiStoreAssignmentError("店铺兜底结果说明必须是对象")
+    code = str(notice.get("code") or "").strip()
+    message = str(notice.get("message") or "").strip()
+    rule_id = str(rule.get("rule_id") or "").strip()
+    if not code or not message or not rule_id:
+        raise GuanyiStoreAssignmentError(
+            "店铺兜底结果说明缺少code、message或rule_id"
+        )
+    return StoreAssignmentNotice(
+        code=code,
+        rule_id=rule_id,
+        store=store,
+        message=message,
+        product_code=item.product_code,
+        spec_code=item.spec_code,
+    )
+
+
+def resolve_store_assignment(
     resolved_items: Iterable[ResolvedOrderItem],
     rules: dict[str, Any],
     *,
@@ -20,8 +66,8 @@ def select_store(
     source_company_id: str = "",
     source_profile_id: str = "",
     manual_store_routes: Iterable[dict[str, Any]] = (),
-) -> str:
-    """Resolve one store for every item; fail closed on gaps or conflicts."""
+) -> StoreAssignmentResult:
+    """Resolve one store and any non-blocking fallback evidence."""
 
     policy = rules.get("store_assignment_policy") or {}
     strategy = str(policy.get("strategy") or "")
@@ -31,7 +77,7 @@ def select_store(
         store = str(policy.get("store") or "").strip()
         if not store:
             raise GuanyiStoreAssignmentError("固定店铺策略缺少店铺名称")
-        return store
+        return StoreAssignmentResult(store=store)
     if strategy == "source_extension_exact_map":
         field = str(policy.get("source_extension_field") or "").strip()
         if not field:
@@ -55,7 +101,7 @@ def select_store(
             raise GuanyiStoreAssignmentError(
                 f"来源字段{field}的值“{source_value}”命中多个店铺"
             )
-        return next(iter(matched_stores))
+        return StoreAssignmentResult(store=next(iter(matched_stores)))
     if strategy in {
         "manual_store_route_table",
         "manual_store_route_then_product",
@@ -87,6 +133,7 @@ def select_store(
             if str(route.get("status") or "active").strip() == "active"
         ]
         stores: set[str] = set()
+        notices: list[StoreAssignmentNotice] = []
         for item in items:
             matched_store = ""
             lookup_scopes = tuple(
@@ -118,11 +165,15 @@ def select_store(
                     matched_store = next(iter(matches))
                     break
             if not matched_store:
-                product_fallback_stores = {
-                    str(rule.get("store") or "").strip()
+                matched_fallback_rules = [
+                    rule
                     for rule in policy.get("product_fallback_rules") or []
                     if matches_resolved_item(item, rule.get("match") or {})
                     and str(rule.get("store") or "").strip()
+                ]
+                product_fallback_stores = {
+                    str(rule.get("store") or "").strip()
+                    for rule in matched_fallback_rules
                 }
                 if len(product_fallback_stores) > 1:
                     raise GuanyiStoreAssignmentError(
@@ -130,6 +181,10 @@ def select_store(
                     )
                 if product_fallback_stores:
                     matched_store = next(iter(product_fallback_stores))
+                    for rule in matched_fallback_rules:
+                        notice = _notice_from_rule(rule, item, matched_store)
+                        if notice is not None:
+                            notices.append(notice)
             if not matched_store:
                 raise GuanyiStoreAssignmentError(
                     f"商品代码{item.product_code}、规格代码{item.spec_code}没有已确认的手工单店铺关联或商品兜底规则"
@@ -141,7 +196,10 @@ def select_store(
             stores.add(matched_store)
         if len(stores) != 1:
             raise GuanyiStoreAssignmentError("同一手工订单的商品被分配到不同店铺")
-        return next(iter(stores))
+        return StoreAssignmentResult(
+            store=next(iter(stores)),
+            notices=tuple(notices),
+        )
     if strategy != "all_items_same_store_by_product":
         raise GuanyiStoreAssignmentError(f"未知店铺分配策略: {strategy or '未配置'}")
 
@@ -154,12 +212,16 @@ def select_store(
         raise GuanyiStoreAssignmentError("订单没有可用于店铺分配的商品")
 
     stores: set[str] = set()
+    notices: list[StoreAssignmentNotice] = []
     for item in items:
-        matched_stores = {
-            str(rule.get("store") or "").strip()
+        matched_rules = [
+            rule
             for rule in assignment_rules
             if matches_resolved_item(item, rule.get("match") or {})
             and str(rule.get("store") or "").strip()
+        ]
+        matched_stores = {
+            str(rule.get("store") or "").strip() for rule in matched_rules
         }
         if not matched_stores:
             raise GuanyiStoreAssignmentError(
@@ -170,7 +232,33 @@ def select_store(
                 f"商品代码{item.product_code}、规格代码{item.spec_code}命中多个店铺"
             )
         stores.update(matched_stores)
+        matched_store = next(iter(matched_stores))
+        for rule in matched_rules:
+            notice = _notice_from_rule(rule, item, matched_store)
+            if notice is not None:
+                notices.append(notice)
 
     if len(stores) != 1:
         raise GuanyiStoreAssignmentError("同一订单的商品被分配到不同店铺")
-    return next(iter(stores))
+    return StoreAssignmentResult(store=next(iter(stores)), notices=tuple(notices))
+
+
+def select_store(
+    resolved_items: Iterable[ResolvedOrderItem],
+    rules: dict[str, Any],
+    *,
+    source_extensions: dict[str, Any] | None = None,
+    source_company_id: str = "",
+    source_profile_id: str = "",
+    manual_store_routes: Iterable[dict[str, Any]] = (),
+) -> str:
+    """Backward-compatible store-only projection of the governed resolver."""
+
+    return resolve_store_assignment(
+        resolved_items,
+        rules,
+        source_extensions=source_extensions,
+        source_company_id=source_company_id,
+        source_profile_id=source_profile_id,
+        manual_store_routes=manual_store_routes,
+    ).store

@@ -40,7 +40,8 @@ from auto_shipped.platforms.guanyi.item_expansion import (
 )
 from auto_shipped.platforms.guanyi.store_assignment import (
     GuanyiStoreAssignmentError,
-    select_store,
+    StoreAssignmentNotice,
+    resolve_store_assignment,
 )
 
 
@@ -57,12 +58,51 @@ class GuanyiBuildResult:
         default_factory=list
     )
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def status(self) -> str:
         if self.clarifications:
             return "needs_input"
         return "preview_ready" if self.decisions else "ready"
+
+
+def _store_notice_record(
+    notice: StoreAssignmentNotice,
+    *,
+    platform_order_no: str,
+) -> dict[str, Any]:
+    return {
+        "code": notice.code,
+        "scope": "order",
+        "source_ref": f"订单:{platform_order_no}",
+        "store": notice.store,
+        "rule_id": notice.rule_id,
+        "message": notice.message,
+        "product": {
+            "product_code": notice.product_code,
+            "spec_code": notice.spec_code,
+        },
+        "blocking": False,
+    }
+
+
+def _deduplicate_store_assignment_notices(
+    notices: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    unique: dict[tuple[str, str, str, str, str, str], dict[str, Any]] = {}
+    for notice in notices:
+        product = notice.get("product") or {}
+        key = (
+            str(notice.get("code") or ""),
+            str(notice.get("source_ref") or ""),
+            str(notice.get("store") or ""),
+            str(notice.get("rule_id") or ""),
+            str(product.get("product_code") or ""),
+            str(product.get("spec_code") or ""),
+        )
+        unique[key] = notice
+    return list(unique.values())
 
 
 def _rule_value(rules: dict[str, Any], key: str) -> Any:
@@ -1113,8 +1153,8 @@ def build_custom_import_lines(
         resolved_line_items = resolved_lines_by_order[id(order)]
         resolved_order_items = resolved_order_items_by_order[id(order)]
         try:
-            store_name = (
-                select_store(
+            store_assignment = (
+                resolve_store_assignment(
                     resolved_order_items,
                     rules,
                     source_extensions=order.source_extensions,
@@ -1123,8 +1163,21 @@ def build_custom_import_lines(
                     manual_store_routes=catalog.manual_store_routes,
                 )
                 if rules.get("store_assignment_policy")
+                else None
+            )
+            store_name = (
+                store_assignment.store
+                if store_assignment is not None
                 else _rule_value(rules, "store")
             )
+            if store_assignment is not None:
+                result.store_assignment_notices.extend(
+                    _store_notice_record(
+                        notice,
+                        platform_order_no=platform_no,
+                    )
+                    for notice in store_assignment.notices
+                )
         except GuanyiStoreAssignmentError as exc:
             result.clarifications.append(
                 ClarificationRequest(
@@ -1337,6 +1390,9 @@ def build_custom_import_lines(
             result.lines.append(line)
 
     result.clarifications = deduplicate_clarifications(result.clarifications)
+    result.store_assignment_notices = _deduplicate_store_assignment_notices(
+        result.store_assignment_notices
+    )
     if result.clarifications:
         result.lines = []
     return result

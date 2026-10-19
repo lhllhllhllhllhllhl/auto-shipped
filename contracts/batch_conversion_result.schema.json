@@ -15,6 +15,7 @@
     "decision_bundle",
     "mapping_reuse_bundle",
     "mapping_evidence",
+    "store_assignment_notices",
     "errors"
   ],
   "properties": {
@@ -37,6 +38,7 @@
           "schema_warnings",
           "clarifications",
           "decisions",
+          "store_assignment_notices",
           "errors"
         ],
         "properties": {
@@ -53,6 +55,11 @@
           "schema_warnings": { "type": "array", "items": { "type": "object" } },
           "clarifications": { "type": "array", "items": { "type": "object" } },
           "decisions": { "type": "array", "items": { "type": "object" } },
+          "store_assignment_notices": {
+            "type": "array",
+            "description": "非阻断店铺兜底说明；不含收件信息。",
+            "items": {"$ref": "#/$defs/storeAssignmentNotice"}
+          },
           "errors": { "type": "array", "items": { "type": "object" } }
         },
         "additionalProperties": false
@@ -68,7 +75,56 @@
       "description": "本批商品匹配证据；不含收件人、电话或地址。",
       "items": {"type": "object"}
     },
+    "store_assignment_notices": {
+      "type": "array",
+      "description": "本批已执行的非阻断店铺兜底说明；只用于结果告知，不要求再次确认。",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/storeAssignmentNotice"},
+          {
+            "type": "object",
+            "properties": {"source_file": {"type": "string", "minLength": 1}},
+            "required": ["source_file"]
+          }
+        ]
+      }
+    },
     "errors": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "storeAssignmentNotice": {
+      "type": "object",
+      "required": [
+        "code",
+        "scope",
+        "source_ref",
+        "store",
+        "rule_id",
+        "message",
+        "product",
+        "blocking"
+      ],
+      "properties": {
+        "code": {"const": "NON_CORN_TO_TAOJUZI_FALLBACK"},
+        "scope": {"const": "order"},
+        "source_ref": {"type": "string", "minLength": 1},
+        "store": {"const": "淘橘子"},
+        "rule_id": {"const": "confirmed_non_corn_to_taojuzi"},
+        "message": {"type": "string", "minLength": 1},
+        "product": {
+          "type": "object",
+          "required": ["product_code", "spec_code"],
+          "properties": {
+            "product_code": {"type": "string", "minLength": 1},
+            "spec_code": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "blocking": {"const": false},
+        "source_file": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

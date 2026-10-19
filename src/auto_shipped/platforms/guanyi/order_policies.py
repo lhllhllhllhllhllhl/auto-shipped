@@ -180,6 +180,15 @@ def matches_resolved_item(item: ResolvedOrderItem, match: dict[str, Any]) -> boo
     ):
         return False
 
+    excluded_product_tokens = tuple(
+        match.get("product_name_excludes_any") or ()
+    )
+    if excluded_product_tokens:
+        if not item.product_name or any(
+            token in item.product_name for token in excluded_product_tokens
+        ):
+            return False
+
     any_text_tokens = tuple(match.get("any_text_contains") or ())
     if any_text_tokens and not any(
         token in item.searchable_text for token in any_text_tokens
@@ -190,6 +199,7 @@ def matches_resolved_item(item: ResolvedOrderItem, match: dict[str, Any]) -> boo
         product_codes
         or spec_codes
         or required_product_tokens
+        or excluded_product_tokens
         or any_text_tokens
     )
 

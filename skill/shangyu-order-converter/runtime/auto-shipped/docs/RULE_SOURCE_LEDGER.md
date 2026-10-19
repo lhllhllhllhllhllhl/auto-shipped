@@ -122,7 +122,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-USER-WHITELABEL-REPLACE-002` | 2026-10-10 | `商品白标.xlsx`是当前白标商品权威清单，完整替换旧3条临时记录；表中未列出的旧SKU不再视为白标 | 白标规则 | 已确认并实现131条精确商品代码+规格代码；旧版本由Git追溯 |
 | `DEC-USER-COMPANY-ABBREVIATIONS-001` | 2026-10-10；2026-10-19修订 | 7组公司法定名称与简称用于公司识别和显式单号前缀；固定流程优先，只有公司库明确标记`fallback_enabled`时简称才可启动共享兜底 | 公司身份与平台单号 | FZ、KLD、MT已绑定共享兜底；其他公司继续使用固定流程 |
 | `DEC-USER-GENERIC-COMPANY-FALLBACK-001` | 2026-10-19 | 已登记公司没有固定工作流时，信息齐全的文字/截图订单仍应转换；缺号使用公司简称+YYYYMMDD+飞书中央日序号，未知Excel进入自适应字段计划，只追问缺少的必要事实 | 公司路由与未知格式 | 已实现共享来源、共享路由和公司级显式绑定；未登记公司不自动放行 |
-| `DEC-USER-GENERIC-FALLBACK-STORE-001` | 2026-10-19 | 通用兜底先按稳定`company_id`查当前公司SKU关系，再查`manual_all`；共享来源配置不作为店铺作用域。没有关系时已确认玉米商品进入光明满元气，其他商品或混合店铺追问 | 店铺分配 | 已实现公司隔离的共享模块，不影响自营天猫/京东、SAM及其他固定规则包 |
+| `DEC-USER-GENERIC-FALLBACK-STORE-001` | 2026-10-19 | 店铺先执行固定/渠道规则，再查公司或来源SKU关系及`manual_all`；仍未命中时玉米进入光明满元气、非玉米进入淘橘子并在结果小节告知，混合店铺追问 | 店铺分配 | 已实现共享类别规则集和非阻断告知，不覆盖自营天猫/京东、SAM及其他更高优先级规则 |
 | `DEC-USER-MODULE-GOVERNANCE-CATALOG-001` | 2026-10-19 | 建立供AI维护使用的一级模块目录，登记职责、边界、唯一权威路径、依赖、实现引用和共享策略归属，并自动审计遗漏、重复、依赖环和过期污染 | 系统治理 | 已实现13个一级模块的机器目录、生成文档和审计脚本 |
 | `DEC-USER-NOTE-TARGET-001` | 2026-09-29 | 客户备注写入管易卖家备注 | 备注字段映射 | 已确认 |
 | `DEC-USER-STAGED-TEST-001` | 2026-09-29 | 先真实测试“原始订单转管易Excel”；业务验收通过后，才接入自动化上传 | 测试与发布门禁 | 已确认，转换和上传必须分阶段上线 |
@@ -208,7 +208,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 
 | rule_id | 主题 | 直接证据 | 补充证据或决策 | 当前证据缺口 |
 | --- | --- | --- | --- | --- |
-| `GY-STORE-ASSIGNMENT` | 店铺选择 | `SRC-SOP-PDF-001` p.3、p.12 | `DEC-BLH-ROUTE-001`、`DEC-XV-STORE-001`、`DEC-USER-TT-STORE-BY-PRODUCT-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-RULE-MODULE-AUTHORITY-001` | 恬田、NDD、荣之达共同引用“玉米→光明满元气”模块；自营文字单按已确认天猫/京东渠道分配；其他商品继续追问 |
+| `GY-STORE-ASSIGNMENT` | 店铺选择 | `SRC-SOP-PDF-001` p.3、p.12 | `DEC-BLH-ROUTE-001`、`DEC-XV-STORE-001`、`DEC-USER-TT-STORE-BY-PRODUCT-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-RULE-MODULE-AUTHORITY-001`、`DEC-USER-GENERIC-FALLBACK-STORE-001` | 固定店铺/渠道与精确SKU关系优先；类别兜底把玉米送光明满元气、非玉米送淘橘子并在结果小节告知；混合店铺追问 |
 | `GY-PLATFORM-ORDER-NUMBER` | 平台单号 | `SRC-SOP-PDF-001` p.3、p.8、p.10、p.12 | `DEC-USER-ORDER-IDENTITY-PRIORITY-001`、`DEC-USER-AUTOMATION-SUFFIX-REMOVE-001`、`SRC-SAMPLE-TT-001`、`DEC-XV-ORDERNO-001`、`SRC-GY-LONG-ID-TEXT-UPLOAD-001` | 统一身份优先级为订单编号后来源单号；各来源前缀和缺号生成策略分别配置；新订单不追加公共尾缀 |
 | `GY-BUYER-MEMBER` | 买家会员 | `SRC-SOP-PDF-001` p.8、p.10、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-USER-BUYER-MEMBER-GLOBAL-001`、`DEC-USER-SAM-BUYER-MEMBER-002`、`DEC-USER-SAM-BUYER-MEMBER-003` | 普通来源填`张`；SAM有跟团号沿用日期+跟团号，无跟团号使用分钟+弹性序号；未知类型仍追问 |
 | `GY-PAYMENT-VALUES` | 价格、支付金额和运费 | `SRC-SOP-PDF-001` p.8、p.10、`SRC-SAMPLE-SAM-MANUAL-001` | `DEC-TT-AMOUNT-001`、`DEC-USER-SAM-ZERO-AMOUNT-001`、`DEC-USER-SAM-FREIGHT-BLANK-001` | 恬田与SAM已按各自规则确认；其他来源仍需分别确认 |

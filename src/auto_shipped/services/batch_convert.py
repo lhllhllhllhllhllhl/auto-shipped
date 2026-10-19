@@ -41,6 +41,7 @@ class BatchSourceSummary:
     schema_warnings: list[dict[str, Any]] = field(default_factory=list)
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
+    store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -58,6 +59,7 @@ class BatchSourceSummary:
             "schema_warnings": self.schema_warnings,
             "clarifications": self.clarifications,
             "decisions": self.decisions,
+            "store_assignment_notices": self.store_assignment_notices,
             "errors": self.errors,
         }
 
@@ -77,6 +79,7 @@ class BatchConversionResult:
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -98,6 +101,7 @@ class BatchConversionResult:
                 else []
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
+            "store_assignment_notices": self.store_assignment_notices,
             "errors": self.errors,
         }
 
@@ -159,6 +163,7 @@ def _summarize_conversion(
         output_row_count=result.output_row_count,
         clarifications=[item.to_dict() for item in result.clarifications],
         decisions=[item.to_dict() for item in result.decisions],
+        store_assignment_notices=list(result.store_assignment_notices),
         errors=list(result.errors),
         schema_warnings=warnings,
     )
@@ -318,6 +323,12 @@ def convert_order_batch(
                 conversion.mapping_reuse_candidates
             )
             result.mapping_evidence.extend(conversion.mapping_evidence)
+            result.store_assignment_notices.extend(
+                _with_source_file(
+                    source.name,
+                    conversion.store_assignment_notices,
+                )
+            )
             if conversion.status == "needs_input":
                 result.clarifications.extend(
                     _with_source_file(source.name, summary.clarifications)
@@ -424,6 +435,11 @@ def convert_order_batch(
             )
             unique_mapping_evidence[key] = evidence
         result.mapping_evidence = list(unique_mapping_evidence.values())
+        unique_store_notices: dict[str, dict[str, Any]] = {}
+        for notice in result.store_assignment_notices:
+            key = json.dumps(notice, ensure_ascii=False, sort_keys=True)
+            unique_store_notices[key] = notice
+        result.store_assignment_notices = list(unique_store_notices.values())
 
         route_keys = {
             (item.target_platform, item.target_profile_id) for item in result.sources

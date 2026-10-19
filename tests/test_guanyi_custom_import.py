@@ -337,6 +337,45 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(result.status, "ready", result.clarifications)
         self.assertEqual(result.lines[0]["店铺"], "光明满元气")
 
+    def test_non_corn_store_fallback_is_ready_and_reported_non_blocking(self) -> None:
+        rules = confirmed_rules()
+        rules["store_assignment_policy"] = {
+            "strategy": "manual_store_route_then_product",
+            "confirmed": True,
+            "include_company_scope": True,
+            "include_source_profile_scope": False,
+            "fallback_scope_ids": ["manual_all"],
+            "allowed_stores": ["光明满元气", "淘橘子"],
+            "product_fallback_rules": [
+                {
+                    "rule_id": "confirmed_non_corn_to_taojuzi",
+                    "store": "淘橘子",
+                    "match": {"product_name_excludes_any": ["玉米"]},
+                    "result_notice": {
+                        "code": "NON_CORN_TO_TAOJUZI_FALLBACK",
+                        "message": "非玉米兜底",
+                    },
+                }
+            ],
+        }
+
+        result = build_custom_import_lines(
+            [parsed_order()],
+            self.catalog,
+            rules,
+            self.profile,
+            source_company_id="shanghai_shimao_plaza",
+        )
+
+        self.assertEqual(result.status, "ready", result.clarifications)
+        self.assertEqual(result.lines[0]["店铺"], "淘橘子")
+        self.assertEqual(len(result.store_assignment_notices), 1)
+        notice = result.store_assignment_notices[0]
+        self.assertEqual(notice["code"], "NON_CORN_TO_TAOJUZI_FALLBACK")
+        self.assertEqual(notice["store"], "淘橘子")
+        self.assertFalse(notice["blocking"])
+        self.assertNotIn("测试用户", json.dumps(notice, ensure_ascii=False))
+
     def test_platform_order_number_prefers_order_number_over_source_number(self) -> None:
         order = parsed_order()
         order.source = ParsedSource(
