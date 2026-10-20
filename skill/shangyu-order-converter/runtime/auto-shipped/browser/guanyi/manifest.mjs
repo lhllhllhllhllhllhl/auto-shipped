@@ -63,6 +63,26 @@ export async function verifyUploadManifest(
     "MANIFEST_AUTHORIZATION_INVALID",
     "manifest 只能描述预检结果，不能携带上传授权。",
   );
+  requireValue(
+    manifest.safety?.audit_authorized !== true,
+    "MANIFEST_AUDIT_AUTHORIZATION_INVALID",
+    "manifest 只能描述本批审核范围，不能携带订单审核授权。",
+  );
+
+  const hasAuditScope = manifest.audit_scope !== undefined;
+  const platformOrderNumbers =
+    manifest.audit_scope?.platform_order_numbers || [];
+  requireValue(
+    !hasAuditScope ||
+      (Array.isArray(platformOrderNumbers) &&
+        platformOrderNumbers.length === manifest.counts?.orders &&
+        platformOrderNumbers.every(
+          (value) => typeof value === "string" && value.trim().length > 0,
+        ) &&
+        new Set(platformOrderNumbers).size === platformOrderNumbers.length),
+    "AUDIT_SCOPE_INVALID",
+    "manifest 的本批审核范围必须包含与订单数一致的唯一平台单号。",
+  );
 
   const configuredPath = manifest.artifact?.path;
   requireValue(
@@ -133,6 +153,7 @@ export async function verifyUploadManifest(
     profileId: manifest.profile?.profile_id,
     orders: manifest.counts?.orders,
     itemRows: manifest.counts?.item_rows,
+    platformOrderNumbers: [...platformOrderNumbers],
     safety: "No file chooser was opened and no upload was performed.",
   };
 }

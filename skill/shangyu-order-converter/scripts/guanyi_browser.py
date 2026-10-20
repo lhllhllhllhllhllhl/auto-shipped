@@ -45,6 +45,10 @@ COMMANDS = {
     "resolve-no-task": "resolve-no-task",
     "verify-manifest": "verify-manifest",
     "prepare-operation": "prepare-operation",
+    "probe-order-audit": "probe-order-audit",
+    "prepare-order-audit": "prepare-order-audit",
+    "execute-order-audit": "execute-order-audit",
+    "reconcile-order-audit": "reconcile-order-audit",
 }
 
 
@@ -106,13 +110,17 @@ def main() -> int:
             "管易浏览器依赖尚未安装，请先运行 bootstrap_runtime.py。",
         )
 
-    if args.command in {"submit-import", "execute-import"}:
+    if args.command in {"submit-import", "execute-import", "execute-order-audit"}:
         audit = subprocess.run(
             [
                 sys.executable,
                 str(Path(__file__).resolve().parent / "audit_rules.py"),
                 "--phase",
-                "upload",
+                (
+                    "post_upload"
+                    if args.command == "execute-order-audit"
+                    else "upload"
+                ),
                 "--project-root",
                 str(project_root),
             ],
@@ -124,8 +132,18 @@ def main() -> int:
         )
         if audit.returncode != 0:
             return fail(
-                "UPLOAD_RULE_GATE_BLOCKED",
-                "上传规则门禁尚未全部通过；Skill 不执行管易确定提交。请检查规则状态、实现引用和运行时打包是否一致。",
+                (
+                    "ORDER_AUDIT_RULE_GATE_BLOCKED"
+                    if args.command == "execute-order-audit"
+                    else "UPLOAD_RULE_GATE_BLOCKED"
+                ),
+                (
+                    "订单审核规则门禁尚未全部通过；Skill 不执行真实审核。"
+                    "请先完成本地和豆包只读探针。"
+                    if args.command == "execute-order-audit"
+                    else "上传规则门禁尚未全部通过；Skill 不执行管易确定提交。"
+                    "请检查规则状态、实现引用和运行时打包是否一致。"
+                ),
             )
 
     environment = os.environ.copy()
@@ -137,6 +155,8 @@ def main() -> int:
         environment.setdefault("GUANYI_CDP_ENDPOINT", "http://127.0.0.1:9222")
     if args.command in {"submit-import", "execute-import"}:
         environment["GUANYI_UPLOAD_RULES_READY"] = "1"
+    if args.command == "execute-order-audit":
+        environment["GUANYI_AUDIT_RULES_READY"] = "1"
     environment.setdefault(
         "GUANYI_RUNTIME_ROOT",
         str(STATE_ROOT / "guanyi-browser"),

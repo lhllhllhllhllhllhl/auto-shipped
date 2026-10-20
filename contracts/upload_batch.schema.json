@@ -50,6 +50,18 @@
       },
       "additionalProperties": false
     },
+    "audit_scope": {
+      "type": "object",
+      "required": ["platform_order_numbers"],
+      "properties": {
+        "platform_order_numbers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "checks": {
       "type": "object",
       "additionalProperties": { "type": "boolean" }
@@ -79,7 +91,8 @@
       "properties": {
         "manifest_contains_recipient_pii": { "const": false },
         "workbook_contains_recipient_pii": { "const": true },
-        "upload_authorized": { "const": false }
+        "upload_authorized": { "const": false },
+        "audit_authorized": { "const": false }
       },
       "additionalProperties": false
     }

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/guanyi-order-audit-operation-v1.json",
+  "title": "Guanyi Order Audit Operation",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "auditOperationId",
+    "sourceImportOperationId",
+    "state",
+    "policy",
+    "scope",
+    "authorization",
+    "write",
+    "history"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "guanyi-order-audit-operation/1.0"},
+    "auditOperationId": {"type": "string", "minLength": 1},
+    "sourceImportOperationId": {"type": "string", "minLength": 1},
+    "state": {
+      "enum": [
+        "prepared",
+        "authorized",
+        "write_request_maybe_sent",
+        "reconciling",
+        "verified",
+        "nothing_to_audit",
+        "needs_manual_review",
+        "failed_closed"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "required": ["policyId", "version", "authorizationMode"],
+      "properties": {
+        "policyId": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "authorizationMode": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "required": ["mode", "platformOrderNumbers"],
+      "properties": {
+        "mode": {"enum": ["all_pending", "current_batch"]},
+        "platformOrderNumbers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "authorization": {
+      "type": "object",
+      "required": ["separateRequired", "granted"],
+      "properties": {
+        "separateRequired": {"type": "boolean"},
+        "granted": {"type": "boolean"},
+        "grantedAt": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "write": {
+      "type": "object",
+      "required": ["requestMaybeSent", "selectedCount", "remainingPendingCount"],
+      "properties": {
+        "requestMaybeSent": {"type": "boolean"},
+        "selectedCount": {"type": "integer", "minimum": 0},
+        "remainingPendingCount": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "history": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": true
+}

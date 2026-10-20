@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "shangyu_rule_implementations_v1",
-  "version": 7,
+  "version": 8,
   "implementations": {
     "browser.guanyi.prepare_import_form.pending_review": {
       "runtime": "javascript",
@@ -12,6 +12,11 @@
       "runtime": "javascript",
       "target": "browser/guanyi/navigation.mjs#ensureImportOptionsSelected",
       "test": "browser/guanyi/navigation.test.mjs"
+    },
+    "browser.guanyi.order_audit.guarded": {
+      "runtime": "javascript",
+      "target": "browser/guanyi/order-audit.mjs#executeAuthorizedOrderAudit",
+      "test": "browser/guanyi/order-audit.test.mjs"
     },
     "browser.guanyi.submit_import.guarded": {
       "runtime": "javascript",

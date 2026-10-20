@@ -42,6 +42,7 @@ class GuanyiPreflightResult:
     size_bytes: int | None = None
     order_count: int = 0
     item_row_count: int = 0
+    platform_order_numbers: list[str] = field(default_factory=list)
     checks: dict[str, bool] = field(default_factory=dict)
     issues: list[PreflightIssue] = field(default_factory=list)
 
@@ -67,12 +68,16 @@ class GuanyiPreflightResult:
                 "orders": self.order_count,
                 "item_rows": self.item_row_count,
             },
+            "audit_scope": {
+                "platform_order_numbers": self.platform_order_numbers,
+            },
             "checks": self.checks,
             "issues": [issue.to_dict() for issue in self.issues],
             "safety": {
                 "manifest_contains_recipient_pii": False,
                 "workbook_contains_recipient_pii": True,
                 "upload_authorized": False,
+                "audit_authorized": False,
             },
         }
 
@@ -526,6 +531,7 @@ def preflight_custom_import(
                         )
                     )
         result.order_count = len(grouped_first_rows)
+        result.platform_order_numbers = list(grouped_first_rows)
         result.checks["order_fields_consistent"] = not inconsistent
 
         result.status = "ready" if not result.issues else "blocked"

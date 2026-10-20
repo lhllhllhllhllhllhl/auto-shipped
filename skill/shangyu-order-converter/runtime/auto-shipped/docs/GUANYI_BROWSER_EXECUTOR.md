@@ -1,6 +1,6 @@
 # 管易浏览器执行器
 
-状态：受控的订单导入执行器。已实现只读探针、待审核表单准备、任务基线、文件选择、两段“确定”、字段对应核验和任务结果回读。2026-10-14 已完成所有者授权的真实全量成功闭环验收；生产入口只对用户在当前对话明确指定并授权的批次开放。审核、发货、作废和删除始终不在能力范围内。
+状态：受控的订单导入与上传后审核执行器。订单上传已完成真实全量成功闭环验收；订单审核已实现独立策略、状态机和命令，但在本地与豆包只读页面探针完成前真实执行保持关闭。上传和审核当前必须分别授权；发货、作废和删除始终不在能力范围内。
 
 ## 边界
 
@@ -32,6 +32,9 @@
 - `task-reconciliation.mjs`：合并“执行中 + 已完成”任务建立上传前 ID 基线，并以集合差异识别唯一新增任务。
 - `manifest.mjs`：验证预检 manifest，并把用户明确交付的当前 Excel 路径绑定到原始文件名、大小和 SHA-256；不扫描目录、不改写 manifest。
 - `operation-state.mjs`：为通过预检的批次建立不可跳级的操作状态机和非敏感本地回执。
+- `audit-policy.mjs`：验证审核授权模式、默认范围和双环境页面验收状态；上传审核联动开关默认关闭。
+- `order-audit-state.mjs`：把已全部成功的上传operation绑定为独立审核operation，保存二次授权、范围和写后核验状态。
+- `order-audit.mjs`：只读探测审核控件；授权后筛选待审核订单、分批全选审核，并在写后只读回查。
 - `file-selection.mjs`：复核操作记录、任务基线与文件哈希，唯一定位“订单信息上传”输入框，并在当次授权门禁后选择一次文件。
 - `submission.mjs`：在同一操作内选择文件，点击导入弹窗的第一次“确定”，完整滚动核对“自定义字段对应”的全部字段，再点击第二次“确定”；任一阶段出现未登记写请求、字段错配或证据不足即停止。
 - `cli.mjs`：稳定命令入口。
@@ -64,6 +67,11 @@ npm run select-import-file -- "<operation-id>" "CONFIRM_FILE_SELECTION_MAY_UPLOA
 npm run submit-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 npm run execute-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 npm run reconcile-operation -- "<operation-id>"
+npm run probe-order-audit
+npm run prepare-order-audit -- "<verified-import-operation-id>"
+npm run prepare-order-audit -- "<verified-import-operation-id>" current_batch
+npm run execute-order-audit -- "<audit-operation-id>" "CONFIRM_GUANYI_ORDER_AUDIT"
+npm run reconcile-order-audit -- "<audit-operation-id>"
 npm run verify-manifest -- "/path/to/上传预检.json"
 npm run prepare-operation -- "/path/to/上传预检.json"
 
@@ -106,7 +114,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 4. 已知公告可以安全关闭；关闭未生效、页面地址变化或出现未知弹窗时返回 `popup_unknown`。
 5. 侧栏展开或折叠时都能进入订单查询。
 6. 能打开订单导入并切换到自定义导入；任务中心读取基线后，必须重新激活并回读确认“订单查询”页签，不能仅因后台 DOM 中仍存在“订单导入”按钮就判定已经切回。
-7. 默认流程不选择文件；真实提交必须经过当前对话对明确批次的授权和精确口令，只能导入为“待审核”，不审核、不发货。
+7. 默认流程不选择文件；真实提交必须经过当前对话对明确批次的上传授权和精确口令，只能导入为“待审核”。上传全部成功后仍须单独取得审核授权；任何阶段都不自动发货。
 8. manifest 与 Excel 不一致时在文件选择之前阻断。
 9. 浏览器启动、路由跳转、弹窗关闭和关键动作前的几何保持稳定。
 10. 截图前后 viewport 与滚动位置保持不变。
@@ -121,6 +129,10 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
 20. 相同 Excel 哈希只有在 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 或明确失败关闭后允许创建新操作，新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得用户授权。
 21. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再依次完成表单、基线、提交和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent 先走标准短信交接，再重新执行当前已授权批次。两分钟内仍无唯一结果时返回 `reconciling`，后续仅允许只读续查。
+22. `prepare-order-audit`只接受`post_write_verified`上传操作，默认建立`all_pending`范围；只有用户明确要求“只审核本批”时才使用`current_batch`并绑定manifest平台单号。
+23. `execute-order-audit`必须取得上传成功后的新授权`CONFIRM_GUANYI_ORDER_AUDIT`。上传授权不能复用；策略中的联动模式默认关闭。它只筛选已确认的待审核状态、核验结果中没有其他状态、全选当前页并点击审核，多页按页面签名逐页处理。
+24. `reconcile-order-audit`只读回查剩余待审核订单，不能勾选行或点击审核。写请求后页面状态不明时不得盲目重试。
+25. `probe-order-audit`必须分别在本地与豆包环境只读确认审核列、平台单号列、两个筛选框、全选框、审核按钮和真实待审核状态词；双环境未完成前生产审核门禁保持关闭。
 
 ## 实机验收记录
 

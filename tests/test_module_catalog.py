@@ -18,8 +18,8 @@ class ModuleCatalogTests(unittest.TestCase):
             policy_registry_path=PROJECT_ROOT / "config/platform_rules/guanyi/policy_modules_v1.json",
         )
         self.assertEqual(result["status"], "ready", result["issues"])
-        self.assertEqual(result["module_count"], 13)
-        self.assertEqual(result["implementation_ref_count"], 29)
+        self.assertEqual(result["module_count"], 14)
+        self.assertEqual(result["implementation_ref_count"], 30)
         self.assertEqual(result["legacy_implementation_ref_count"], 1)
         self.assertEqual(result["policy_module_count"], 11)
 

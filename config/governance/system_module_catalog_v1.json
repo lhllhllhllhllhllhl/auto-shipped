@@ -135,10 +135,21 @@
       "module_id": "post_upload_reconciliation",
       "title": "上传后任务核验",
       "responsibility": "使用唯一新增任务核验指定批次的管易导入结果。",
-      "boundary": "不自动审核、发货、作废或删除订单。",
+      "boundary": "只确认导入结果，不继承上传授权、不执行订单审核、发货、作废或删除。",
       "authority_paths": ["browser/guanyi/operation-state.mjs"],
       "dependencies": ["browser_upload"],
       "implementation_refs": ["browser.guanyi.task_reconciliation.unique_verified_id"],
+      "policy_module_ids": [],
+      "status": "active"
+    },
+    {
+      "module_id": "order_audit",
+      "title": "上传后订单审核",
+      "responsibility": "仅在指定导入批次确认全部上传成功后建立审核操作，并在用户另行批准后筛选待审核订单、分批审核和回读核验；默认审核当前全部待审核订单，只审核本批为特殊范围。",
+      "boundary": "当前不得继承上传授权或自动连跑；不读取原始订单、不重判公司和商品，不执行发货、作废或删除；真实审核须先完成本地与豆包只读探针。",
+      "authority_paths": ["browser/guanyi/order-audit.mjs", "browser/guanyi/order-audit-state.mjs", "browser/guanyi/audit-policy.mjs", "config/platform_profiles/guanyi_order_audit_v1.json", "contracts/guanyi_order_audit_policy.schema.json", "contracts/guanyi_order_audit_operation.schema.json"],
+      "dependencies": ["post_upload_reconciliation"],
+      "implementation_refs": ["browser.guanyi.order_audit.guarded"],
       "policy_module_ids": [],
       "status": "active"
     },
@@ -148,7 +159,7 @@
       "responsibility": "校验配置结构、规则实现注册、模块唯一归属、依赖环、弃用污染和运行时打包完整性。",
       "boundary": "治理目录只引用权威配置，不复制可执行业务值。",
       "authority_paths": ["config/governance/system_module_catalog_v1.json", "contracts/system_module_catalog.schema.json", "src/auto_shipped/rules/module_catalog.py", "scripts/audit_modules.py"],
-      "dependencies": ["company_workflow_routing", "adaptive_excel", "mapping_governance", "conversion_delivery", "post_upload_reconciliation"],
+      "dependencies": ["company_workflow_routing", "adaptive_excel", "mapping_governance", "conversion_delivery", "post_upload_reconciliation", "order_audit"],
       "implementation_refs": [],
       "policy_module_ids": [],
       "status": "active"

@@ -31,6 +31,7 @@ function manifest() {
     profileId: "guanyi_v1",
     orders: 2,
     itemRows: 3,
+    platformOrderNumbers: ["TEST-001", "TEST-002"],
   };
 }
 
@@ -90,6 +91,10 @@ test("prepared operation records hash and blocks skipped write states", async ()
     );
     assert.equal(created.record.artifact.sha256, "a".repeat(64));
     assert.equal(created.record.write.requestSent, false);
+    assert.deepEqual(created.record.auditScope.platformOrderNumbers, [
+      "TEST-001",
+      "TEST-002",
+    ]);
 
     await assert.rejects(
       transitionOperation(
