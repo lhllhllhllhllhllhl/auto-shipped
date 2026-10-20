@@ -2,7 +2,7 @@
 
 > 本文由 `config/governance/system_module_catalog_v1.json` 生成；JSON 是唯一权威来源。
 
-当前共 **13 个一级模块**。
+当前共 **14 个一级模块**。
 
 ## 修改前必读
 
@@ -27,8 +27,9 @@
 | `conversion_delivery` | 合并生成管易导入Excel、上传预检manifest和脱敏/决策摘要。 | 生成文件不代表获得上传授权；不读取浏览器页面状态。 | order_business_policies、order_identity |
 | `feishu_integration` | 统一身份探测、表格读写、映射同步、中央序号、publishing恢复和错误分类。 | 业务模块不得各自拼接不兼容的lark-cli身份探针或直接并发写同一revision表。 | 无 |
 | `browser_upload` | 在用户明确指定批次并授权后选择已确认Excel、填写导入表单并提交。 | 不读取原始订单，不判断公司、商品、店铺或物流；不得把GitHub推送当作上传授权。 | conversion_delivery |
-| `post_upload_reconciliation` | 使用唯一新增任务核验指定批次的管易导入结果。 | 不自动审核、发货、作废或删除订单。 | browser_upload |
-| `configuration_governance` | 校验配置结构、规则实现注册、模块唯一归属、依赖环、弃用污染和运行时打包完整性。 | 治理目录只引用权威配置，不复制可执行业务值。 | company_workflow_routing、adaptive_excel、mapping_governance、conversion_delivery、post_upload_reconciliation |
+| `post_upload_reconciliation` | 使用唯一新增任务核验指定批次的管易导入结果。 | 只确认导入结果，不继承上传授权、不执行订单审核、发货、作废或删除。 | browser_upload |
+| `order_audit` | 仅在指定导入批次确认全部上传成功后建立审核操作，并在用户另行批准后筛选待审核订单、分批审核和回读核验；默认审核当前全部待审核订单，只审核本批为特殊范围。 | 当前不得继承上传授权或自动连跑；不读取原始订单、不重判公司和商品，不执行发货、作废或删除；真实审核须先完成本地与豆包只读探针。 | post_upload_reconciliation |
+| `configuration_governance` | 校验配置结构、规则实现注册、模块唯一归属、依赖环、弃用污染和运行时打包完整性。 | 治理目录只引用权威配置，不复制可执行业务值。 | company_workflow_routing、adaptive_excel、mapping_governance、conversion_delivery、post_upload_reconciliation、order_audit |
 
 ## 权威来源与实现归属
 
@@ -113,6 +114,13 @@
 
 权威路径：`browser/guanyi/operation-state.mjs`
 实现引用：`browser.guanyi.task_reconciliation.unique_verified_id`
+历史兼容实现：无
+共享策略：无
+
+### 上传后订单审核 (`order_audit`)
+
+权威路径：`browser/guanyi/order-audit.mjs`、`browser/guanyi/order-audit-state.mjs`、`browser/guanyi/audit-policy.mjs`、`config/platform_profiles/guanyi_order_audit_v1.json`、`contracts/guanyi_order_audit_policy.schema.json`、`contracts/guanyi_order_audit_operation.schema.json`
+实现引用：`browser.guanyi.order_audit.guarded`
 历史兼容实现：无
 共享策略：无
 

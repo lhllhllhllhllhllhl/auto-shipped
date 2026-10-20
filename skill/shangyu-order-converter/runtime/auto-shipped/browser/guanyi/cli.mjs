@@ -88,6 +88,17 @@ import {
   reconcileImportInCurrentSession,
   workflowExitCode,
 } from "./workflow.mjs";
+import {
+  executeAuthorizedOrderAudit,
+  OrderAuditError,
+  probeOrderAuditSurface,
+  reconcileOrderAudit,
+} from "./order-audit.mjs";
+import {
+  AuditOperationError,
+  createPreparedAuditOperation,
+} from "./order-audit-state.mjs";
+import { AuditPolicyError } from "./audit-policy.mjs";
 
 
 function printJson(payload) {
@@ -127,7 +138,7 @@ function sessionErrorStatus(error) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation> [arguments]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation|probe-order-audit|prepare-order-audit|execute-order-audit|reconcile-order-audit> [arguments]",
     commands: {
       login: "打开当前管易浏览器会话，由用户手动登录。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
@@ -172,6 +183,14 @@ function help() {
         "校验预检 manifest 与当前 Excel 的文件名、大小和哈希；可显式传入迁移后的当前路径，不打开文件选择器。",
       "prepare-operation":
         "校验 manifest、绑定当前 Excel 路径并建立 prepared 操作记录；不选择文件或上传。",
+      "probe-order-audit":
+        "只读检查订单查询中的审核列、筛选框、全选框和审核按钮；不筛选、不勾选、不审核。",
+      "prepare-order-audit":
+        "在导入结果全部成功后建立待审核操作；默认范围 all_pending，current_batch 为特殊范围。",
+      "execute-order-audit":
+        "用户在上传成功后另行批准，才审核已准备范围；需要口令 CONFIRM_GUANYI_ORDER_AUDIT。",
+      "reconcile-order-audit":
+        "审核请求可能发出后，只读核验该范围是否仍有待审核订单，不重提审核。",
     },
   });
 }
@@ -1178,6 +1197,71 @@ async function runResolveNoTask(page, operationId, authorization) {
 }
 
 
+async function runProbeOrderAudit(page, browserBackend) {
+  await openApp(page);
+  const observed = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    printJson(observed);
+    return 2;
+  }
+  printJson(
+    await probeOrderAuditSurface(page, {
+      executionEnvironment:
+        browserBackend === "platform_cdp" ? "doubao" : "local",
+    }),
+  );
+  return 0;
+}
+
+
+async function runExecuteOrderAudit(
+  context,
+  page,
+  auditOperationId,
+  authorization,
+) {
+  if (!auditOperationId) {
+    throw new AuditOperationError(
+      "AUDIT_OPERATION_ID_REQUIRED",
+      "执行订单审核需要审核操作 ID。",
+    );
+  }
+  const session = await authenticateForAuthorizedImport(context, page);
+  if (session.result) {
+    printJson(session.result);
+    return workflowExitCode(session.result);
+  }
+  const result = await executeAuthorizedOrderAudit(
+    session.page,
+    auditOperationId,
+    authorization,
+  );
+  printJson(result);
+  return ["audit_verified", "nothing_to_audit"].includes(result.status)
+    ? 0
+    : 2;
+}
+
+
+async function runReconcileOrderAudit(page, auditOperationId) {
+  if (!auditOperationId) {
+    throw new AuditOperationError(
+      "AUDIT_OPERATION_ID_REQUIRED",
+      "核验订单审核需要审核操作 ID。",
+    );
+  }
+  await openApp(page);
+  const observed = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    printJson(observed);
+    return 2;
+  }
+  const result = await reconcileOrderAudit(page, auditOperationId);
+  printJson(result);
+  return result.status === "audit_verified" ? 0 : 2;
+}
+
+
 async function main() {
   const command = process.argv[2];
   if (!command || ["help", "--help", "-h"].includes(command)) {
@@ -1211,6 +1295,10 @@ async function main() {
       "resolve-no-task",
       "verify-manifest",
       "prepare-operation",
+      "probe-order-audit",
+      "prepare-order-audit",
+      "execute-order-audit",
+      "reconcile-order-audit",
     ].includes(command)
   ) {
     help();
@@ -1259,6 +1347,45 @@ async function main() {
       if (error instanceof OperationStateError) {
         printJson({
           status: "operation_rejected",
+          code: error.code,
+          message: error.message,
+        });
+        return 2;
+      }
+      throw error;
+    }
+  }
+
+  if (command === "prepare-order-audit") {
+    const sourceImportOperationId = process.argv[3];
+    const scope = process.argv[4] || null;
+    if (!sourceImportOperationId) {
+      printJson({ status: "failed", code: "IMPORT_OPERATION_ID_REQUIRED" });
+      return 1;
+    }
+    try {
+      const prepared = await createPreparedAuditOperation(
+        sourceImportOperationId,
+        scope,
+      );
+      printJson({
+        status: "order_audit_prepared",
+        auditOperationId: prepared.record.auditOperationId,
+        sourceImportOperationId,
+        state: prepared.record.state,
+        scope: prepared.record.scope.mode,
+        separateAuthorizationRequired:
+          prepared.record.authorization.separateRequired,
+        safety: "No browser was opened and no order was audited.",
+      });
+      return 0;
+    } catch (error) {
+      if (
+        error instanceof AuditOperationError ||
+        error instanceof AuditPolicyError
+      ) {
+        printJson({
+          status: "order_audit_rejected",
           code: error.code,
           message: error.message,
         });
@@ -1350,6 +1477,20 @@ async function main() {
     }
     if (command === "reconcile-operation") {
       return await runReconcileOperation(session.page, process.argv[3]);
+    }
+    if (command === "probe-order-audit") {
+      return await runProbeOrderAudit(session.page, session.backend);
+    }
+    if (command === "execute-order-audit") {
+      return await runExecuteOrderAudit(
+        session.context,
+        session.page,
+        process.argv[3],
+        process.argv[4],
+      );
+    }
+    if (command === "reconcile-order-audit") {
+      return await runReconcileOrderAudit(session.page, process.argv[3]);
     }
     if (command === "resolve-no-task") {
       return await runResolveNoTask(
@@ -1465,6 +1606,20 @@ async function main() {
         screenshot,
       });
       return 2;
+    }
+    if (
+      error instanceof AuditOperationError ||
+      error instanceof AuditPolicyError ||
+      error instanceof OrderAuditError
+    ) {
+      printJson({
+        status: "order_audit_blocked",
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        screenshot,
+      });
+      return 3;
     }
     printJson({
       status: "failed",

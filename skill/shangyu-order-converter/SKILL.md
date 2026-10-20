@@ -1,6 +1,6 @@
 ---
 name: shangyu-order-converter
-description: 识别尚舆收到的公司原始订单Excel、聊天文字或截图订单；已知模板用确定性脚本处理，未知Excel或非结构化订单先经Agent提取和用户确认，再按商品映射与平台规则生成经过校验的导入文件。也用于管易登录、受控上传和结果核验；缺失业务事实必须追问，未授权前不提交，始终不审核或发货。
+description: 识别尚舆收到的公司原始订单Excel、聊天文字或截图订单；已知模板用确定性脚本处理，未知Excel或非结构化订单先经Agent提取和用户确认，再按商品映射与平台规则生成经过校验的导入文件。也用于管易登录、受控上传、结果核验和上传后独立授权的订单审核；缺失业务事实必须追问，未授权前不提交或审核，始终不自动发货。
 ---
 
 # 尚舆订单转换
@@ -213,6 +213,11 @@ python3 <skill-dir>/scripts/guanyi_browser.py submit-import "<operation-id>" "CO
 python3 <skill-dir>/scripts/guanyi_browser.py execute-import "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
 python3 <skill-dir>/scripts/guanyi_browser.py reconcile-operation "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py resolve-no-task "<operation-id>" "CONFIRM_CLOSE_NO_TASK_OPERATION"
+python3 <skill-dir>/scripts/guanyi_browser.py probe-order-audit
+python3 <skill-dir>/scripts/guanyi_browser.py prepare-order-audit "<verified-import-operation-id>"
+python3 <skill-dir>/scripts/guanyi_browser.py prepare-order-audit "<verified-import-operation-id>" current_batch
+python3 <skill-dir>/scripts/guanyi_browser.py execute-order-audit "<audit-operation-id>" "CONFIRM_GUANYI_ORDER_AUDIT"
+python3 <skill-dir>/scripts/guanyi_browser.py reconcile-order-audit "<audit-operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/path/to/上传预检.json"
 python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/path/to/上传预检.json"
 python3 <skill-dir>/scripts/guanyi_browser.py verify-manifest "/current/path/上传预检.json" "/current/path/管易自定义订单导入.xlsx"
@@ -240,6 +245,8 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/current/path/�
 - `select-import-file` 是受控写入边界。只有用户在当前对话中明确同意本次真实文件选择后才可运行，并必须传入精确授权口令 `CONFIRM_FILE_SELECTION_MAY_UPLOAD`。执行器在动作前写入 `file_selection_started`，文件输入变更尝试后立即进入 `write_request_maybe_sent`，仅记录不含查询串和请求正文的网络元数据；禁止点击“确定”、刷新、重新选文件或盲目重试。
 - `submit-import` 已实现“选择文件 → 第一次确定 → 完整核对自定义字段对应 → 第二次确定”的同一写入边界。只有用户在当前对话明确授权当前批次时才可传入 `CONFIRM_GUANYI_IMPORT_SUBMISSION`。文件选择只允许出现已登记的管易取 OSS 地址和指定 OSS 暂存请求；第一次确定只允许调用已登记的模板读取接口；字段表必须遍历全部虚拟滚动行，系统字段与Excel字段逐行同名、一一对应且必填字段齐全；第二次确定只允许调用已登记的最终导入接口。任一证据缺失、重复、非成功或出现额外写请求都停止并先查任务中心。
 - 正常生产上传优先使用 `execute-import`：它只在用户已经确认当前批次后启动。会话不可用时先在当前进程读取安全凭证并自动登录，再顺序完成待审核表单、任务中心基线、受控提交和最长两分钟的结果回读。过程中不退出登录、不另启浏览器；若登录要求短信验证，只返回 `needs_verification`，不发送短信、不选择文件，Agent 先走标准短信交接再重新执行当前已授权批次。若结果仍为 `reconciling`，退出后只能运行只读 `reconcile-operation`，不得重新提交。
+- 上传结果必须到达`post_write_verified`后，才能运行`prepare-order-audit`建立独立审核操作。当前上传授权绝不自动转成审核授权；用户须在上传成功后另行明确批准，执行时传入`CONFIRM_GUANYI_ORDER_AUDIT`。默认范围是`all_pending`（审核当前全部待审核订单），只有用户明确要求“只审核本批”时才使用`current_batch`，并由manifest携带的平台单号清单限制范围。策略保留`combined_import_and_audit`切换口，但当前`combined_mode_enabled=false`，不得用一次上传授权连续审核。
+- `probe-order-audit`只读定位订单查询中的审核列、平台单号列、筛选框、全选框和审核按钮；不得筛选、勾选或点击审核。本地与豆包环境必须分别完成只读探针并确认真实待审核状态词后，`execute-order-audit`生产门禁才可启用。`reconcile-order-audit`只能回读剩余待审核数量，不得勾选订单或重提审核。发货、作废和删除不在审核模块能力范围内。
 - 正式 `guanyi_browser.py` 入口只有在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时才会为本次进程开启 Node 写入层；规则回退、实现引用失效或打包不一致都会结构性拒绝 `submit-import` 和 `execute-import`。`GUANYI_CONTROLLED_WRITE_VALIDATION` 只保留给维护者未来重新验收，不参与普通生产流程，也永远不能代替当前批次的用户提交授权。
 - `reconcile-operation` 只读查询任务中心。已经点击第二次确定但短时没有新增任务时保持 `reconciling`，不得重提；只有尚未进入最终提交且任务中心确认无新增任务时才可进入 `retryable_failed`。唯一新增任务的 ID、任务名称和“执行完成”状态只证明任务结束，必须继续打开“查看结果”，回读总数、成功数、格式错误数和非法数据数；只有全部成功才返回 `verified`，部分成功返回 `needs_manual_review`，全部失败返回 `retryable_failed`。多条新增、任务 ID 证据不足、统计矛盾或未知状态进入 `needs_manual_review`。
 - Agent 必须把最终任务 ID、导入总数、成功数、失败分类和需要人工处理的来源行号返回给用户；不得返回或记录结果窗口中的收件人、手机号、详细地址或原始失败整行。未登记的失败文本统一脱敏为人工查看提示。
@@ -251,7 +258,7 @@ python3 <skill-dir>/scripts/guanyi_browser.py prepare-operation "/current/path/�
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
 - 自有 Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。豆包`platform_cdp`浏览器的窗口由平台托管，不要求匹配自有浏览器的`1440×850`目标；最大化窗口只有在三次采样稳定、有效页面区域达到最小尺寸且缩放正常时才放行。宽高两个原生滚动条沟槽还须由两方向document/visual证据分别一致证明且各不超过24px；执行器不得修改平台窗口，也不得全局放宽几何容差。
 - 正式Skill入口只接受与`runtime-manifest.json`一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区；通过`SHANGYU_AUTO_SHIPPED_ROOT`指向的普通复制目录同样必须通过清单校验。修改后的临时副本不得登录、选择文件或提交。
-- 2026-10-14 已完成真实全量成功闭环验收：两段确定、48行字段映射核验、唯一新增任务识别和结果汇总回读均通过，任务 `705668612` 为总数2、成功2、失败0。生产使用只对当前对话中明确授权的具体批次开放；不要用其他临时浏览器步骤绕过门禁。审核、发货、作废和删除不在本模块能力范围内。
+- 2026-10-14 已完成真实上传闭环验收：两段确定、48行字段映射核验、唯一新增任务识别和结果汇总回读均通过，任务 `705668612` 为总数2、成功2、失败0。生产上传只对当前对话中明确授权的具体批次开放。订单审核已建立独立模块和二次授权边界，但在本地与豆包只读探针均完成前真实审核仍关闭；发货、作废和删除始终不在本模块能力范围内。
 
 ## 当前能力
 

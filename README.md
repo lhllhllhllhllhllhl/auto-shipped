@@ -93,7 +93,7 @@ Playwright 执行器位于 `browser/guanyi`。它自动识别 Windows/macOS 的 
 
 ## 上传前预检
 
-转换成功后会生成不含收件信息的上传预检 manifest。它记录模板配置版本、Excel 路径、SHA-256、文件大小、订单数、明细行数和逐项校验结果，但 `upload_authorized` 固定为 `false`。浏览器执行器可以只读验证 manifest 与 Excel 是否仍然一致；文件被修改后必须重新预检。
+转换成功后会生成不含收件信息的上传预检 manifest。它记录模板配置版本、Excel 路径、SHA-256、文件大小、订单数、明细行数、可选的本批审核平台单号范围和逐项校验结果，但 `upload_authorized` 与 `audit_authorized` 都固定为 `false`。浏览器执行器可以只读验证 manifest 与 Excel 是否仍然一致；文件被修改后必须重新预检。
 
 ```bash
 PYTHONPATH=src python -m auto_shipped.cli preflight \

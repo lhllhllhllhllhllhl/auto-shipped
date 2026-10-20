@@ -39,12 +39,14 @@ async function fixture() {
       size_bytes: contents.length,
     },
     counts: { orders: 1, item_rows: 1 },
+    audit_scope: { platform_order_numbers: ["TEST-001"] },
     checks: {},
     issues: [],
     safety: {
       manifest_contains_recipient_pii: false,
       workbook_contains_recipient_pii: true,
       upload_authorized: false,
+      audit_authorized: false,
     },
   };
   await fs.writeFile(manifestPath, JSON.stringify(manifest));
@@ -61,6 +63,7 @@ test("verifies unchanged preflight artifact", async () => {
     assert.equal(result.manifestArtifactPath, item.workbookPath);
     assert.equal(result.workbookPath, item.workbookPath);
     assert.equal(result.artifactPathBinding, "manifest_path");
+    assert.deepEqual(result.platformOrderNumbers, ["TEST-001"]);
   } finally {
     await fs.rm(item.root, { recursive: true, force: true });
   }
@@ -187,6 +190,38 @@ test("rejects artifact changed after preflight", async () => {
         error instanceof ManifestError &&
         ["ARTIFACT_SIZE_MISMATCH", "ARTIFACT_HASH_MISMATCH"].includes(error.code),
     );
+  } finally {
+    await fs.rm(item.root, { recursive: true, force: true });
+  }
+});
+
+
+test("rejects a manifest without a complete current-batch audit scope", async () => {
+  const item = await fixture();
+  try {
+    const payload = JSON.parse(await fs.readFile(item.manifestPath, "utf8"));
+    payload.audit_scope.platform_order_numbers = [];
+    await fs.writeFile(item.manifestPath, JSON.stringify(payload));
+    await assert.rejects(
+      verifyUploadManifest(item.manifestPath),
+      (error) =>
+        error instanceof ManifestError && error.code === "AUDIT_SCOPE_INVALID",
+    );
+  } finally {
+    await fs.rm(item.root, { recursive: true, force: true });
+  }
+});
+
+
+test("accepts a legacy upload manifest but leaves current-batch audit unavailable", async () => {
+  const item = await fixture();
+  try {
+    const payload = JSON.parse(await fs.readFile(item.manifestPath, "utf8"));
+    delete payload.audit_scope;
+    delete payload.safety.audit_authorized;
+    await fs.writeFile(item.manifestPath, JSON.stringify(payload));
+    const result = await verifyUploadManifest(item.manifestPath);
+    assert.deepEqual(result.platformOrderNumbers, []);
   } finally {
     await fs.rm(item.root, { recursive: true, force: true });
   }

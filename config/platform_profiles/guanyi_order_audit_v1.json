@@ -1,0 +1,52 @@
+{
+  "schema_version": "guanyi-order-audit-policy/1.0",
+  "policy_id": "guanyi_order_audit_v1",
+  "version": 1,
+  "authorization": {
+    "mode": "separate_after_upload",
+    "supported_modes": [
+      "separate_after_upload",
+      "combined_import_and_audit"
+    ],
+    "execute_token": "CONFIRM_GUANYI_ORDER_AUDIT",
+    "combined_mode_enabled": false
+  },
+  "scope": {
+    "default": "all_pending",
+    "allowed": [
+      "all_pending",
+      "current_batch"
+    ]
+  },
+  "ui": {
+    "audit_column_title": "审核",
+    "platform_order_column_title": "平台单号",
+    "audit_button_text": "审核",
+    "query_button_text": "查询",
+    "pending_status_candidates": [
+      "待审核",
+      "未审核"
+    ],
+    "confirmed_pending_status": null,
+    "successful_statuses": [
+      "审核成功",
+      "已审核"
+    ]
+  },
+  "validation": {
+    "status": "pending_read_only_probes",
+    "required_environments": [
+      "local",
+      "doubao"
+    ],
+    "validated_environments": []
+  },
+  "safety": {
+    "requires_verified_import": true,
+    "requires_separate_user_authorization": true,
+    "re_audit_successful_orders_is_idempotent": true,
+    "shipping_allowed": false,
+    "void_allowed": false,
+    "delete_allowed": false
+  }
+}

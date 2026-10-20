@@ -73,6 +73,7 @@ class UploadManifestBridgeTests(unittest.TestCase):
             self.assertEqual(payload["status"], "manifest_verified")
             self.assertEqual(payload["orders"], 1)
             self.assertEqual(payload["itemRows"], 1)
+            self.assertEqual(payload["platformOrderNumbers"], ["BRIDGE-001A"])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,10 @@ export const ARTIFACT_DIR = path.resolve(
 export const OPERATION_DIR = path.resolve(
   process.env.GUANYI_OPERATION_DIR || path.join(RUNTIME_ROOT, "guanyi-operations"),
 );
+export const AUDIT_OPERATION_DIR = path.resolve(
+  process.env.GUANYI_AUDIT_OPERATION_DIR ||
+    path.join(RUNTIME_ROOT, "guanyi-audit-operations"),
+);
 export const LOGIN_OPERATION_DIR = path.resolve(
   process.env.GUANYI_LOGIN_OPERATION_DIR ||
     path.join(RUNTIME_ROOT, "guanyi-login-operations"),

@@ -296,6 +296,9 @@ export async function createPreparedOperation(
       orders: verifiedManifest.orders,
       itemRows: verifiedManifest.itemRows,
     },
+    auditScope: {
+      platformOrderNumbers: [...verifiedManifest.platformOrderNumbers],
+    },
     write: {
       fileSelectionStarted: false,
       requestMaybeSent: false,

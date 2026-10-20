@@ -34,6 +34,41 @@ def load_guanyi_rules(file_name: str) -> dict:
 
 
 class ArchitectureContractTests(unittest.TestCase):
+    def test_order_audit_policy_requires_separate_authorization_by_default(self):
+        policy = load_json("config/platform_profiles/guanyi_order_audit_v1.json")
+        policy_schema = load_json("contracts/guanyi_order_audit_policy.schema.json")
+        operation_schema = load_json(
+            "contracts/guanyi_order_audit_operation.schema.json"
+        )
+
+        self.assertEqual(policy["authorization"]["mode"], "separate_after_upload")
+        self.assertFalse(policy["authorization"]["combined_mode_enabled"])
+        self.assertEqual(policy["scope"]["default"], "all_pending")
+        self.assertEqual(
+            policy["authorization"]["execute_token"],
+            "CONFIRM_GUANYI_ORDER_AUDIT",
+        )
+        self.assertEqual(
+            policy_schema["properties"]["schema_version"]["const"],
+            "guanyi-order-audit-policy/1.0",
+        )
+        self.assertIn(
+            "write_request_maybe_sent",
+            operation_schema["properties"]["state"]["enum"],
+        )
+
+    def test_upload_manifest_explicitly_carries_no_audit_authorization(self):
+        schema = load_json("contracts/upload_batch.schema.json")
+        self.assertNotIn("audit_scope", schema["required"])
+        self.assertNotIn(
+            "audit_authorized", schema["properties"]["safety"]["required"]
+        )
+        self.assertFalse(
+            schema["properties"]["safety"]["properties"]["audit_authorized"][
+                "const"
+            ]
+        )
+
     def test_python_feishu_gateways_share_one_lark_cli_client(self):
         integration_root = (
             PROJECT_ROOT / "src" / "auto_shipped" / "integrations" / "feishu"

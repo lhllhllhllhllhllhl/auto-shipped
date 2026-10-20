@@ -74,12 +74,17 @@ class GuanyiPreflightTests(unittest.TestCase):
             self.assertEqual(result.status, "ready")
             manifest = result.to_manifest()
             self.assertEqual(manifest["counts"], {"orders": 1, "item_rows": 1})
+            self.assertEqual(
+                manifest["audit_scope"],
+                {"platform_order_numbers": ["SRC-001"]},
+            )
             self.assertTrue(all(manifest["checks"].values()))
             rendered = json.dumps(manifest, ensure_ascii=False)
             self.assertNotIn("测试用户", rendered)
             self.assertNotIn("13800138000", rendered)
             self.assertNotIn("测试路1号", rendered)
             self.assertFalse(manifest["safety"]["upload_authorized"])
+            self.assertFalse(manifest["safety"]["audit_authorized"])
 
     def test_optional_freight_can_be_blank_but_cannot_be_negative(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,6 +190,26 @@ class GuanyiPreflightTests(unittest.TestCase):
             self.assertIn(
                 "ORDER_FIELD_INCONSISTENT",
                 {issue.code for issue in result.issues},
+            )
+
+    def test_manifest_keeps_unique_platform_order_numbers_in_source_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first = valid_line()
+            first["平台单号"] = "BATCH-002"
+            second = deepcopy(first)
+            second["商品代码"] = "P2"
+            second["规格代码"] = "S2"
+            third = deepcopy(first)
+            third["平台单号"] = "BATCH-001"
+            output = self.render(Path(tmp), [first, second, third])
+
+            result = preflight_custom_import(output, profile())
+
+            self.assertEqual(result.status, "ready")
+            self.assertEqual(result.order_count, 2)
+            self.assertEqual(
+                result.to_manifest()["audit_scope"]["platform_order_numbers"],
+                ["BATCH-002", "BATCH-001"],
             )
 
     def test_corrupt_xlsx_is_reported_as_blocked(self) -> None:

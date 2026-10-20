@@ -46,7 +46,7 @@
         "automatic_upload": {
           "status": "not_enabled",
           "runtime_enabled": false,
-          "reason": "管易确定提交、自动审核和发货仍保持关闭。"
+          "reason": "公司能力记录不单独授予浏览器写权限；上传与订单审核分别受全局门禁和当次授权控制，发货保持关闭。"
         }
       },
       "source_refs": [
