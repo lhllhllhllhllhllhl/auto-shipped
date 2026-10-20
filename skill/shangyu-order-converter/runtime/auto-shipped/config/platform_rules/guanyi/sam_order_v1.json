@@ -73,24 +73,30 @@
         "source": "用户确认：YM为玉米缩写；2026-10-02"
       },
       {
-        "rule_id": "sam_product_type_shanghe_gloves",
+        "rule_id": "sam_product_type_showa_gloves_by_source_semantics",
         "type_code": "SH",
         "match": {
-          "product_name_contains_all": ["手套"],
-          "any_text_contains": ["尚和", "尚合"]
+          "source_text_contains_all": ["手套"],
+          "source_text_contains_any": ["SHOWA", "尚和", "尚合"]
         },
         "confirmed": true,
-        "source": "用户确认：尚和手套使用SH；兼容历史资料中的尚合写法；2026-10-02"
+        "source": "用户确认：SAM的SHOWA/尚和/尚合手套统一使用既有SH类型；来源语义完整时自动归类；2026-10-02、2026-10-20"
       },
       {
-        "rule_id": "sam_product_type_showa_swsh8072",
+        "rule_id": "sam_product_type_showa_confirmed_sku_fallback",
         "type_code": "SH",
         "match": {
-          "product_codes": ["SWSH8072"],
-          "spec_codes": ["4901792038072"]
+          "product_spec_pairs": [
+            ["SWSH8072", "4901792038072"],
+            ["SWHL3610", "4901792023610"],
+            ["SWJC8133", "4901792038133"],
+            ["SWJC8140", "4901792038140"],
+            ["SWSH8096", "4901792038096"],
+            ["SWJH7693", "4901792037693"]
+          ]
         },
         "confirmed": true,
-        "source": "SAM原始订单与人工成品按同一平台单号核对，人工买家会员为samSH260930_1977；用户确认按当前普通商品规则处理；2026-10-02"
+        "source": "已确认的SAM SHOWA手套目标SKU均归入既有SH类型；包含2026-10-20正式映射SWJH7693/4901792037693；用于代码型来源或来源名称不完整时兜底"
       }
     ],
     "confirmed": true,
@@ -123,7 +129,7 @@
         "status": "implemented",
         "confirmed": true,
         "implementation_ref": "guanyi.buyer_member.sam_pattern",
-        "evidence": "有跟团号时按sam+商品类型缩写+当日日期+_+跟团号生成；无跟团号时按商品类型前缀使用飞书中央日序号；YM为玉米，SH为尚和手套。"
+        "evidence": "有跟团号时按sam+商品类型缩写+当日日期+_+跟团号生成；无跟团号时按商品类型前缀使用飞书中央日序号；YM为玉米，SH为SHOWA/尚和/尚合手套。"
       },
       "GY-PAYMENT-VALUES": {
         "status": "implemented",

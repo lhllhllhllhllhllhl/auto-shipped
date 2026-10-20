@@ -21,6 +21,7 @@ class ResolvedOrderItem:
     spec_code: str
     product_name: str
     spec_name: str
+    source_searchable_text: str = ""
 
     @property
     def searchable_text(self) -> str:
@@ -166,6 +167,14 @@ def resolve_sam_product_type_code(
 
 
 def matches_resolved_item(item: ResolvedOrderItem, match: dict[str, Any]) -> bool:
+    product_spec_pairs = {
+        (str(pair[0]), str(pair[1]))
+        for pair in (match.get("product_spec_pairs") or [])
+        if isinstance(pair, (list, tuple)) and len(pair) == 2
+    }
+    if product_spec_pairs and (item.product_code, item.spec_code) not in product_spec_pairs:
+        return False
+
     product_codes = set(match.get("product_codes") or [])
     if product_codes and item.product_code not in product_codes:
         return False
@@ -195,12 +204,34 @@ def matches_resolved_item(item: ResolvedOrderItem, match: dict[str, Any]) -> boo
     ):
         return False
 
+    normalized_source_text = unicodedata.normalize(
+        "NFKC", item.source_searchable_text
+    ).casefold()
+    required_source_tokens = tuple(match.get("source_text_contains_all") or ())
+    if required_source_tokens and not all(
+        unicodedata.normalize("NFKC", str(token)).casefold()
+        in normalized_source_text
+        for token in required_source_tokens
+    ):
+        return False
+
+    any_source_tokens = tuple(match.get("source_text_contains_any") or ())
+    if any_source_tokens and not any(
+        unicodedata.normalize("NFKC", str(token)).casefold()
+        in normalized_source_text
+        for token in any_source_tokens
+    ):
+        return False
+
     return bool(
-        product_codes
+        product_spec_pairs
+        or product_codes
         or spec_codes
         or required_product_tokens
         or excluded_product_tokens
         or any_text_tokens
+        or required_source_tokens
+        or any_source_tokens
     )
 
 

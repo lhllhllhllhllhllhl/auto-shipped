@@ -1095,6 +1095,17 @@ def build_custom_import_lines(
                 spec_code=line_item.product.spec_code,
                 product_name=line_item.product.product_name,
                 spec_name=line_item.product.spec_name,
+                source_searchable_text=" ".join(
+                    value.strip()
+                    for value in (
+                        line_item.source_item.source_item_text,
+                        line_item.source_item.source_brand,
+                        line_item.source_item.source_product_name,
+                        line_item.source_item.source_spec,
+                        line_item.source_item.source_display_spec,
+                    )
+                    if value and value.strip()
+                ),
             )
             for line_item in resolved_lines_by_order[id(order)]
         ]
