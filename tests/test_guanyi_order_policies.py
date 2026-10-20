@@ -354,6 +354,127 @@ class GuanyiOrderPolicyTests(unittest.TestCase):
                 business_date=date(2026, 9, 20),
             )
 
+    def test_sam_showa_glove_type_uses_source_semantics_case_insensitively(self) -> None:
+        sam_order = order()
+        sam_order.source_extensions["sam_group_number"] = "1985"
+        policy = {
+            "buyer_member_policy": {
+                "strategy": "sam_product_type_date_group",
+                "platform_prefix": "sam",
+                "group_number_field": "sam_group_number",
+                "product_type_rules": [
+                    {
+                        "type_code": "SH",
+                        "match": {
+                            "source_text_contains_all": ["手套"],
+                            "source_text_contains_any": ["SHOWA", "尚和", "尚合"],
+                        },
+                        "confirmed": True,
+                    }
+                ],
+            }
+        }
+        resolved = [
+            ResolvedOrderItem(
+                1,
+                "NEW-SHOWA",
+                "NEW-SPEC",
+                "VioletL",
+                "L",
+                "showa 植绒加厚款手套 L 紫罗兰",
+            )
+        ]
+
+        self.assertEqual(
+            select_buyer_member(
+                sam_order,
+                policy,
+                resolved,
+                business_date=date(2026, 10, 20),
+            ),
+            "samSH261020_1985",
+        )
+
+    def test_sam_showa_glove_type_uses_exact_registered_target_pair_fallback(self) -> None:
+        sam_order = order()
+        sam_order.source_extensions["sam_group_number"] = "1985"
+        policy = {
+            "buyer_member_policy": {
+                "strategy": "sam_product_type_date_group",
+                "platform_prefix": "sam",
+                "group_number_field": "sam_group_number",
+                "product_type_rules": [
+                    {
+                        "type_code": "SH",
+                        "match": {
+                            "product_spec_pairs": [
+                                ["SWJH7693", "4901792037693"],
+                                ["SWSH8072", "4901792038072"],
+                            ]
+                        },
+                        "confirmed": True,
+                    }
+                ],
+            }
+        }
+
+        self.assertEqual(
+            select_buyer_member(
+                sam_order,
+                policy,
+                [
+                    ResolvedOrderItem(
+                        1,
+                        "SWJH7693",
+                        "4901792037693",
+                        "VioletL",
+                        "L",
+                    )
+                ],
+                business_date=date(2026, 10, 20),
+            ),
+            "samSH261020_1985",
+        )
+
+    def test_sam_showa_glove_type_rejects_partial_target_pair(self) -> None:
+        sam_order = order()
+        sam_order.source_extensions["sam_group_number"] = "1985"
+        policy = {
+            "buyer_member_policy": {
+                "strategy": "sam_product_type_date_group",
+                "platform_prefix": "sam",
+                "group_number_field": "sam_group_number",
+                "product_type_rules": [
+                    {
+                        "type_code": "SH",
+                        "match": {
+                            "product_spec_pairs": [
+                                ["SWJH7693", "4901792037693"],
+                                ["SWSH8072", "4901792038072"],
+                            ]
+                        },
+                        "confirmed": True,
+                    }
+                ],
+            }
+        }
+
+        with self.assertRaises(GuanyiOrderPolicyError):
+            select_buyer_member(
+                sam_order,
+                policy,
+                [
+                    ResolvedOrderItem(
+                        1,
+                        "SWJH7693",
+                        "4901792038072",
+                        "未知商品",
+                        "",
+                    )
+                ],
+                business_date=date(2026, 10, 20),
+            )
+
     def test_confirmed_ten_stick_gift_box_is_heavy(self) -> None:
         resolved = [
             ResolvedOrderItem(

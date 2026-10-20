@@ -1529,6 +1529,51 @@ class GuanyiCustomImportTests(unittest.TestCase):
             "SHOWA丝滑手感中厚型手套/S/常规款/珍珠粉",
         )
 
+    def test_sam_showa_source_semantics_reach_buyer_member_policy(self) -> None:
+        order = parsed_order()
+        order.source_extensions["sam_group_number"] = "1985"
+        order.items = [
+            ParsedItem(
+                source_product_code="EXT-1",
+                source_brand="SHOWA",
+                source_product_name="植绒加厚款手套",
+                source_display_spec="紫罗兰 L",
+                quantity=1,
+                source_line_no=2,
+            )
+        ]
+        rules = confirmed_rules()
+        rules["buyer_member_policy"] = {
+            "strategy": "sam_product_type_date_group",
+            "platform_prefix": "sam",
+            "group_number_field": "sam_group_number",
+            "group_separator": "_",
+            "date_format": "%y%m%d",
+            "timezone": "Asia/Shanghai",
+            "product_type_rules": [
+                {
+                    "type_code": "SH",
+                    "match": {
+                        "source_text_contains_all": ["手套"],
+                        "source_text_contains_any": ["SHOWA", "尚和", "尚合"],
+                    },
+                    "confirmed": True,
+                }
+            ],
+            "confirmed": True,
+        }
+
+        result = build_custom_import_lines(
+            [order],
+            self.catalog,
+            rules,
+            self.profile,
+            business_date=date(2026, 10, 20),
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.lines[0]["买家会员"], "samSH261020_1985")
+
     def test_customer_note_is_written_to_seller_remark(self) -> None:
         order = parsed_order()
         order.source_note = "抓紧发货"

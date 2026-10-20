@@ -322,6 +322,24 @@ class ArchitectureContractTests(unittest.TestCase):
             {item["type_code"] for item in buyer["product_type_rules"]},
             {"YM", "SH"},
         )
+        showa_semantic = next(
+            item
+            for item in buyer["product_type_rules"]
+            if item["rule_id"] == "sam_product_type_showa_gloves_by_source_semantics"
+        )
+        self.assertEqual(
+            showa_semantic["match"]["source_text_contains_any"],
+            ["SHOWA", "尚和", "尚合"],
+        )
+        showa_sku_fallback = next(
+            item
+            for item in buyer["product_type_rules"]
+            if item["rule_id"] == "sam_product_type_showa_confirmed_sku_fallback"
+        )
+        self.assertIn(
+            ["SWJH7693", "4901792037693"],
+            showa_sku_fallback["match"]["product_spec_pairs"],
+        )
 
         expansion = rules["item_expansion_policy"]
         self.assertEqual(expansion["strategy"], "confirmed_source_item_expansions")
