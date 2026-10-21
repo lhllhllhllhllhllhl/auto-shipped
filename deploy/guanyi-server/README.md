@@ -13,6 +13,7 @@ Ubuntu 服务器。它不复制登录、导航、文件选择、提交或任务�
 - 非敏感环境配置：`/etc/auto-shipped/guanyi-server.env`
 - 无公网浏览器、CDP、VNC 或业务 API 端口
 - Chromium 由本机 Xvfb `:99` 承载，浏览器 profile 跨任务保留
+- 私有远端暂存入口通过 SSH 固定命令调用，不监听新的网络端口
 
 账号、密码、验证码、Cookie、原始订单和导入文件都不进入 Git。浏览器
 profile 只保存在服务器的私有状态目录。服务器更换时不要复制 profile 来绕过
@@ -37,6 +38,11 @@ deploy/guanyi-server/deploy.sh \
 2. 用 `git archive` 发布指定提交，不上传工作区未提交文件；
 3. 运行 Skill 的 `bootstrap_runtime.py` 安装私有 Python/Node 运行时；
 4. 运行 `doctor.sh` 验收版本、目录、Xvfb 和 Skill 完整性。
+
+部署完成后，调用端可按
+[`docs/GUANYI_REMOTE_EXECUTOR.md`](../../docs/GUANYI_REMOTE_EXECUTOR.md)
+配置 SSH 传输适配器。当前远端命令只支持 `health`、接收文件、manifest 校验和
+状态查询，不包含登录或上传。
 
 默认环境模板为中国大陆服务器使用 npm 镜像以降低下载超时；`npm ci` 仍按照
 `package-lock.json` 校验精确版本与完整性。需要切回官方源时，只修改服务器上的
@@ -79,5 +85,6 @@ operation 和依赖目录。部署脚本不会删除 profile，也不会执行�
 | `install-release.sh` | 安装一个已提交版本并初始化 Skill 私有运行时 |
 | `doctor.sh` | 只读检查服务器运行环境与 Skill 完整性 |
 | `deploy.sh` | 在维护电脑上编排前述步骤 |
+| `remote-job.sh` | 固定白名单的 SSH 远端预检入口；不执行浏览器写入 |
 | `guanyi-server.env.example` | 不含秘密的服务端环境模板 |
 | `auto-shipped-xvfb.service` | 无公网监听的虚拟显示服务 |

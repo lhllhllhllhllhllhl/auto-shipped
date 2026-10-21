@@ -12,6 +12,7 @@ def test_server_deployment_has_no_embedded_target_or_credentials() -> None:
         DEPLOY / "provision.sh",
         DEPLOY / "install-release.sh",
         DEPLOY / "doctor.sh",
+        DEPLOY / "remote-job.sh",
         DEPLOY / "guanyi-server.env.example",
     ]
     content = "\n".join(path.read_text(encoding="utf-8") for path in checked)
@@ -34,8 +35,17 @@ def test_server_environment_keeps_one_browser_state_machine() -> None:
 def test_server_deployment_documents_all_recovery_commands() -> None:
     readme = (DEPLOY / "README.md").read_text(encoding="utf-8")
 
-    for command in ["preflight.sh", "provision.sh", "install-release.sh", "doctor.sh", "deploy.sh"]:
+    for command in ["preflight.sh", "provision.sh", "install-release.sh", "doctor.sh", "deploy.sh", "remote-job.sh"]:
         assert f"`{command}`" in readme
+
+
+def test_remote_job_wrapper_exposes_only_preflight_actions() -> None:
+    wrapper = (DEPLOY / "remote-job.sh").read_text(encoding="utf-8")
+
+    for action in ["health", "init", "put-manifest", "put-artifact", "verify", "status"]:
+        assert action in wrapper
+    for forbidden in ["execute-import", "submit-import", "select-import-file", "order-audit"]:
+        assert forbidden not in wrapper
 
 
 def test_ubuntu_release_uses_supported_python_and_readable_code() -> None:

@@ -29,6 +29,8 @@ if [[ ! -d "$release_dir" ]]; then
   tar -xzf "$ARCHIVE" -C "$staging"
   [[ -f "$staging/pyproject.toml" ]] || { echo "Invalid release: pyproject.toml missing" >&2; exit 1; }
   [[ -f "$staging/browser/guanyi/package.json" ]] || { echo "Invalid release: browser runtime missing" >&2; exit 1; }
+  [[ -f "$staging/browser/guanyi/remote/server_runner.py" ]] || { echo "Invalid release: remote runner missing" >&2; exit 1; }
+  [[ -f "$staging/deploy/guanyi-server/remote-job.sh" ]] || { echo "Invalid release: remote wrapper missing" >&2; exit 1; }
   [[ -f "$staging/skill/shangyu-order-converter/runtime-manifest.json" ]] || { echo "Invalid release: Skill manifest missing" >&2; exit 1; }
   chown -R root:root "$staging"
   chmod -R a+rX "$staging"

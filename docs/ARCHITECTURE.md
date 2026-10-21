@@ -63,17 +63,22 @@ Agent 返回结果；识别、用途或字段不确定时停止并追问
 管易上传在转换和 manifest 预检之后选择一个执行后端：macOS/Windows 本机、
 豆包平台 CDP 浏览器，或尚舆自管 Ubuntu 服务器。三个后端只负责浏览器进程、
 持久 profile 和凭据交接的环境差异，之后全部汇入同一个
-`browser/guanyi` 状态机。云服务器部署文件位于
-`deploy/guanyi-server`，不得在服务器适配层复制登录、导航、提交或任务核验逻辑。
+`browser/guanyi` 状态机。云服务器通过版本化、可替换传输插件接收明确指定的
+Excel 与 manifest；当前 SSH 插件只开放暂存、哈希复核和状态读取，未来 HTTPS
+插件必须复用同一协议。部署文件位于`deploy/guanyi-server`，远端调用说明位于
+`docs/GUANYI_REMOTE_EXECUTOR.md`；两者都不得复制登录、导航、提交或任务核验逻辑。
 
 ```text
-管易 Excel + manifest + 本次上传授权
+管易 Excel + manifest + 当前批次意图
                  |
                  v
           选择浏览器执行后端
           /        |         \
  macOS/Windows   豆包CDP   自管Ubuntu服务器
           \        |         /
+                 v
+      （远端先做传输与同一manifest复核）
+                 |
                  v
         browser/guanyi 唯一状态机
                  |

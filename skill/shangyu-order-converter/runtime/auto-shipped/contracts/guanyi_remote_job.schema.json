@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/guanyi-remote-job-v1.json",
+  "title": "Guanyi Remote Preflight Job",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "operation_id",
+    "action",
+    "manifest",
+    "artifact",
+    "safety"
+  ],
+  "properties": {
+    "schema_version": { "const": "guanyi-remote-job/1.0" },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "action": { "const": "stage" },
+    "manifest": { "$ref": "#/$defs/manifest" },
+    "artifact": { "$ref": "#/$defs/artifact" },
+    "safety": {
+      "type": "object",
+      "required": [
+        "remote_staging_authorized",
+        "upload_authorized",
+        "browser_write_allowed",
+        "scope"
+      ],
+      "properties": {
+        "remote_staging_authorized": { "const": true },
+        "upload_authorized": { "const": false },
+        "browser_write_allowed": { "const": false },
+        "scope": { "const": "manifest_and_artifact_preflight_only" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "manifest": {
+      "allOf": [
+        { "$ref": "#/$defs/file" },
+        {
+          "properties": {
+            "file_name": { "type": "string", "pattern": "^[^/\\\\]+\\.json$" },
+            "size_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        }
+      ]
+    },
+    "artifact": {
+      "allOf": [
+        { "$ref": "#/$defs/file" },
+        {
+          "properties": {
+            "file_name": { "type": "string", "pattern": "^[^/\\\\]+\\.xlsx$" },
+            "size_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 }
+          }
+        }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "required": ["file_name", "size_bytes", "sha256"],
+      "properties": {
+        "file_name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
