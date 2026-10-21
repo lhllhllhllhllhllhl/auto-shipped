@@ -89,6 +89,20 @@ systemctl daemon-reload
 systemctl enable auto-shipped-xvfb.service
 systemctl restart auto-shipped-xvfb.service
 
+display_ready=0
+for _ in {1..20}; do
+  if sudo -u "$RUNNER_USER" env DISPLAY=:99 xdpyinfo >/dev/null 2>&1; then
+    display_ready=1
+    break
+  fi
+  sleep 0.25
+done
+[[ "$display_ready" == "1" ]] || {
+  systemctl status auto-shipped-xvfb.service --no-pager -l >&2 || true
+  echo "Xvfb display :99 is not reachable by the runner" >&2
+  exit 1
+}
+
 node_major="$(node -p 'process.versions.node.split(`.`)[0]')"
 ((node_major >= 18)) || { echo "Node.js 18+ is required" >&2; exit 1; }
 google-chrome-stable --version
