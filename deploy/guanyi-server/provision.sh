@@ -25,7 +25,12 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl git gnupg jq python3 python3-pip python3-venv \
+  software-properties-common \
   rsync unzip xauth x11-utils xvfb fonts-noto-cjk
+
+if ! command -v python3.11 >/dev/null 2>&1; then
+  add-apt-repository -y ppa:deadsnakes/ppa
+fi
 
 install -d -m 0755 /etc/apt/keyrings
 if [[ ! -f /etc/apt/keyrings/nodesource.gpg ]]; then
@@ -47,7 +52,8 @@ printf '%s\n' \
   > /etc/apt/sources.list.d/google-chrome.list
 
 apt-get update
-apt-get install -y --no-install-recommends nodejs google-chrome-stable
+apt-get install -y --no-install-recommends \
+  nodejs google-chrome-stable python3.11 python3.11-venv
 
 if ! id "$RUNNER_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "$STATE_ROOT" --shell /usr/sbin/nologin "$RUNNER_USER"
@@ -87,6 +93,6 @@ node_major="$(node -p 'process.versions.node.split(`.`)[0]')"
 google-chrome-stable --version
 node --version
 npm --version
-python3 --version
+python3.11 --version
 systemctl is-active --quiet auto-shipped-xvfb.service
 echo "provision_status=ready"

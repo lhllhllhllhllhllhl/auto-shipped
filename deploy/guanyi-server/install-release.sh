@@ -24,10 +24,17 @@ if [[ ! -d "$release_dir" ]]; then
   [[ -f "$staging/browser/guanyi/package.json" ]] || { echo "Invalid release: browser runtime missing" >&2; exit 1; }
   [[ -f "$staging/skill/shangyu-order-converter/runtime-manifest.json" ]] || { echo "Invalid release: Skill manifest missing" >&2; exit 1; }
   chown -R root:root "$staging"
+  chmod -R a+rX "$staging"
   chmod -R go-w "$staging"
   mv "$staging" "$release_dir"
   trap - EXIT
 fi
+
+# Repair permissions idempotently if a prior interrupted release was moved while
+# its mktemp root was still mode 0700.
+chown -R root:root "$release_dir"
+chmod -R a+rX "$release_dir"
+chmod -R go-w "$release_dir"
 
 ln -sfn "$release_dir" "$INSTALL_ROOT/current.next"
 mv -Tf "$INSTALL_ROOT/current.next" "$INSTALL_ROOT/current"
@@ -36,7 +43,7 @@ sudo -u "$RUNNER_USER" env -i \
   HOME="$STATE_ROOT" \
   PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   SHANGYU_SKILL_STATE_ROOT="$STATE_ROOT/skill-state" \
-  python3 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/bootstrap_runtime.py"
+  python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/bootstrap_runtime.py"
 
 "$INSTALL_ROOT/current/deploy/guanyi-server/doctor.sh"
 printf 'release_status=ready\nrelease_id=%s\n' "$RELEASE_ID"

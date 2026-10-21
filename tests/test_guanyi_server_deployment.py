@@ -36,3 +36,12 @@ def test_server_deployment_documents_all_recovery_commands() -> None:
 
     for command in ["preflight.sh", "provision.sh", "install-release.sh", "doctor.sh", "deploy.sh"]:
         assert f"`{command}`" in readme
+
+
+def test_ubuntu_release_uses_supported_python_and_readable_code() -> None:
+    provision = (DEPLOY / "provision.sh").read_text(encoding="utf-8")
+    installer = (DEPLOY / "install-release.sh").read_text(encoding="utf-8")
+
+    assert "python3.11-venv" in provision
+    assert "python3.11" in installer
+    assert 'chmod -R a+rX "$release_dir"' in installer

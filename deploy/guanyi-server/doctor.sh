@@ -23,7 +23,7 @@ check server_env test -r "$CONFIG_FILE"
 check runner_user id "$RUNNER_USER"
 check node node --version
 check npm npm --version
-check python python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'
+check python python3.11 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'
 check chrome google-chrome-stable --version
 check xvfb systemctl is-active --quiet auto-shipped-xvfb.service
 check display_socket test -S /tmp/.X11-unix/X99
@@ -40,7 +40,7 @@ if [[ -L "$INSTALL_ROOT/current" && -r "$CONFIG_FILE" ]]; then
     SHANGYU_SKILL_STATE_ROOT="$SHANGYU_SKILL_STATE_ROOT" \
     GUANYI_BROWSER_BACKEND="$GUANYI_BROWSER_BACKEND" \
     GUANYI_CHROME_EXECUTABLE="$GUANYI_CHROME_EXECUTABLE" \
-    python3 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/doctor.py"; then
+    python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/doctor.py"; then
     printf 'skill_doctor=ready\n'
   else
     printf 'skill_doctor=failed\n'
