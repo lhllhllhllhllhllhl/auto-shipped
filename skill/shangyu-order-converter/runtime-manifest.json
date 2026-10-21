@@ -115,7 +115,7 @@
     "contracts/system_module_catalog.schema.json": "1a92a551937c7601a898d1a400f407fcac5ebe0eb40ac89871275a8fa7337d52",
     "contracts/text_order_draft.schema.json": "7a6c5ff367e7ebe247494982527811fc1368f3f928b370581af9fc08286a8f36",
     "contracts/upload_batch.schema.json": "3b8c52d0c0b0adb3a0aae68c18b9880de6337f597dbc6a4a3e81c2039f41706f",
-    "docs/ARCHITECTURE.md": "c8a82fb044cd458b17ffbaf53a77bea33757611da9f063e852d334ebfbcd543d",
+    "docs/ARCHITECTURE.md": "75f5e2d8993be6fb33da0d23396ce4ea0059fa51708e2ff4156cfa4a1393eda3",
     "docs/BUSINESS_RULE_COVERAGE.md": "a5fb5bdd14f7d4ba5193b68787f462dd8db024497facc0e88939afd84c044b1a",
     "docs/CONVERSION_TEST_RECORD_TEMPLATE.md": "8ea6a918510fc307997b9d43295a899eab7e974fff084327a8aec8c0861732b6",
     "docs/CORRECTION_FEEDBACK_GOVERNANCE.md": "c0937c7798bbfee4a45cf57ce647774bf83d0889c881711286f8a9d226717b3e",
