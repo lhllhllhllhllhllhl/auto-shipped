@@ -86,6 +86,31 @@ class SamAdapterTests(unittest.TestCase):
                 "sam_to_guanyi_v1",
             )
 
+    def test_echo_store_name_is_registered_sam_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sam-echo.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "仓库订单"
+            sample = row()
+            sample["商铺名称"] = "ECHO&光明玉米手工单"
+            sheet.append(list(sample))
+            sheet.append(list(sample.values()))
+            workbook.save(path)
+
+            detected = detect_source(
+                path,
+                load_source_profiles(PROJECT_ROOT / "config/source_profiles"),
+            )
+            self.assertEqual(detected.status, "matched")
+            self.assertEqual(detected.confidence, "high")
+            self.assertEqual(detected.company_id, "sam")
+            self.assertEqual(detected.source_profile_id, "sam_order_v1")
+            self.assertIn(
+                "company_column:仓库订单!商铺名称",
+                detected.matched_features,
+            )
+
     def test_parser_preserves_group_number_and_source_spec_code(self) -> None:
         parsed = ConfiguredExcelParsedAdapter().parse_rows(
             [(2, row())],

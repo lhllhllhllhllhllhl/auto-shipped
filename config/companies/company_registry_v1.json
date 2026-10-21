@@ -65,6 +65,8 @@
       "aliases": [
         "sam哥的品牌号",
         "SAM群接龙",
+        "ECHO",
+        "ECHO&光明玉米手工单",
         "上海欣略实业有限公司"
       ],
       "status": "active",
@@ -108,9 +110,10 @@
         "docs/ORDER_AUTOMATION_RULES_V0.1.md",
         "用户确认真实SAM样本：2026-10-01",
         "用户确认SAM组合商品与买家会员规则：2026-10-02",
+        "用户确认ECHO长期属于SAM来源：2026-10-21",
         "各公司对应简称.xlsx（SHA-256: b93bb0291cf45f95dacad0c7629cadee3548f87eaba2781dad739fb235bc9de7）"
       ],
-      "last_verified_on": "2026-10-10",
+      "last_verified_on": "2026-10-21",
       "legal_name": "上海欣略实业有限公司",
       "abbreviation": "SAM"
     },

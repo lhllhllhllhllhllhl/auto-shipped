@@ -61,6 +61,16 @@
           "values": ["sam哥的品牌号"],
           "scan_rows": 200,
           "evidence": "用户于2026-10-01明确确认真实样本属于SAM；样本商铺名称为sam哥的品牌号。"
+        },
+        {
+          "rule_id": "sam_echo_store_name",
+          "kind": "column_value",
+          "sheet_name": "仓库订单",
+          "header": "商铺名称",
+          "match": "contains",
+          "values": ["ECHO"],
+          "scan_rows": 200,
+          "evidence": "用户于2026-10-21明确确认ECHO长期属于SAM来源；真实样本商铺名称为ECHO&光明玉米手工单。"
         }
       ]
     }

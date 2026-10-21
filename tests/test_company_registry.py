@@ -46,6 +46,13 @@ class CompanyRegistryTests(unittest.TestCase):
             self.assertEqual(result.company.company_id, "tiantian")
             self.assertEqual(result.company.abbreviation, "TT")
 
+    def test_echo_alias_resolves_to_sam(self) -> None:
+        for value in ("ECHO", "ECHO&光明玉米手工单"):
+            result = resolve_company_by_identity(self.registry, value)
+            self.assertEqual(result.status, "resolved")
+            self.assertIsNotNone(result.company)
+            self.assertEqual(result.company.company_id, "sam")
+
     def test_registered_company_without_fixed_template_resolves_to_fallback(self) -> None:
         for value in ("上海孚泽经贸有限公司", "FZ", "KLD", "MT"):
             result = resolve_company_by_identity(self.registry, value)
