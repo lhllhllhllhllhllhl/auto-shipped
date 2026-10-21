@@ -105,7 +105,7 @@
 
 ### 管易受控浏览器上传 (`browser_upload`)
 
-权威路径：`browser/guanyi/navigation.mjs`、`browser/guanyi/submission.mjs`、`browser/guanyi/operation-state.mjs`
+权威路径：`browser/guanyi/navigation.mjs`、`browser/guanyi/submission.mjs`、`browser/guanyi/operation-state.mjs`、`browser/guanyi/remote`、`contracts/guanyi_remote_job.schema.json`、`skill/shangyu-order-converter/scripts/guanyi_remote.py`
 实现引用：`browser.guanyi.prepare_import_form.pending_review`、`browser.guanyi.import_options.verified_current_ui`、`browser.guanyi.submit_import.guarded`
 历史兼容实现：无
 共享策略：无

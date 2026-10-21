@@ -24,6 +24,7 @@ INCLUDED_PATHS = [
     "docs/ARCHITECTURE.md",
     "docs/DECISIONS.md",
     "docs/GUANYI_BROWSER_EXECUTOR.md",
+    "docs/GUANYI_REMOTE_EXECUTOR.md",
     "docs/BUSINESS_RULE_COVERAGE.md",
     "docs/ORDER_AUTOMATION_RULES_V0.1.md",
     "docs/RULE_SOURCE_LEDGER.md",
