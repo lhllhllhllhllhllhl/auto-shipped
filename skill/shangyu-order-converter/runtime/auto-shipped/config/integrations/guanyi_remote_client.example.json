@@ -1,0 +1,13 @@
+{
+  "schema_version": "guanyi-remote-client/1.0",
+  "transport": "ssh",
+  "ssh": {
+    "host": "server.example.internal",
+    "user": "ubuntu",
+    "identity_file": "/absolute/path/to/project-specific-private-key",
+    "port": 22,
+    "runner_command": "/opt/auto-shipped/current/deploy/guanyi-server/remote-job.sh",
+    "connect_timeout_seconds": 10,
+    "command_timeout_seconds": 300
+  }
+}

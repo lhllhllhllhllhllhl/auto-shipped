@@ -161,7 +161,10 @@ def main() -> int:
         "GUANYI_RUNTIME_ROOT",
         str(STATE_ROOT / "guanyi-browser"),
     )
-    command = [npm, "run", COMMANDS[args.command]]
+    command = [npm]
+    if environment.get("GUANYI_MACHINE_OUTPUT") == "1":
+        command.append("--silent")
+    command.extend(["run", COMMANDS[args.command]])
     if args.arguments:
         command.extend(["--", *args.arguments])
     completed = subprocess.run(

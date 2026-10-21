@@ -163,6 +163,7 @@ def runtime_trust_status(
                     "--",
                     "browser/guanyi",
                     "skill/shangyu-order-converter/scripts/guanyi_browser.py",
+                    "skill/shangyu-order-converter/scripts/guanyi_remote.py",
                     "skill/shangyu-order-converter/scripts/runtime_common.py",
                 ],
                 capture_output=True,
