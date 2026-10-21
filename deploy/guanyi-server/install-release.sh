@@ -14,6 +14,13 @@ CONFIG_FILE="${AUTO_SHIPPED_CONFIG_FILE:-/etc/auto-shipped/guanyi-server.env}"
 [[ -f "$CONFIG_FILE" ]] || { echo "Server environment file missing" >&2; exit 2; }
 id "$RUNNER_USER" >/dev/null 2>&1 || { echo "Runner user missing" >&2; exit 2; }
 
+set -a
+# Root-owned, non-secret deployment settings. Only an explicit allowlist is passed
+# through the clean environment below.
+# shellcheck disable=SC1090
+. "$CONFIG_FILE"
+set +a
+
 release_dir="$INSTALL_ROOT/releases/$RELEASE_ID"
 if [[ ! -d "$release_dir" ]]; then
   staging="$(mktemp -d "$INSTALL_ROOT/releases/.staging.XXXXXX")"
@@ -43,6 +50,7 @@ sudo -u "$RUNNER_USER" env -i \
   HOME="$STATE_ROOT" \
   PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   SHANGYU_SKILL_STATE_ROOT="$STATE_ROOT/skill-state" \
+  NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}" \
   python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/bootstrap_runtime.py"
 
 "$INSTALL_ROOT/current/deploy/guanyi-server/doctor.sh"

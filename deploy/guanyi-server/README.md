@@ -38,6 +38,10 @@ deploy/guanyi-server/deploy.sh \
 3. 运行 Skill 的 `bootstrap_runtime.py` 安装私有 Python/Node 运行时；
 4. 运行 `doctor.sh` 验收版本、目录、Xvfb 和 Skill 完整性。
 
+默认环境模板为中国大陆服务器使用 npm 镜像以降低下载超时；`npm ci` 仍按照
+`package-lock.json` 校验精确版本与完整性。需要切回官方源时，只修改服务器上的
+`NPM_CONFIG_REGISTRY`，不需要修改业务代码。
+
 部署默认使用当前 `HEAD`。指定已提交版本可加 `--ref <commit-or-tag>`。如果只想
 检查 SSH 和 sudo，不安装任何内容，可运行：
 

@@ -45,3 +45,12 @@ def test_ubuntu_release_uses_supported_python_and_readable_code() -> None:
     assert "python3.11-venv" in provision
     assert "python3.11" in installer
     assert 'chmod -R a+rX "$release_dir"' in installer
+
+
+def test_node_registry_is_configurable_without_changing_the_lockfile() -> None:
+    environment = (DEPLOY / "guanyi-server.env.example").read_text(encoding="utf-8")
+    installer = (DEPLOY / "install-release.sh").read_text(encoding="utf-8")
+
+    assert "NPM_CONFIG_REGISTRY=" in environment
+    assert 'NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"' in installer
+    assert "npm install" not in installer
