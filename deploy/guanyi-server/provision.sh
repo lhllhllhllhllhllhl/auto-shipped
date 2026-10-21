@@ -86,7 +86,8 @@ sed "s/@@RUNNER_USER@@/$RUNNER_USER/g" \
   > /etc/systemd/system/auto-shipped-xvfb.service
 chmod 0644 /etc/systemd/system/auto-shipped-xvfb.service
 systemctl daemon-reload
-systemctl enable --now auto-shipped-xvfb.service
+systemctl enable auto-shipped-xvfb.service
+systemctl restart auto-shipped-xvfb.service
 
 node_major="$(node -p 'process.versions.node.split(`.`)[0]')"
 ((node_major >= 18)) || { echo "Node.js 18+ is required" >&2; exit 1; }

@@ -34,13 +34,16 @@ if [[ -L "$INSTALL_ROOT/current" && -r "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
   . "$CONFIG_FILE"
   set +a
-  if sudo -u "$RUNNER_USER" env \
-    HOME="$STATE_ROOT" \
-    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-    SHANGYU_SKILL_STATE_ROOT="$SHANGYU_SKILL_STATE_ROOT" \
-    GUANYI_BROWSER_BACKEND="$GUANYI_BROWSER_BACKEND" \
-    GUANYI_CHROME_EXECUTABLE="$GUANYI_CHROME_EXECUTABLE" \
-    python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/doctor.py"; then
+  if (
+    cd /
+    sudo -u "$RUNNER_USER" env \
+      HOME="$STATE_ROOT" \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      SHANGYU_SKILL_STATE_ROOT="$SHANGYU_SKILL_STATE_ROOT" \
+      GUANYI_BROWSER_BACKEND="$GUANYI_BROWSER_BACKEND" \
+      GUANYI_CHROME_EXECUTABLE="$GUANYI_CHROME_EXECUTABLE" \
+      python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/doctor.py"
+  ); then
     printf 'skill_doctor=ready\n'
   else
     printf 'skill_doctor=failed\n'

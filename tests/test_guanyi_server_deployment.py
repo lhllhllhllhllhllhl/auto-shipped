@@ -54,3 +54,11 @@ def test_node_registry_is_configurable_without_changing_the_lockfile() -> None:
     assert "NPM_CONFIG_REGISTRY=" in environment
     assert 'NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"' in installer
     assert "npm install" not in installer
+
+
+def test_deployment_restarts_display_and_doctor_uses_accessible_workdir() -> None:
+    provision = (DEPLOY / "provision.sh").read_text(encoding="utf-8")
+    doctor = (DEPLOY / "doctor.sh").read_text(encoding="utf-8")
+
+    assert "systemctl restart auto-shipped-xvfb.service" in provision
+    assert "cd /" in doctor
