@@ -28,9 +28,9 @@
 登录 → 待审核表单 → 基线 → 受控提交 → 任务中心核验
 ```
 
-当前版本只实现图中“服务器暂存与哈希复核”之前的安全链路，不提供远端登录或
-上传命令。这样可以先验证传输、身份绑定和可替换服务器配置，不把尚未验收的
-远端调用误当成生产上传能力。
+当前版本已经把远端暂存、操作准备、临时登录交接、受控提交和只读结果核验接到
+同一状态机。远端层没有页面选择器，也不解释订单；它只把经过授权的命令交给
+正式 `guanyi_browser.py` 入口。真实提交仍要求用户在当前对话明确授权具体批次。
 
 ## 模块
 
@@ -38,8 +38,8 @@
 |---|---|---|
 | `remote/protocol.py` | 版本化任务合同、文件描述、操作 ID 与安全边界 | 网络、浏览器、业务规则 |
 | `remote/ssh_transport.py` | 用 OpenSSH stdin 私密传输元数据和文件 | 解释订单、执行页面动作 |
-| `remote/client.py` | 按 `init → manifest → artifact → verify` 编排 | 自动重试、猜测最新文件 |
-| `remote/server_runner.py` | 私有落盘、SHA-256 复核、调用现有 manifest 校验器 | 登录、导航、选择文件、提交 |
+| `remote/client.py` | 编排暂存、准备、登录交接、提交与核验 | 自动重试、猜测最新文件 |
+| `remote/server_runner.py` | 私有落盘、授权门禁、调用正式浏览器入口、保存脱敏状态 | 页面选择器、业务规则、凭据保存 |
 | `guanyi_remote.py` | Skill 的统一调用入口 | 保存服务器私钥或管易凭证 |
 
 SSH 是第一个传输插件，不是业务架构。以后增加 HTTPS 时，只新增一个实现同一
@@ -79,10 +79,51 @@ python3 <skill-dir>/scripts/guanyi_remote.py stage \
 
 ```bash
 python3 <skill-dir>/scripts/guanyi_remote.py status <operation-id>
+python3 <skill-dir>/scripts/guanyi_remote.py prepare <operation-id>
+```
+
+`prepare` 复用现有 manifest 和 operation-state 模块建立浏览器操作 ID，不打开
+浏览器，也不构成提交授权。
+
+只读检查当前服务器会话：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py probe
+```
+
+需要登录时启动一个短时登录 operation。账号密码和短信验证码只能从标准输入
+传输，不能出现在命令参数、环境变量或文件中：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py login-start
+printf '%s\n' '{"username":"<本次账号>","password":"<本次密码>"}' | \
+  python3 <skill-dir>/scripts/guanyi_remote.py login-credentials \
+  <login-operation-id> CONFIRM_TEMPORARY_CREDENTIALS_SUBMISSION
+python3 <skill-dir>/scripts/guanyi_remote.py login-status <login-operation-id>
+python3 <skill-dir>/scripts/guanyi_remote.py login-sms-request \
+  <login-operation-id> CONFIRM_REQUEST_GUANYI_SMS
+printf '%s\n' '<本次验证码>' | \
+  python3 <skill-dir>/scripts/guanyi_remote.py login-sms-submit <login-operation-id>
+```
+
+只有用户在当前对话明确授权这个远端 operation 对应的具体批次后，才能执行：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py execute \
+  <remote-operation-id> CONFIRM_GUANYI_IMPORT_SUBMISSION
+```
+
+`execute` 仍由现有状态机依次完成待审核表单、任务基线、文件选择、两次确定、
+字段映射核对和任务中心回读。返回 `reconciling`、连接中断、超时或任何可能已
+写入的异常后，禁止再次执行 `execute`，只能运行：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py reconcile <remote-operation-id>
 ```
 
 不得扫描目录或按时间猜测“最新文件”。相同操作 ID 与不同哈希冲突时必须停止；
-同一请求重跑是幂等的。SSH 断开不会触发浏览器动作，也不得被解释成上传成功。
+暂存请求重跑幂等。SSH 在提交前断开不构成成功；进入提交后断开则按“可能已
+写入”处理，只能核验，不能盲目重提。
 
 ## 安全边界
 
@@ -91,8 +132,12 @@ python3 <skill-dir>/scripts/guanyi_remote.py status <operation-id>
 - 传输走 SSH stdin，不建立临时公网下载链接，不开放业务、CDP 或 VNC 端口。
 - 客户端启用 host key 校验，禁止 `StrictHostKeyChecking=no`。
 - 服务端命令是固定白名单，不接受任意 shell 命令。
-- 当前远端运行器没有登录、导航、文件选择、提交、审核、发货、作废或删除命令。
+- 远端运行器不含页面逻辑，只能调用正式 Skill 的登录、单批导入和结果核验入口。
+- 审核、发货、作废和删除没有远端命令。
 - manifest 本身继续保持 `upload_authorized=false`；暂存授权不能升级为提交授权。
+- 账号密码和验证码只经 SSH stdin 进入当前登录进程，不写入 job state、日志、
+  配置、环境变量或命令参数。
+- `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
 - 日志和响应不返回 Excel 内容、收件人、手机号或详细地址。
 
 ## 服务器迁移

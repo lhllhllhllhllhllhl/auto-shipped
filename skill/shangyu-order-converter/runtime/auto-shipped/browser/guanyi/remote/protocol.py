@@ -11,7 +11,11 @@ from typing import Any, BinaryIO, Mapping
 
 
 SCHEMA_VERSION = "guanyi-remote-job/1.0"
+CONTROL_SCHEMA_VERSION = "guanyi-remote-control/1.0"
 REMOTE_STAGING_CONFIRMATION = "CONFIRM_REMOTE_BATCH_STAGING"
+REMOTE_SUBMIT_AUTHORIZATION = "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+REMOTE_SMS_REQUEST_AUTHORIZATION = "CONFIRM_REQUEST_GUANYI_SMS"
+REMOTE_CREDENTIALS_AUTHORIZATION = "CONFIRM_TEMPORARY_CREDENTIALS_SUBMISSION"
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_MANIFEST_BYTES = 1024 * 1024
 _OPERATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -24,6 +28,61 @@ class ProtocolError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True)
+class ControlRequest:
+    schema_version: str
+    action: str
+    authorization: str
+
+    @classmethod
+    def build(cls, *, action: str, authorization: str) -> "ControlRequest":
+        expected = {
+            "execute": REMOTE_SUBMIT_AUTHORIZATION,
+            "login-sms-request": REMOTE_SMS_REQUEST_AUTHORIZATION,
+            "login-credentials": REMOTE_CREDENTIALS_AUTHORIZATION,
+        }
+        _require(action in expected, "REMOTE_ACTION_INVALID", "远端控制动作无效。")
+        _require(
+            authorization == expected[action],
+            "REMOTE_ACTION_NOT_AUTHORIZED",
+            "缺少当前动作的精确授权口令。",
+        )
+        return cls(
+            schema_version=CONTROL_SCHEMA_VERSION,
+            action=action,
+            authorization=authorization,
+        )
+
+    @classmethod
+    def from_json_bytes(cls, payload: bytes, *, expected_action: str) -> "ControlRequest":
+        _require(len(payload) <= 4096, "REMOTE_CONTROL_TOO_LARGE", "远端控制请求过大。")
+        try:
+            value = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ProtocolError("REMOTE_CONTROL_UNREADABLE", "远端控制请求不是有效 JSON。") from error
+        _require(isinstance(value, Mapping), "REMOTE_CONTROL_INVALID", "远端控制请求必须是 JSON 对象。")
+        _require(
+            set(value) == {"schema_version", "action", "authorization"},
+            "REMOTE_CONTROL_INVALID",
+            "远端控制请求字段不完整或包含未登记字段。",
+        )
+        _require(
+            value.get("schema_version") == CONTROL_SCHEMA_VERSION,
+            "REMOTE_SCHEMA_UNSUPPORTED",
+            "远端控制协议版本不受支持。",
+        )
+        _require(value.get("action") == expected_action, "REMOTE_ACTION_INVALID", "远端控制动作不匹配。")
+        return cls.build(
+            action=expected_action,
+            authorization=str(value.get("authorization") or ""),
+        )
+
+    def to_json_bytes(self) -> bytes:
+        return (
+            json.dumps(asdict(self), ensure_ascii=False, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
 
 
 def _require(condition: bool, code: str, message: str) -> None:

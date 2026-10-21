@@ -7,7 +7,16 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
-from .protocol import REMOTE_STAGING_CONFIRMATION, ProtocolError, StageRequest, validate_operation_id
+from .protocol import (
+    REMOTE_CREDENTIALS_AUTHORIZATION,
+    REMOTE_SMS_REQUEST_AUTHORIZATION,
+    REMOTE_STAGING_CONFIRMATION,
+    REMOTE_SUBMIT_AUTHORIZATION,
+    ControlRequest,
+    ProtocolError,
+    StageRequest,
+    validate_operation_id,
+)
 from .ssh_transport import SshTransport, SshTransportConfig
 from .transport import RemoteTransport, open_binary
 
@@ -70,10 +79,74 @@ class RemoteGuanyiClient:
     def status(self, operation_id: str) -> dict[str, Any]:
         return self.transport.invoke("status", validate_operation_id(operation_id))
 
+    def prepare(self, operation_id: str) -> dict[str, Any]:
+        return self.transport.invoke("prepare", validate_operation_id(operation_id))
+
+    def execute(self, operation_id: str, authorization: str) -> dict[str, Any]:
+        control = ControlRequest.build(action="execute", authorization=authorization)
+        return self.transport.invoke(
+            "execute",
+            validate_operation_id(operation_id),
+            payload=control.to_json_bytes(),
+        )
+
+    def reconcile(self, operation_id: str) -> dict[str, Any]:
+        return self.transport.invoke("reconcile", validate_operation_id(operation_id))
+
+    def probe(self) -> dict[str, Any]:
+        return self.transport.invoke("probe", "probe")
+
+    def login_start(self) -> dict[str, Any]:
+        return self.transport.invoke("login-start", "login-start")
+
+    def login_status(self, login_operation_id: str) -> dict[str, Any]:
+        return self.transport.invoke(
+            "login-status", validate_operation_id(login_operation_id)
+        )
+
+    def login_credentials(
+        self,
+        login_operation_id: str,
+        credentials: bytes,
+        authorization: str,
+    ) -> dict[str, Any]:
+        control = ControlRequest.build(
+            action="login-credentials", authorization=authorization
+        )
+        return self.transport.invoke(
+            "login-credentials",
+            validate_operation_id(login_operation_id),
+            payload=control.to_json_bytes() + credentials,
+        )
+
+    def login_sms_request(
+        self, login_operation_id: str, authorization: str
+    ) -> dict[str, Any]:
+        control = ControlRequest.build(
+            action="login-sms-request", authorization=authorization
+        )
+        return self.transport.invoke(
+            "login-sms-request",
+            validate_operation_id(login_operation_id),
+            payload=control.to_json_bytes(),
+        )
+
+    def login_sms_submit(
+        self, login_operation_id: str, code: bytes
+    ) -> dict[str, Any]:
+        return self.transport.invoke(
+            "login-sms-submit",
+            validate_operation_id(login_operation_id),
+            payload=code,
+        )
+
 
 __all__ = [
     "CLIENT_CONFIG_VERSION",
+    "REMOTE_CREDENTIALS_AUTHORIZATION",
+    "REMOTE_SMS_REQUEST_AUTHORIZATION",
     "REMOTE_STAGING_CONFIRMATION",
+    "REMOTE_SUBMIT_AUTHORIZATION",
     "RemoteGuanyiClient",
     "load_transport",
 ]

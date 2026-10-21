@@ -11,13 +11,21 @@ from unittest.mock import patch
 
 from browser.guanyi.remote.client import RemoteGuanyiClient
 from browser.guanyi.remote.protocol import (
+    REMOTE_CREDENTIALS_AUTHORIZATION,
+    REMOTE_SMS_REQUEST_AUTHORIZATION,
     REMOTE_STAGING_CONFIRMATION,
+    REMOTE_SUBMIT_AUTHORIZATION,
+    ControlRequest,
     ProtocolError,
     StageRequest,
 )
 from browser.guanyi.remote.server_runner import (
+    BrowserCommandResult,
+    execute_operation,
     initialize,
+    login_credentials,
     operation_status,
+    prepare_operation,
     receive_file,
     verify_manifest,
 )
@@ -119,6 +127,18 @@ class GuanyiRemoteProtocolTests(unittest.TestCase):
                 StageRequest.from_mapping(request)
             self.assertEqual(raised.exception.code, "REMOTE_FILE_NAME_INVALID")
 
+    def test_control_request_requires_exact_action_authorization(self) -> None:
+        request = ControlRequest.build(
+            action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+        )
+        restored = ControlRequest.from_json_bytes(
+            request.to_json_bytes(), expected_action="execute"
+        )
+        self.assertEqual(restored.authorization, REMOTE_SUBMIT_AUTHORIZATION)
+        with self.assertRaises(ProtocolError) as raised:
+            ControlRequest.build(action="execute", authorization="yes")
+        self.assertEqual(raised.exception.code, "REMOTE_ACTION_NOT_AUTHORIZED")
+
 
 class GuanyiRemoteClientTests(unittest.TestCase):
     def test_stage_uses_only_receive_and_verify_actions(self) -> None:
@@ -137,6 +157,29 @@ class GuanyiRemoteClientTests(unittest.TestCase):
                 ["init", "put-manifest", "put-artifact", "verify"],
             )
             self.assertNotIn("execute", [call[0] for call in transport.calls])
+
+    def test_write_and_login_controls_use_stdin_payloads(self) -> None:
+        transport = FakeTransport()
+        client = RemoteGuanyiClient(transport)
+        client.execute("remote-client-002", REMOTE_SUBMIT_AUTHORIZATION)
+        client.login_credentials(
+            "00000000-0000-4000-8000-000000000001",
+            b'{"username":"fixture-user","password":"fixture-password"}\n',
+            REMOTE_CREDENTIALS_AUTHORIZATION,
+        )
+        client.login_sms_request(
+            "00000000-0000-4000-8000-000000000001",
+            REMOTE_SMS_REQUEST_AUTHORIZATION,
+        )
+        client.login_sms_submit(
+            "00000000-0000-4000-8000-000000000001", b"123456\n"
+        )
+        self.assertEqual(
+            [call[0] for call in transport.calls],
+            ["execute", "login-credentials", "login-sms-request", "login-sms-submit"],
+        )
+        self.assertNotIn("fixture-password", " ".join(transport.calls[1][:2]))
+        self.assertIn(b"fixture-password", transport.calls[1][2])
 
 
 class SshTransportTests(unittest.TestCase):
@@ -164,6 +207,27 @@ class SshTransportTests(unittest.TestCase):
 
 
 class GuanyiRemoteServerRunnerTests(unittest.TestCase):
+    def _preflight_job(self, root: Path, operation_id: str) -> tuple[Path, Path]:
+        source = root / "source"
+        source.mkdir()
+        manifest, artifact = write_fixture(source)
+        request = StageRequest.build(
+            operation_id=operation_id,
+            manifest_path=manifest,
+            artifact_path=artifact,
+            confirmation=REMOTE_STAGING_CONFIRMATION,
+        )
+        initialize(operation_id, io.BytesIO(request.to_json_bytes()))
+        with manifest.open("rb") as handle:
+            receive_file(operation_id, "manifest", handle)
+        with artifact.open("rb") as handle:
+            receive_file(operation_id, "artifact", handle)
+        state_file = root / "jobs" / operation_id / "state.json"
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        state["state"] = "preflight_ready"
+        state_file.write_text(json.dumps(state), encoding="utf-8")
+        return manifest, artifact
+
     def test_server_reuses_existing_manifest_verifier_and_is_idempotent(self) -> None:
         browser_dependencies = PROJECT_ROOT / "browser/guanyi/node_modules/playwright-core"
         if not browser_dependencies.is_dir():
@@ -225,6 +289,149 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                 with self.assertRaises(ProtocolError) as raised:
                     initialize(request_two.operation_id, io.BytesIO(request_two.to_json_bytes()))
                 self.assertEqual(raised.exception.code, "REMOTE_OPERATION_CONFLICT")
+
+    def test_prepare_and_execute_delegate_to_existing_browser_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-003")
+                prepared_result = BrowserCommandResult(
+                    [
+                        {
+                            "status": "operation_prepared",
+                            "operationId": "00000000-0000-4000-8000-000000000002",
+                            "orders": 1,
+                            "itemRows": 1,
+                        }
+                    ],
+                    0,
+                )
+                verified_result = BrowserCommandResult(
+                    [
+                        {"status": "session_ready"},
+                        {
+                            "status": "verified",
+                            "state": "verified",
+                            "operationId": "00000000-0000-4000-8000-000000000002",
+                            "task": {"taskId": "task-1", "taskStatus": "已完成"},
+                            "importResult": {
+                                "summary": {"total": 1, "succeeded": 1, "failed": 0},
+                                "failures": [],
+                                "visibleFailureCount": 0,
+                                "detailsTruncated": False,
+                            },
+                        },
+                    ],
+                    0,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared_result, verified_result],
+                ) as runner:
+                    prepared = prepare_operation("remote-server-003")
+                    control = ControlRequest.build(
+                        action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+                    )
+                    executed = execute_operation(
+                        "remote-server-003", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(prepared["state"], "prepared")
+                self.assertEqual(executed["status"], "verified")
+                self.assertEqual(executed["remoteOperationId"], "remote-server-003")
+                self.assertEqual(runner.call_args_list[0].args[0], "prepare-operation")
+                self.assertEqual(runner.call_args_list[1].args[0], "execute-import")
+                status = operation_status("remote-server-003")
+                self.assertEqual(status["state"], "verified")
+                with self.assertRaises(ProtocolError) as raised:
+                    execute_operation(
+                        "remote-server-003", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(raised.exception.code, "REMOTE_RESUBMISSION_BLOCKED")
+
+    def test_temporary_credentials_are_forwarded_without_job_persistence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            login_id = "00000000-0000-4000-8000-000000000003"
+            control = ControlRequest.build(
+                action="login-credentials",
+                authorization=REMOTE_CREDENTIALS_AUTHORIZATION,
+            )
+            secret = b'{"username":"fixture-user","password":"fixture-password"}\n'
+            with patch.dict(os.environ, environment, clear=False), patch(
+                "browser.guanyi.remote.server_runner.run_browser_command",
+                return_value=BrowserCommandResult(
+                    [{"status": "authenticating", "loginOperationId": login_id}], 0
+                ),
+            ) as runner:
+                result = login_credentials(
+                    login_id, io.BytesIO(control.to_json_bytes() + secret)
+                )
+            self.assertEqual(result["status"], "authenticating")
+            self.assertEqual(runner.call_args.kwargs["stdin_payload"], secret)
+            persisted = b"".join(
+                path.read_bytes() for path in root.rglob("*") if path.is_file()
+            )
+            self.assertNotIn(b"fixture-user", persisted)
+            self.assertNotIn(b"fixture-password", persisted)
+
+    def test_prewrite_login_result_remains_retryable_but_ambiguous_write_does_not(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-004")
+                prepared = BrowserCommandResult(
+                    [
+                        {
+                            "status": "operation_prepared",
+                            "operationId": "00000000-0000-4000-8000-000000000004",
+                        }
+                    ],
+                    0,
+                )
+                needs_login = BrowserCommandResult(
+                    [
+                        {"status": "authenticating"},
+                        {"status": "needs_verification", "state": "needs_verification"},
+                    ],
+                    2,
+                )
+                ambiguous = BrowserCommandResult(
+                    [
+                        {"status": "session_ready"},
+                        {"status": "form_prepared"},
+                        {"status": "submission_blocked", "code": "UNKNOWN_WRITE_OUTCOME"},
+                    ],
+                    3,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared, needs_login, ambiguous],
+                ):
+                    prepare_operation("remote-server-004")
+                    first = execute_operation(
+                        "remote-server-004", io.BytesIO(control.to_json_bytes())
+                    )
+                    self.assertEqual(first["status"], "needs_verification")
+                    self.assertEqual(operation_status("remote-server-004")["state"], "prepared")
+                    second = execute_operation(
+                        "remote-server-004", io.BytesIO(control.to_json_bytes())
+                    )
+                    self.assertEqual(second["status"], "submission_blocked")
+                self.assertEqual(
+                    operation_status("remote-server-004")["state"],
+                    "needs_manual_review",
+                )
+                with self.assertRaises(ProtocolError) as raised:
+                    execute_operation(
+                        "remote-server-004", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(raised.exception.code, "REMOTE_RESUBMISSION_BLOCKED")
 
 
 if __name__ == "__main__":

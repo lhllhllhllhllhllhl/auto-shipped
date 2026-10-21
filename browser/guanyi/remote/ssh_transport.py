@@ -17,7 +17,23 @@ from .protocol import ProtocolError, validate_operation_id
 DEFAULT_RUNNER_COMMAND = "/opt/auto-shipped/current/deploy/guanyi-server/remote-job.sh"
 _HOST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$")
 _USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
-_ACTIONS = {"health", "init", "put-manifest", "put-artifact", "verify", "status"}
+_ACTIONS = {
+    "health",
+    "init",
+    "put-manifest",
+    "put-artifact",
+    "verify",
+    "status",
+    "prepare",
+    "execute",
+    "reconcile",
+    "probe",
+    "login-start",
+    "login-status",
+    "login-credentials",
+    "login-sms-request",
+    "login-sms-submit",
+}
 
 
 @dataclass(frozen=True)

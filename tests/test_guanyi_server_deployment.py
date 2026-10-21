@@ -17,8 +17,8 @@ def test_server_deployment_has_no_embedded_target_or_credentials() -> None:
     ]
     content = "\n".join(path.read_text(encoding="utf-8") for path in checked)
 
-    assert "111.229.207.29" not in content
-    assert "sy123456" not in content
+    assert "AUTO_SHIPPED_TARGET_HOST=" not in content
+    assert "GUANYI_LOGIN_PASSWORD=" not in content
     assert "GUANYI_PASSWORD=" not in content
     assert "GUANYI_USERNAME=" not in content
 
@@ -39,13 +39,32 @@ def test_server_deployment_documents_all_recovery_commands() -> None:
         assert f"`{command}`" in readme
 
 
-def test_remote_job_wrapper_exposes_only_preflight_actions() -> None:
+def test_remote_job_wrapper_exposes_only_registered_executor_actions() -> None:
     wrapper = (DEPLOY / "remote-job.sh").read_text(encoding="utf-8")
 
-    for action in ["health", "init", "put-manifest", "put-artifact", "verify", "status"]:
+    for action in [
+        "health",
+        "init",
+        "put-manifest",
+        "put-artifact",
+        "verify",
+        "status",
+        "prepare",
+        "execute",
+        "reconcile",
+        "probe",
+        "login-start",
+        "login-status",
+        "login-credentials",
+        "login-sms-request",
+        "login-sms-submit",
+    ]:
         assert action in wrapper
-    for forbidden in ["execute-import", "submit-import", "select-import-file", "order-audit"]:
+    for forbidden in ["submit-import", "select-import-file", "order-audit"]:
         assert forbidden not in wrapper
+
+    assert "GUANYI_BROWSER_BACKEND" in wrapper
+    assert "GUANYI_LOGIN_OPERATION_DIR" in wrapper
 
 
 def test_ubuntu_release_uses_supported_python_and_readable_code() -> None:

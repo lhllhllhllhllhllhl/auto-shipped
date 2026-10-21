@@ -9,7 +9,7 @@ STATE_ROOT="${AUTO_SHIPPED_STATE_ROOT:-/var/lib/auto-shipped}"
 CONFIG_FILE="${AUTO_SHIPPED_CONFIG_FILE:-/etc/auto-shipped/guanyi-server.env}"
 
 [[ "${EUID}" -eq 0 ]] || { echo '{"status":"failed","code":"REMOTE_ROOT_REQUIRED"}' >&2; exit 1; }
-[[ "$ACTION" =~ ^(health|init|put-manifest|put-artifact|verify|status)$ ]] || {
+[[ "$ACTION" =~ ^(health|init|put-manifest|put-artifact|verify|status|prepare|execute|reconcile|probe|login-start|login-status|login-credentials|login-sms-request|login-sms-submit)$ ]] || {
   echo '{"status":"failed","code":"REMOTE_ACTION_INVALID"}'
   exit 2
 }
@@ -35,4 +35,18 @@ exec sudo -n -u "$RUNNER_USER" env -i \
   PYTHONPATH="$INSTALL_ROOT/current" \
   SHANGYU_SKILL_STATE_ROOT="${SHANGYU_SKILL_STATE_ROOT:-$STATE_ROOT/skill-state}" \
   GUANYI_REMOTE_JOB_ROOT="${GUANYI_REMOTE_JOB_ROOT:-$STATE_ROOT/inbox}" \
+  GUANYI_BROWSER_BACKEND="${GUANYI_BROWSER_BACKEND:-persistent}" \
+  GUANYI_CHROME_EXECUTABLE="${GUANYI_CHROME_EXECUTABLE:-/usr/bin/google-chrome-stable}" \
+  GUANYI_RUNTIME_ROOT="${GUANYI_RUNTIME_ROOT:-$STATE_ROOT/guanyi-browser}" \
+  GUANYI_PROFILE_DIR="${GUANYI_PROFILE_DIR:-$STATE_ROOT/guanyi-browser/profile}" \
+  GUANYI_ARTIFACT_DIR="${GUANYI_ARTIFACT_DIR:-$STATE_ROOT/guanyi-browser/artifacts}" \
+  GUANYI_OPERATION_DIR="${GUANYI_OPERATION_DIR:-$STATE_ROOT/guanyi-browser/operations}" \
+  GUANYI_AUDIT_OPERATION_DIR="${GUANYI_AUDIT_OPERATION_DIR:-$STATE_ROOT/guanyi-browser/audit-operations}" \
+  GUANYI_LOGIN_OPERATION_DIR="${GUANYI_LOGIN_OPERATION_DIR:-$STATE_ROOT/guanyi-browser/login-operations}" \
+  GUANYI_BROWSER_SESSION_LOCK="${GUANYI_BROWSER_SESSION_LOCK:-$STATE_ROOT/guanyi-browser/profile.lock}" \
+  GUANYI_WINDOW_WIDTH="${GUANYI_WINDOW_WIDTH:-1440}" \
+  GUANYI_WINDOW_HEIGHT="${GUANYI_WINDOW_HEIGHT:-900}" \
+  GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS="${GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS:-120000}" \
+  NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}" \
+  DISPLAY="${DISPLAY:-:99}" \
   python3.11 -m browser.guanyi.remote.server_runner "$ACTION" "$OPERATION_ID"

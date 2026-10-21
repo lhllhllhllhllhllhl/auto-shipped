@@ -41,8 +41,9 @@ deploy/guanyi-server/deploy.sh \
 
 部署完成后，调用端可按
 [`docs/GUANYI_REMOTE_EXECUTOR.md`](../../docs/GUANYI_REMOTE_EXECUTOR.md)
-配置 SSH 传输适配器。当前远端命令只支持 `health`、接收文件、manifest 校验和
-状态查询，不包含登录或上传。
+配置 SSH 传输适配器。远端命令支持 `health`、接收文件、manifest 校验、操作
+准备、临时登录交接、受控单批提交和只读结果核验。页面动作仍全部复用
+`browser/guanyi`；远端层不提供审核、发货、作废或删除命令。
 
 默认环境模板为中国大陆服务器使用 npm 镜像以降低下载超时；`npm ci` 仍按照
 `package-lock.json` 校验精确版本与完整性。需要切回官方源时，只修改服务器上的
@@ -85,6 +86,6 @@ operation 和依赖目录。部署脚本不会删除 profile，也不会执行�
 | `install-release.sh` | 安装一个已提交版本并初始化 Skill 私有运行时 |
 | `doctor.sh` | 只读检查服务器运行环境与 Skill 完整性 |
 | `deploy.sh` | 在维护电脑上编排前述步骤 |
-| `remote-job.sh` | 固定白名单的 SSH 远端预检入口；不执行浏览器写入 |
+| `remote-job.sh` | 固定白名单的 SSH 远端入口；只把受控动作交给正式浏览器状态机 |
 | `guanyi-server.env.example` | 不含秘密的服务端环境模板 |
 | `auto-shipped-xvfb.service` | 无公网监听的虚拟显示服务 |
