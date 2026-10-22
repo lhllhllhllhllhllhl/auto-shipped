@@ -333,6 +333,8 @@ def _safe_result(result: dict[str, Any]) -> dict[str, Any]:
         "createdAt",
         "updatedAt",
         "expiresAt",
+        "browserMode",
+        "queuePolicy",
         "safety",
     }
     return {key: result[key] for key in allowed if key in result}
@@ -437,9 +439,10 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
         atomic_json(state_path(directory), state)
         try:
             command = run_browser_command(
-                "execute-import",
+                "resident-execute-import",
                 browser_operation_id,
                 REMOTE_SUBMIT_AUTHORIZATION,
+                timeout=15 * 60,
             )
         except (ProtocolError, subprocess.TimeoutExpired):
             state.update(
@@ -462,9 +465,15 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
             "local_verification_required",
             "login_blocked",
             "login_failed",
+            "waiting_for_credentials",
+            "resident_browser_blocked",
         }
         status = str(result.get("status") or result.get("state") or "")
-        if status in prewrite_statuses and progress.issubset({"authenticating"}):
+        safely_prewrite = status in prewrite_statuses or (
+            status == "login_operation_blocked"
+            and result.get("code") == "RESIDENT_SESSION_LOGIN_EXPIRED"
+        )
+        if safely_prewrite and progress.issubset({"authenticating"}):
             state.update(
                 {
                     "state": "prepared",
@@ -511,7 +520,9 @@ def reconcile_operation(operation_id: str) -> dict[str, Any]:
                 "REMOTE_RECONCILIATION_NOT_READY",
                 "该任务尚未进入可能已提交状态，无需结果核验。",
             )
-        command = run_browser_command("reconcile-operation", browser_operation_id)
+        command = run_browser_command(
+            "resident-reconcile", browser_operation_id, timeout=15 * 60
+        )
         result = command.final
         status = str(result.get("status") or result.get("state") or "")
         if status == "verified":
@@ -701,9 +712,9 @@ def run(action: str, operation_id: str, stream: BinaryIO) -> dict[str, Any]:
     if action == "reconcile":
         return reconcile_operation(operation_id)
     if action == "probe":
-        return run_browser_command("probe").final
+        return run_browser_command("resident-probe").final
     if action == "login-start":
-        return run_browser_command("login-agent-start", timeout=60).final
+        return run_browser_command("resident-start", timeout=60).final
     if action == "login-status":
         return run_browser_command("login-status", operation_id, timeout=60).final
     if action == "login-credentials":

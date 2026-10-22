@@ -76,6 +76,8 @@ Excel 与 manifest；当前 SSH 插件开放暂存、哈希复核、临时登录
           选择浏览器执行后端
           /        |         \
  macOS/Windows   豆包CDP   自管Ubuntu服务器
+                              |
+                    常驻单浏览器 + FIFO任务队列
           \        |         /
                  v
       （远端先做传输与同一manifest复核）
@@ -417,6 +419,8 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 上传全部成功后，订单审核由独立`order_audit`模块接管。它只接受`post_write_verified`导入操作，建立新的审核operation；当前必须由用户在上传成功后另行授权，精确口令为`CONFIRM_GUANYI_ORDER_AUDIT`，上传授权不得继承。默认范围`all_pending`会筛选订单查询页中当前全部待审核订单并按页审核；`current_batch`只在用户明确要求时使用manifest的平台单号清单。审核写请求可能发出后只允许回读剩余待审核订单，不得盲目重试。未来上传与审核连跑只能通过版本化策略切换，当前显式关闭；发货、作废和删除仍是禁止动作。真实审核在本地与豆包环境分别完成只读控件探针、并确认待审核状态词之前保持规则门禁关闭。
 
 账号密码属于运行环境凭证，不属于 Skill 或订单数据合同。本地使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 的只读凭证助手。没有安全入口且用户明确接受对话留存风险时，现有登录 operation 可进入 `waiting_for_credentials`，通过随机令牌loopback控制通道或私有stdin把本次凭据交给worker。豆包工作Linux的Playwright worker通过loopback CDP连接平台自带浏览器，直接观察并操作同一管易页面；执行器只在内存填值，不把字段内容写入状态、文件、环境变量、命令或日志。短信验证码继续使用同一短时operation ID。单一浏览器会话锁禁止probe或第二个登录抢占当前worker。
+
+自管Ubuntu服务器使用`resident_single_owner`协调层：一个长期运行的Playwright进程独占持久profile和页面，上传、只读探测与结果核验通过内存FIFO队列依次进入该进程；登录完成后不在任务边界关闭context。协调层只调度现有`browser/guanyi`高层函数，不包含选择器或业务判断。服务器重启、浏览器崩溃或登录过期后旧worker必须标为失败，再由安全凭证helper建立新会话；可能已写入的operation仍只能核验，不能因为worker重启而重提。服务器凭证由root私有加密文件和只读helper提供，不写入Skill、Git、环境变量、命令参数或job state；短信码仍只经SSH stdin进入当前常驻worker。
 
 额外安全验证采用“通用识别 + 接入策略”两层。核心只识别白名单URL，未知页面仍失败关闭。本机/独立headed浏览器可进入`waiting_for_human_verification`，保持原Playwright context/worker并把同一窗口交给当前电脑用户；窗口class/`xdotool`只属于显示适配。豆包`platform_cdp`命中阿里云验证页时不做云端交接，而以`LOGIN_LOCAL_VERIFICATION_REQUIRED`终止worker并释放锁；用户或管理员在自己的可信电脑完整登录并确认进入管易首页后，豆包只读探测并最多重试一次。两种路径都禁止盲目重登、重发短信、复制会话材料或删除profile。
 

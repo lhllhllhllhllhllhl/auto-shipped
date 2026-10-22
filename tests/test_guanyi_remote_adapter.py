@@ -340,7 +340,9 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                 self.assertEqual(executed["status"], "verified")
                 self.assertEqual(executed["remoteOperationId"], "remote-server-003")
                 self.assertEqual(runner.call_args_list[0].args[0], "prepare-operation")
-                self.assertEqual(runner.call_args_list[1].args[0], "execute-import")
+                self.assertEqual(
+                    runner.call_args_list[1].args[0], "resident-execute-import"
+                )
                 status = operation_status("remote-server-003")
                 self.assertEqual(status["state"], "verified")
                 with self.assertRaises(ProtocolError) as raised:

@@ -15,6 +15,11 @@
     "login-sms-submit": "node cli.mjs login-sms-submit",
     "login-auto-sms": "node cli.mjs login-auto-sms",
     "login-auto-sms-task-center": "node cli.mjs login-auto-sms-task-center",
+    "resident-start": "node cli.mjs resident-start",
+    "resident-status": "node cli.mjs resident-status",
+    "resident-probe": "node cli.mjs resident-probe",
+    "resident-execute-import": "node cli.mjs resident-execute-import",
+    "resident-reconcile": "node cli.mjs resident-reconcile",
     "credential:set": "node credential-cli.mjs set",
     "credential:web": "node credential-web.mjs",
     "credential:status": "node credential-cli.mjs status",
@@ -37,7 +42,7 @@
     "execute-order-audit": "node cli.mjs execute-order-audit",
     "reconcile-order-audit": "node cli.mjs reconcile-order-audit",
     "test": "node --test *.test.mjs",
-    "check": "node --check cli.mjs && node --check browser-backend.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check human-verification.mjs && node --check login-operation.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check submission.mjs && node --check workflow.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs && node --check audit-policy.mjs && node --check order-audit-state.mjs && node --check order-audit.mjs"
+    "check": "node --check cli.mjs && node --check browser-backend.mjs && node --check config.mjs && node --check credentials.mjs && node --check credential-cli.mjs && node --check credential-web.mjs && node --check geometry.mjs && node --check screenshot.mjs && node --check human-verification.mjs && node --check login-operation.mjs && node --check resident-session.mjs && node --check operation-state.mjs && node --check task-reconciliation.mjs && node --check file-selection.mjs && node --check submission.mjs && node --check workflow.mjs && node --check manifest.mjs && node --check session.mjs && node --check states.mjs && node --check popup.mjs && node --check navigation.mjs && node --check task-center.mjs && node --check audit-policy.mjs && node --check order-audit-state.mjs && node --check order-audit.mjs"
   },
   "dependencies": {
     "playwright-core": "1.63.0"

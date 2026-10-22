@@ -187,3 +187,9 @@
 
 - `DEC-USER-FIXED-SOURCE-CONTEXT-ISOLATION-001`：每个Excel第一次转换必须只根据当前文件运行无提示固定模板识别。唯一高置信固定模板优先于对话历史、上一批公司/来源提示和自适应计划；误传其他来源提示失败关闭，误传自适应计划由固定模板覆盖并在结果中记录。运行时缺失时不得直接调用仓库源码或手写低层命令绕过统一入口。
 - `DEC-USER-CORN-EIGHT-PACK-001`：玉米的`1袋`、`8根装`、`8根家庭装`、`8棒`、`8棒装`和`8棒家庭装`全局统一表示1件8棒家庭装。包装表达中的8是内含根数，不是订单数量；没有额外数量表达时按1件处理，不拆成8件单棒。系统默认执行并在结果“包装规则说明”小节告知，来源专用规则仍优先。
+
+## 2026-10-22 管易服务器常驻浏览器
+
+- `DEC-USER-GUANYI-RESIDENT-OWNER-001`：自管Ubuntu执行端只运行一个长期浏览器owner，登录、上传、只读probe和reconcile在同一Playwright context中完成；任务通过内存FIFO队列串行，禁止每个SSH请求重新启动浏览器或建立第二套页面逻辑。本机macOS/Windows和豆包CDP路径保持不变，三者仍汇入同一`browser/guanyi`状态机。
+- `DEC-USER-GUANYI-RESIDENT-RECOVERY-001`：常驻worker、浏览器或服务器重启后旧控制通道失效；新worker可以读取安全凭据重新登录，但任何已进入可能写入状态的operation仍只能reconcile。登录过期在文件选择前失败关闭，不得把重新登录当作重新提交授权。
+- `DEC-USER-GUANYI-SERVER-CREDENTIAL-HELPER-001`：专用服务器账号密码允许保存在root私有AES-256加密文件中，并仅通过固定`get` helper短暂输出给浏览器进程。密文、密钥和明文都不进入Git、Skill、环境变量、命令参数、job state或日志；业务用户无需知道密码。更换服务器时重新部署并经stdin单独配置，不复制profile或密钥。

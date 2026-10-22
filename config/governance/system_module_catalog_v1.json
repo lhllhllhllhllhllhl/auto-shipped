@@ -125,7 +125,7 @@
       "title": "管易受控浏览器上传",
       "responsibility": "在用户明确指定批次并授权后选择已确认Excel、填写导入表单并提交。",
       "boundary": "不读取原始订单，不判断公司、商品、店铺或物流；不得把GitHub推送当作上传授权。",
-      "authority_paths": ["browser/guanyi/navigation.mjs", "browser/guanyi/submission.mjs", "browser/guanyi/operation-state.mjs", "browser/guanyi/remote", "contracts/guanyi_remote_job.schema.json", "skill/shangyu-order-converter/scripts/guanyi_remote.py"],
+      "authority_paths": ["browser/guanyi/navigation.mjs", "browser/guanyi/submission.mjs", "browser/guanyi/operation-state.mjs", "browser/guanyi/resident-session.mjs", "browser/guanyi/remote", "contracts/guanyi_remote_job.schema.json", "skill/shangyu-order-converter/scripts/guanyi_remote.py"],
       "dependencies": ["conversion_delivery"],
       "implementation_refs": ["browser.guanyi.prepare_import_form.pending_review", "browser.guanyi.import_options.verified_current_ui", "browser.guanyi.submit_import.guarded"],
       "policy_module_ids": [],
