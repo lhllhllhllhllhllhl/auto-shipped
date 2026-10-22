@@ -1371,6 +1371,62 @@ class ProductCatalogTests(unittest.TestCase):
             "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
         )
 
+    def test_confirmed_code_accepts_registered_semantic_name_variant_as_notice(self) -> None:
+        product_catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "P1",
+                    "光明满元气 白糯玉米8棒家庭装",
+                    "S1",
+                    "8袋/箱",
+                    1210,
+                    "测试仓",
+                )
+            ],
+            [
+                {
+                    "source_profile_id": "company_a",
+                    "identifier_type": "product_code",
+                    "source_value": "2026DFYUMI002",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                }
+            ],
+            {
+                "company_a": {
+                    "source_identifier_type": "product_code",
+                    "require_identity_guard_for_blank_source_spec": True,
+                    "mapping_identity_guards": [
+                        {
+                            "identifier_type": "product_code",
+                            "source_value": "2026DFYUMI002",
+                            "allowed_product_names": [
+                                "【光明满元气】白糯玉米8棒家庭装"
+                            ],
+                        }
+                    ],
+                }
+            },
+            phrase_normalizer=ProductPhraseNormalizer.from_file(
+                PROJECT_ROOT / "config/catalog/product_phrase_lexicon_v1.json"
+            ),
+        )
+
+        result = product_catalog.resolve(
+            "2026DFYUMI002",
+            source_profile_id="company_a",
+            source_product_name="【光明满元气】白糯玉米8棒家庭量贩装",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.product.product_code, "P1")
+        self.assertEqual(
+            result.review_warnings[0]["code"],
+            "SOURCE_NAME_VARIANT_ACCEPTED_FOR_CONFIRMED_CODE_MAPPING",
+        )
+        self.assertEqual(result.review_warnings[0]["severity"], "notice_only")
+
     def test_blank_spec_mapping_without_required_guard_is_unconfirmed(self) -> None:
         product_catalog = ProductCatalog(
             [ProductRecord("P1", "管易商品", "S1", "管易规格", 100, "测试仓")],

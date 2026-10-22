@@ -99,6 +99,7 @@ class ConversionResult:
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -121,6 +122,7 @@ class ConversionResult:
                 else []
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
+            "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
@@ -1166,6 +1168,7 @@ def convert_order_file(
             decisions=built.decisions,
             mapping_reuse_candidates=built.mapping_reuse_candidates,
             mapping_evidence=built.mapping_evidence,
+            mapping_identity_notices=built.mapping_identity_notices,
             store_assignment_notices=built.store_assignment_notices,
             package_semantics_notices=built.package_semantics_notices,
         )
@@ -1190,6 +1193,7 @@ def convert_order_file(
         upload_manifest=str(manifest_path),
         mapping_reuse_candidates=built.mapping_reuse_candidates,
         mapping_evidence=built.mapping_evidence,
+        mapping_identity_notices=built.mapping_identity_notices,
         store_assignment_notices=built.store_assignment_notices,
         package_semantics_notices=built.package_semantics_notices,
     )

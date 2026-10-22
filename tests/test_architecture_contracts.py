@@ -236,6 +236,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("upload_manifest", schema["required"])
         self.assertIn("decision_bundle", schema["required"])
         self.assertIn("mapping_reuse_bundle", schema["required"])
+        self.assertIn("mapping_identity_notices", schema["required"])
         self.assertIn("store_assignment_notices", schema["required"])
         self.assertIn("package_semantics_notices", schema["required"])
         notice = schema["$defs"]["storeAssignmentNotice"]["properties"]
@@ -244,6 +245,12 @@ class ArchitectureContractTests(unittest.TestCase):
             "NON_CORN_TO_TAOJUZI_FALLBACK",
         )
         self.assertFalse(notice["blocking"]["const"])
+        identity_notice = schema["$defs"]["mappingIdentityNotice"]["properties"]
+        self.assertEqual(
+            identity_notice["code"]["const"],
+            "SOURCE_NAME_VARIANT_ACCEPTED_FOR_CONFIRMED_CODE_MAPPING",
+        )
+        self.assertFalse(identity_notice["blocking"]["const"])
         package_notice = schema["$defs"]["packageSemanticsNotice"]["properties"]
         self.assertEqual(
             package_notice["code"]["const"],
@@ -415,6 +422,10 @@ class ArchitectureContractTests(unittest.TestCase):
         guard = policy["mapping_identity_guards"][0]
         self.assertEqual(guard["source_value"], "2026DFYUMI001")
         self.assertTrue(guard["allowed_product_names"])
+        self.assertIn(
+            "2026DFYUMI002",
+            {item["source_value"] for item in policy["mapping_identity_guards"]},
+        )
 
         sam_policy = mappings["source_policies"]["sam_order_v1"]
         self.assertTrue(sam_policy["allow_spec_only_mapping"])

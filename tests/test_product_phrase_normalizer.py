@@ -63,6 +63,18 @@ class ProductPhraseNormalizerTests(unittest.TestCase):
         self.assertEqual(identity.residual, "加长版")
         self.assertEqual(identity.spec, "黄色|超软|加长版")
 
+    def test_corn_family_pack_and_family_bulk_wording_share_identity(self) -> None:
+        family_pack = self.normalizer.normalize(
+            source_product_name="【光明满元气】白糯玉米8棒家庭装"
+        )
+        family_bulk = self.normalizer.normalize(
+            source_product_name="【光明满元气】白糯玉米8棒家庭量贩装"
+        )
+
+        self.assertEqual(family_bulk.signature, family_pack.signature)
+        self.assertEqual(family_bulk.product, "玉米")
+        self.assertIn("8棒家庭装", family_bulk.spec.split("|"))
+
     def test_canonical_identity_is_idempotent_for_multi_part_specs(self) -> None:
         originals = [
             self.normalizer.normalize(

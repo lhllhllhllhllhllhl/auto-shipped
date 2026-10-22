@@ -18,6 +18,15 @@
           ],
           "on_mismatch": "require_user_confirmation",
           "source": "四份恬田真实样本的来源编码与品名一致；用户于2026-10-05同意加入来源身份保护。"
+        },
+        {
+          "identifier_type": "product_code",
+          "source_value": "2026DFYUMI002",
+          "allowed_product_names": [
+            "【光明满元气】白糯玉米8棒家庭装"
+          ],
+          "on_mismatch": "require_user_confirmation",
+          "source": "正式编码映射已指向白糯玉米8棒家庭装；家庭量贩装作为同包装等义写法分级告知。"
         }
       ]
     },

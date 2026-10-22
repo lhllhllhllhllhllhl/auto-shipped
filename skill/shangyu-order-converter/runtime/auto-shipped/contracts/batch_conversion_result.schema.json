@@ -15,6 +15,7 @@
     "decision_bundle",
     "mapping_reuse_bundle",
     "mapping_evidence",
+    "mapping_identity_notices",
     "store_assignment_notices",
     "package_semantics_notices",
     "errors"
@@ -39,6 +40,7 @@
           "schema_warnings",
           "clarifications",
           "decisions",
+          "mapping_identity_notices",
           "store_assignment_notices",
           "package_semantics_notices",
           "errors"
@@ -57,6 +59,11 @@
           "schema_warnings": { "type": "array", "items": { "type": "object" } },
           "clarifications": { "type": "array", "items": { "type": "object" } },
           "decisions": { "type": "array", "items": { "type": "object" } },
+          "mapping_identity_notices": {
+            "type": "array",
+            "description": "编码正式命中且名称仅为等义写法时的非阻断说明。",
+            "items": {"$ref": "#/$defs/mappingIdentityNotice"}
+          },
           "store_assignment_notices": {
             "type": "array",
             "description": "非阻断店铺兜底说明；不含收件信息。",
@@ -81,6 +88,20 @@
       "type": "array",
       "description": "本批商品匹配证据；不含收件人、电话或地址。",
       "items": {"type": "object"}
+    },
+    "mapping_identity_notices": {
+      "type": "array",
+      "description": "本批已接受的编码映射名称变体；只用于结果告知，不要求再次确认。",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/mappingIdentityNotice"},
+          {
+            "type": "object",
+            "properties": {"source_file": {"type": "string", "minLength": 1}},
+            "required": ["source_file"]
+          }
+        ]
+      }
     },
     "store_assignment_notices": {
       "type": "array",
@@ -113,6 +134,50 @@
     "errors": { "type": "array", "items": { "type": "object" } }
   },
   "$defs": {
+    "mappingIdentityNotice": {
+      "type": "object",
+      "required": [
+        "code",
+        "scope",
+        "source_ref",
+        "message",
+        "source_expression",
+        "target",
+        "match_method",
+        "blocking"
+      ],
+      "properties": {
+        "code": {"const": "SOURCE_NAME_VARIANT_ACCEPTED_FOR_CONFIRMED_CODE_MAPPING"},
+        "scope": {"const": "order"},
+        "source_ref": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "source_expression": {
+          "type": "object",
+          "required": ["source_product_code", "source_product_name", "source_spec"],
+          "properties": {
+            "source_product_code": {"type": "string", "minLength": 1},
+            "source_product_name": {"type": "string", "minLength": 1},
+            "source_spec": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "target": {
+          "type": "object",
+          "required": ["product_code", "spec_code", "product_name", "spec_name"],
+          "properties": {
+            "product_code": {"type": "string", "minLength": 1},
+            "spec_code": {"type": "string"},
+            "product_name": {"type": "string"},
+            "spec_name": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "match_method": {"type": "string", "minLength": 1},
+        "blocking": {"const": false},
+        "source_file": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "storeAssignmentNotice": {
       "type": "object",
       "required": [

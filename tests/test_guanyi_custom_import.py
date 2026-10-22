@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 
-from auto_shipped.catalog import WhiteLabelLibrary
+from auto_shipped.catalog import ProductPhraseNormalizer, WhiteLabelLibrary
 from auto_shipped.catalog.product_catalog import ProductCatalog, ProductRecord
 from auto_shipped.integrations.feishu.daily_sequence_ledger import (
     DailySequenceLedgerRecord,
@@ -539,6 +539,80 @@ class GuanyiCustomImportTests(unittest.TestCase):
         self.assertEqual(evidence["initial_split"]["unit"], "件")
         self.assertEqual(result.lines[0]["数量"], 1)
         self.assertNotIn("recipient", evidence)
+
+    def test_confirmed_code_semantic_name_variant_is_ready_with_notice(self) -> None:
+        order = parsed_order()
+        order.items[0] = ParsedItem(
+            source_product_code="2026DFYUMI002",
+            source_item_text="【光明满元气】白糯玉米8棒家庭量贩装1件",
+            source_product_name="【光明满元气】白糯玉米8棒家庭量贩装",
+            quantity=1,
+            unit="件",
+            source_line_no=2,
+        )
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "P1",
+                    "光明满元气 白糯玉米8棒家庭装",
+                    "S1",
+                    "8袋/箱",
+                    1210,
+                    "上海仓",
+                )
+            ],
+            [
+                {
+                    "mapping_id": "official-white-corn",
+                    "source_profile_id": "tiantian_warehouse_v2",
+                    "identifier_type": "product_code",
+                    "source_value": "2026DFYUMI002",
+                    "source_spec": "",
+                    "product_code": "P1",
+                    "spec_code": "S1",
+                    "confirmed": True,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+            {
+                "tiantian_warehouse_v2": {
+                    "source_identifier_type": "product_code",
+                    "require_identity_guard_for_blank_source_spec": True,
+                    "mapping_identity_guards": [
+                        {
+                            "identifier_type": "product_code",
+                            "source_value": "2026DFYUMI002",
+                            "allowed_product_names": [
+                                "【光明满元气】白糯玉米8棒家庭装"
+                            ],
+                        }
+                    ],
+                }
+            },
+            phrase_normalizer=ProductPhraseNormalizer.from_file(
+                PROJECT_ROOT / "config/catalog/product_phrase_lexicon_v1.json"
+            ),
+        )
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.decisions, [])
+        self.assertEqual(len(result.mapping_identity_notices), 1)
+        notice = result.mapping_identity_notices[0]
+        self.assertEqual(
+            notice["code"],
+            "SOURCE_NAME_VARIANT_ACCEPTED_FOR_CONFIRMED_CODE_MAPPING",
+        )
+        self.assertFalse(notice["blocking"])
+        self.assertEqual(notice["target"]["product_code"], "P1")
+        self.assertEqual(result.lines[0]["商品代码"], "P1")
 
     def test_current_batch_confirmation_suppresses_code_name_mismatch_warning(self) -> None:
         order = parsed_order()

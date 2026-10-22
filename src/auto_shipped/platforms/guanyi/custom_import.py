@@ -58,6 +58,7 @@ class GuanyiBuildResult:
         default_factory=list
     )
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
 
@@ -145,6 +146,53 @@ def _deduplicate_package_semantics_notices(
             str(notice.get("code") or ""),
             str(notice.get("source_ref") or ""),
             str(notice.get("rule_id") or ""),
+            str(target.get("product_code") or ""),
+            str(target.get("spec_code") or ""),
+        )
+        unique[key] = notice
+    return list(unique.values())
+
+
+def _mapping_identity_notice_record(
+    item: Any,
+    resolution: ProductResolution,
+    warning: dict[str, str],
+    *,
+    platform_order_no: str,
+) -> dict[str, Any]:
+    product = resolution.product
+    return {
+        "code": str(warning.get("code") or "SOURCE_NAME_VARIANT_ACCEPTED"),
+        "scope": "order",
+        "source_ref": f"订单:{platform_order_no}",
+        "message": str(warning.get("message") or resolution.reason),
+        "source_expression": {
+            "source_product_code": str(item.source_product_code or ""),
+            "source_product_name": str(item.source_product_name or ""),
+            "source_spec": str(item.source_spec or ""),
+        },
+        "target": {
+            "product_code": product.product_code if product else "",
+            "spec_code": product.spec_code if product else "",
+            "product_name": product.product_name if product else "",
+            "spec_name": product.spec_name if product else "",
+        },
+        "match_method": resolution.match_method,
+        "blocking": False,
+    }
+
+
+def _deduplicate_mapping_identity_notices(
+    notices: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    unique: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    for notice in notices:
+        source = notice.get("source_expression") or {}
+        target = notice.get("target") or {}
+        key = (
+            str(notice.get("code") or ""),
+            str(source.get("source_product_code") or ""),
+            str(source.get("source_product_name") or ""),
             str(target.get("product_code") or ""),
             str(target.get("spec_code") or ""),
         )
@@ -735,6 +783,9 @@ def build_custom_import_lines(
     package_notices_by_order: dict[
         int, list[tuple[Any, ProductResolution]]
     ] = {}
+    mapping_identity_notices_by_order: dict[
+        int, list[tuple[Any, ProductResolution, dict[str, str]]]
+    ] = {}
     official_mapping_clarification_added = False
     for order in orders:
         order_lines: list[ResolvedLineItem] = []
@@ -838,6 +889,11 @@ def build_custom_import_lines(
             source_label = _product_source_label(item)
             source_ref = f"商品:{source_label}"
             for warning in resolution.review_warnings:
+                if str(warning.get("severity") or "") == "notice_only":
+                    mapping_identity_notices_by_order.setdefault(id(order), []).append(
+                        (item, resolution, warning)
+                    )
+                    continue
                 result.decisions.append(
                     DecisionItem(
                         code=str(warning.get("code") or "REVIEW_PRODUCT_MAPPING"),
@@ -1223,6 +1279,17 @@ def build_custom_import_lines(
             )
             for item, resolution in package_notices_by_order.get(id(order), [])
         )
+        result.mapping_identity_notices.extend(
+            _mapping_identity_notice_record(
+                item,
+                resolution,
+                warning,
+                platform_order_no=platform_no,
+            )
+            for item, resolution, warning in mapping_identity_notices_by_order.get(
+                id(order), []
+            )
+        )
         previous = seen_platform_numbers.get(platform_no)
         if previous and previous != order.record_key:
             result.clarifications.append(
@@ -1483,6 +1550,9 @@ def build_custom_import_lines(
     )
     result.package_semantics_notices = _deduplicate_package_semantics_notices(
         result.package_semantics_notices
+    )
+    result.mapping_identity_notices = _deduplicate_mapping_identity_notices(
+        result.mapping_identity_notices
     )
     if result.clarifications:
         result.lines = []
