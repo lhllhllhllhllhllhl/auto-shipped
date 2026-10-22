@@ -22,6 +22,14 @@ const COMPLETED_IMPORT_TASK_NAME = "自定义订单导入";
 const MAX_COMPLETED_IMPORT_SUMMARIES = 20;
 const IMPORT_RESULT_TITLE = "Excel导入结果信息";
 const MAX_VISIBLE_FAILURE_SUMMARIES = 10;
+const IMPORT_RESULT_CLOSE_SELECTORS = [
+  'button[aria-label="Close"]',
+  'button[aria-label="关闭"]',
+  'button[title="关闭"]',
+  ".x-tool-close",
+  '[data-qtip="关闭"]',
+].join(", ");
+const IMPORT_RESULT_CLOSE_TIMEOUT_MS = 3_000;
 
 
 export class TaskCenterError extends Error {
@@ -483,6 +491,41 @@ async function waitForImportResultSurface(page, timeoutMs = 10_000) {
 }
 
 
+async function closeImportResultSurface(page, surface) {
+  const candidates = surface.locator(IMPORT_RESULT_CLOSE_SELECTORS);
+  const visible = [];
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      visible.push(candidate);
+    }
+  }
+  if (visible.length > 1) {
+    throw new TaskCenterError(
+      "IMPORT_RESULT_CLOSE_AMBIGUOUS",
+      "导入结果窗口出现多个关闭入口，已停止自动关闭。",
+      { matchCount: visible.length },
+    );
+  }
+  if (visible.length === 1) {
+    await visible[0].click();
+  } else {
+    await page.keyboard.press("Escape");
+  }
+  const deadline = Date.now() + IMPORT_RESULT_CLOSE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!(await surface.isVisible().catch(() => false))) {
+      return;
+    }
+    await page.waitForTimeout(50);
+  }
+  throw new TaskCenterError(
+    "IMPORT_RESULT_CLOSE_FAILED",
+    "已读取导入结果，但结果窗口未能安全关闭。",
+  );
+}
+
+
 async function findCompletedTaskRow(frame, taskId) {
   if (!/^\d+$/.test(taskId || "")) {
     throw new TaskCenterError(
@@ -596,6 +639,7 @@ export async function readCompletedImportTaskResultFromFrame(
   const failures = rawFailureTexts
     .slice(0, MAX_VISIBLE_FAILURE_SUMMARIES)
     .map(sanitizeImportFailure);
+  await closeImportResultSurface(page, surface);
   return {
     status: "import_task_result_ready",
     taskId,

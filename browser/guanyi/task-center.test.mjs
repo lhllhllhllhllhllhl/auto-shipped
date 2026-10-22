@@ -268,12 +268,14 @@ test("opens one verified task result and returns only redacted summaries", async
       </table>
       <div class="x-window" id="result-window" style="display:none">
         <div>Excel导入结果信息</div>
+        <button class="x-tool-close" aria-label="关闭">关闭</button>
         <div>导入总数： 2条 ，其中： 成功导入 1条 格式错误 1条 非法数据 0条</div>
         <table><tbody><tr><td>订单中，第1行，平台单号（13800000000_某人_某详细地址）订单匹配异常！（测试店铺[无法匹配到系统中店铺信息]）</td></tr></tbody></table>
       </div>
       <script>
         globalThis.Ext = { getCmp: () => ({ getRecord: row => ({ data: { id: row.dataset.recordid } }) }) };
         document.querySelector('#result').onclick = () => document.querySelector('#result-window').style.display = 'block';
+        document.querySelector('.x-tool-close').onclick = () => document.querySelector('#result-window').style.display = 'none';
       </script>
     `);
     const result = await readCompletedImportTaskResultFromFrame(
@@ -299,6 +301,10 @@ test("opens one verified task result and returns only redacted summaries", async
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes("13800000000"), false);
     assert.equal(serialized.includes("某详细地址"), false);
+    assert.equal(
+      await frame.locator("#result-window").isVisible().catch(() => false),
+      false,
+    );
   } finally {
     await browser.close();
   }
