@@ -23,6 +23,8 @@ export const LoginOperationState = Object.freeze({
   WAITING_FOR_USER_CODE: "waiting_for_user_code",
   CODE_SUBMITTED: "code_submitted",
   WAITING_FOR_HUMAN_VERIFICATION: "waiting_for_human_verification",
+  RESIDENT_READY: "resident_ready",
+  RESIDENT_EXECUTING: "resident_executing",
   AUTHENTICATED: "authenticated",
   FAILED: "failed",
   EXPIRED: "expired",
@@ -45,6 +47,7 @@ const TRANSITIONS = Object.freeze({
   [LoginOperationState.AUTHENTICATING]: new Set([
     LoginOperationState.WAITING_FOR_CREDENTIALS,
     LoginOperationState.NEEDS_VERIFICATION,
+    LoginOperationState.RESIDENT_READY,
     LoginOperationState.AUTHENTICATED,
     LoginOperationState.FAILED,
     LoginOperationState.EXPIRED,
@@ -71,12 +74,24 @@ const TRANSITIONS = Object.freeze({
   ]),
   [LoginOperationState.CODE_SUBMITTED]: new Set([
     LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+    LoginOperationState.RESIDENT_READY,
     LoginOperationState.AUTHENTICATED,
     LoginOperationState.FAILED,
     LoginOperationState.EXPIRED,
   ]),
   [LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION]: new Set([
+    LoginOperationState.RESIDENT_READY,
     LoginOperationState.AUTHENTICATED,
+    LoginOperationState.FAILED,
+    LoginOperationState.EXPIRED,
+  ]),
+  [LoginOperationState.RESIDENT_READY]: new Set([
+    LoginOperationState.RESIDENT_EXECUTING,
+    LoginOperationState.FAILED,
+    LoginOperationState.EXPIRED,
+  ]),
+  [LoginOperationState.RESIDENT_EXECUTING]: new Set([
+    LoginOperationState.RESIDENT_READY,
     LoginOperationState.FAILED,
     LoginOperationState.EXPIRED,
   ]),
@@ -146,6 +161,16 @@ export function publicLoginOperation(record) {
     payload.code = record.error.code;
     payload.message = record.error.message;
     if (record.error.details) payload.details = record.error.details;
+  }
+  if (record.state === LoginOperationState.RESIDENT_READY) {
+    payload.browserMode = "resident_single_owner";
+    payload.queuePolicy = "fifo";
+    payload.instruction =
+      "管易专用浏览器已登录并保持运行；后续上传任务会按顺序进入同一浏览器。";
+  } else if (record.state === LoginOperationState.RESIDENT_EXECUTING) {
+    payload.browserMode = "resident_single_owner";
+    payload.queuePolicy = "fifo";
+    payload.instruction = "常驻浏览器正在执行一个任务；后续任务将排队等待。";
   }
   if (
     record.state === LoginOperationState.FAILED &&
@@ -286,7 +311,7 @@ export async function loadLoginOperation(
 }
 
 
-async function findActiveOperation(directory) {
+export async function findActiveLoginOperation(directory = LOGIN_OPERATION_DIR) {
   let entries = [];
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
@@ -320,7 +345,7 @@ export async function createLoginOperation(
   directory = LOGIN_OPERATION_DIR,
   timeoutMs = LOGIN_TIMEOUT_MS,
 ) {
-  const existing = await findActiveOperation(directory);
+  const existing = await findActiveLoginOperation(directory);
   if (existing) {
     throw new LoginOperationError(
       "LOGIN_OPERATION_ALREADY_ACTIVE",
@@ -520,6 +545,8 @@ export async function waitForLoginOperation(
       LoginOperationState.WAITING_FOR_USER_CODE,
       LoginOperationState.CODE_SUBMITTED,
       LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
+      LoginOperationState.RESIDENT_READY,
+      LoginOperationState.RESIDENT_EXECUTING,
       LoginOperationState.AUTHENTICATED,
       LoginOperationState.FAILED,
       LoginOperationState.EXPIRED,
@@ -653,6 +680,9 @@ export async function createLoginControlServer(
             action: message.action,
             code: message.code,
             credentials: message.credentials,
+            command: message.command,
+            browserOperationId: message.browserOperationId,
+            authorization: message.authorization,
           });
         } finally {
           if (message.credentials) {
@@ -695,6 +725,9 @@ export async function sendLoginControl(
   {
     code = null,
     credentials = null,
+    command = null,
+    browserOperationId = null,
+    authorization = null,
     directory = LOGIN_OPERATION_DIR,
     timeoutMs = 20_000,
   } = {},
@@ -713,6 +746,9 @@ export async function sendLoginControl(
       action,
       code,
       credentials,
+      command,
+      browserOperationId,
+      authorization,
     });
     const request = http.request({
       hostname: host,

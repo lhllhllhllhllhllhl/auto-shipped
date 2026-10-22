@@ -14,6 +14,9 @@ def test_server_deployment_has_no_embedded_target_or_credentials() -> None:
         DEPLOY / "doctor.sh",
         DEPLOY / "remote-job.sh",
         DEPLOY / "guanyi-server.env.example",
+        DEPLOY / "guanyi-credential-helper-root.sh",
+        DEPLOY / "guanyi-credential-helper.sh",
+        DEPLOY / "set-guanyi-credentials.sh",
     ]
     content = "\n".join(path.read_text(encoding="utf-8") for path in checked)
 
@@ -30,6 +33,9 @@ def test_server_environment_keeps_one_browser_state_machine() -> None:
     assert "GUANYI_PROFILE_DIR=/var/lib/auto-shipped/guanyi-browser/profile" in environment
     assert "GUANYI_OPERATION_DIR=/var/lib/auto-shipped/guanyi-browser/operations" in environment
     assert "GUANYI_LOGIN_OPERATION_DIR=/var/lib/auto-shipped/guanyi-browser/login-operations" in environment
+    assert "GUANYI_CREDENTIAL_HELPER=/usr/local/bin/guanyi-credential-helper" in environment
+    assert "GUANYI_RESIDENT_SESSION_TTL_MS=31536000000" in environment
+    assert "GUANYI_HUMAN_TAKEOVER_AVAILABLE=0" in environment
 
 
 def test_server_deployment_documents_all_recovery_commands() -> None:
@@ -65,6 +71,22 @@ def test_remote_job_wrapper_exposes_only_registered_executor_actions() -> None:
 
     assert "GUANYI_BROWSER_BACKEND" in wrapper
     assert "GUANYI_LOGIN_OPERATION_DIR" in wrapper
+    assert "GUANYI_CREDENTIAL_HELPER" in wrapper
+    assert "GUANYI_RESIDENT_SESSION_TTL_MS" in wrapper
+    assert "GUANYI_HUMAN_TAKEOVER_AVAILABLE" in wrapper
+
+
+def test_server_credentials_are_encrypted_and_read_through_a_narrow_helper() -> None:
+    provision = (DEPLOY / "provision.sh").read_text(encoding="utf-8")
+    setter = (DEPLOY / "set-guanyi-credentials.sh").read_text(encoding="utf-8")
+    helper = (DEPLOY / "guanyi-credential-helper-root.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "openssl enc -aes-256-cbc -pbkdf2" in setter
+    assert "openssl enc -d -aes-256-cbc -pbkdf2" in helper
+    assert "NOPASSWD: /usr/local/libexec/auto-shipped-guanyi-credential-helper get" in provision
+    assert "GUANYI_LOGIN_PASSWORD" not in setter
 
 
 def test_ubuntu_release_uses_supported_python_and_readable_code() -> None:

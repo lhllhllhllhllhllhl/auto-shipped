@@ -28,6 +28,11 @@ COMMANDS = {
     "login-sms-submit": "login-sms-submit",
     "login-auto-sms": "login-auto-sms",
     "login-auto-sms-task-center": "login-auto-sms-task-center",
+    "resident-start": "resident-start",
+    "resident-status": "resident-status",
+    "resident-probe": "resident-probe",
+    "resident-execute-import": "resident-execute-import",
+    "resident-reconcile": "resident-reconcile",
     "credential-set": "credential:set",
     "credential-web": "credential:web",
     "credential-status": "credential:status",
@@ -110,7 +115,12 @@ def main() -> int:
             "管易浏览器依赖尚未安装，请先运行 bootstrap_runtime.py。",
         )
 
-    if args.command in {"submit-import", "execute-import", "execute-order-audit"}:
+    if args.command in {
+        "submit-import",
+        "execute-import",
+        "resident-execute-import",
+        "execute-order-audit",
+    }:
         audit = subprocess.run(
             [
                 sys.executable,
@@ -153,7 +163,7 @@ def main() -> int:
     ):
         environment["GUANYI_BROWSER_BACKEND"] = "platform_cdp"
         environment.setdefault("GUANYI_CDP_ENDPOINT", "http://127.0.0.1:9222")
-    if args.command in {"submit-import", "execute-import"}:
+    if args.command in {"submit-import", "execute-import", "resident-execute-import"}:
         environment["GUANYI_UPLOAD_RULES_READY"] = "1"
     if args.command == "execute-order-audit":
         environment["GUANYI_AUDIT_RULES_READY"] = "1"

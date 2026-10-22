@@ -202,6 +202,11 @@ python3 <skill-dir>/scripts/guanyi_browser.py login-status "<login-operation-id>
 python3 <skill-dir>/scripts/guanyi_browser.py login-sms-request "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
 python3 <skill-dir>/scripts/guanyi_browser.py login-sms-submit "<login-operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py login-auto-sms
+python3 <skill-dir>/scripts/guanyi_browser.py resident-start
+python3 <skill-dir>/scripts/guanyi_browser.py resident-status
+python3 <skill-dir>/scripts/guanyi_browser.py resident-probe
+python3 <skill-dir>/scripts/guanyi_browser.py resident-execute-import "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+python3 <skill-dir>/scripts/guanyi_browser.py resident-reconcile "<operation-id>"
 python3 <skill-dir>/scripts/guanyi_browser.py probe
 python3 <skill-dir>/scripts/guanyi_browser.py navigate-import
 python3 <skill-dir>/scripts/guanyi_browser.py prepare-import-form
@@ -248,6 +253,7 @@ python3 <skill-dir>/scripts/guanyi_remote.py reconcile "<remote-operation-id>"
 - 豆包工作云电脑必须先阅读并执行[豆包平台浏览器接入](references/doubao-browser-takeover.md)。它是豆包登录顺序、人工验证和故障恢复的唯一操作指引；本文件不再重复这些平台细节。
 - 登录结果只接受结构化状态：`code_submitted`是等待态；`authenticated`后仍须只读`probe`得到`home_ready`。未知页面、未知弹窗、连接中断或结果不明确都停止，禁止重发短信、重启登录、清理profile或关闭平台默认context。
 - 同一浏览器会话任意时刻只允许一个执行器所有者。登录worker运行期间只能查询同一`login-status`，不得另启`probe`、导航或第二个登录；冲突必须返回`browser_session_busy`。
+- 自管服务器使用`resident-start`建立唯一长期浏览器owner。返回`resident_ready`后，远端`probe`、`execute`和`reconcile`都必须进入该worker的FIFO队列；任务结束不得关闭context。worker或服务器重启后可重新建立会话，但任何已进入可能写入状态的批次仍只能核验，不能重提。
 - `probe` 检查登录和页面状态，只关闭已登记的安全通知。
 - `navigate-import` 导航到“自定义导入”页面后停止，禁止选择文件。
 - `prepare-import-form` 导航到“订单导入 → 自定义导入”，只允许把订单状态设为“待审核”并回读确认；文件输入必须保持为空，禁止点击“确定”。
@@ -267,7 +273,7 @@ python3 <skill-dir>/scripts/guanyi_remote.py reconcile "<remote-operation-id>"
 - 同一对话可以一次授权多个明确列出的已转换批次。Agent必须先回显 manifest/operation 清单，再按顺序逐批提交；每批独立绑定路径、SHA-256、操作 ID 和任务基线，前一批未 `verified` 时不得开始下一批。不得扫描目录猜测“最新文件”。
 - `verify-manifest` 校验预检 manifest 与当前 Excel 的文件名、大小和 SHA-256；失败时停止。同一环境可只传manifest，跨电脑或附件被平台复制到新路径时，必须把用户明确交付的当前Excel路径作为第二个参数传入。不得改写或重建原manifest、伪造原路径、扫描目录或猜测“最新文件”。即使通过，也不得据此选择文件或上传。
 - `prepare-operation` 在 manifest 通过后建立 `prepared` 操作 ID 和本地状态记录；记录同时保留manifest中的原始文件位置和当前环境经过哈希核验的绑定路径。它仍不代表上传授权，不得跳级到写入状态。
-- 专用服务器执行采用[管易远端执行适配层](runtime/auto-shipped/docs/GUANYI_REMOTE_EXECUTOR.md)。用户明确要求上传指定批次后，Agent才可用`guanyi_remote.py stage`和精确口令`CONFIRM_REMOTE_BATCH_STAGING`把该Excel与manifest送往已配置执行端；随后`prepare`只建立操作，不打开浏览器。需要登录时只允许走`login-start → stdin临时凭据 → 当次短信确认 → stdin验证码`，秘密不得落盘。只有用户在当前对话明确授权该远端operation对应的具体批次，才可运行`execute ... CONFIRM_GUANYI_IMPORT_SUBMISSION`。远端层只做传输、授权和调度，登录、导航、待审核表单、任务基线、文件选择、字段核对、提交与任务中心回读全部复用现有`browser/guanyi`状态机，禁止第二套实现。进入可能已写入状态后只能`reconcile`，不得重新`execute`。远端不开放审核、发货、作废或删除。
+- 专用服务器执行采用[管易远端执行适配层](runtime/auto-shipped/docs/GUANYI_REMOTE_EXECUTOR.md)。用户明确要求上传指定批次后，Agent才可用`guanyi_remote.py stage`和精确口令`CONFIRM_REMOTE_BATCH_STAGING`把该Excel与manifest送往已配置执行端；随后`prepare`只建立操作，不打开浏览器。`login-start`启动或复用唯一常驻worker：优先从服务器root私有加密凭据helper读取账号密码，helper未配置时才走`stdin临时凭据 → 当次短信确认 → stdin验证码`。只有用户在当前对话明确授权该远端operation对应的具体批次，才可运行`execute ... CONFIRM_GUANYI_IMPORT_SUBMISSION`。远端层只做传输、授权、FIFO排队和调度，登录、导航、待审核表单、任务基线、文件选择、字段核对、提交与任务中心回读全部复用现有`browser/guanyi`状态机，禁止第二套实现。进入可能已写入状态后只能`reconcile`，不得重新`execute`。远端不开放审核、发货、作废或删除。
 - 返回 `popup_unknown` 或 `navigation_failed` 时停止并报告，不使用坐标或盲目重试。
 - 返回 `geometry_blocked` 时停止；不得在不稳定布局下继续点击，也不得用重复点击代替修复。
 - 自有 Linux headed Chromium 的原生垂直滚动条可以占用稳定的页面宽度；Geometry Guard只在三次采样一致、无水平滚动、缩放正常且client/visual viewport差值互相一致时把不超过24px的差值识别为系统滚动条。豆包`platform_cdp`浏览器的窗口由平台托管，不要求匹配自有浏览器的`1440×850`目标；最大化窗口只有在三次采样稳定、有效页面区域达到最小尺寸且缩放正常时才放行。宽高两个原生滚动条沟槽还须由两方向document/visual证据分别一致证明且各不超过24px；执行器不得修改平台窗口，也不得全局放宽几何容差。

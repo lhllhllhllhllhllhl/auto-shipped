@@ -28,6 +28,7 @@ check chrome google-chrome-stable --version
 check xvfb systemctl is-active --quiet auto-shipped-xvfb.service
 check display_socket test -S /tmp/.X11-unix/X99
 check private_state sudo -u "$RUNNER_USER" test -w "$STATE_ROOT"
+check credential_helper test -x /usr/local/bin/guanyi-credential-helper
 
 if [[ -L "$INSTALL_ROOT/current" && -r "$CONFIG_FILE" ]]; then
   set -a

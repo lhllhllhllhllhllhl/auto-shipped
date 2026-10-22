@@ -8,9 +8,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   ARTIFACT_DIR,
+  HUMAN_TAKEOVER_AVAILABLE,
   HUMAN_VERIFICATION_TIMEOUT_MS,
   LOGIN_RESULT_TIMEOUT_MS,
   LOGIN_TIMEOUT_MS,
+  RESIDENT_SESSION_TTL_MS,
 } from "./config.mjs";
 import {
   CredentialError,
@@ -22,6 +24,7 @@ import { GeometryError } from "./geometry.mjs";
 import {
   createLoginControlServer,
   createLoginOperation,
+  findActiveLoginOperation,
   isLoginWorkerAlive,
   loadLoginOperation,
   LoginOperationError,
@@ -36,6 +39,11 @@ import {
   transitionLoginOperation,
   waitForLoginOperation,
 } from "./login-operation.mjs";
+import {
+  createResidentCommandQueue,
+  ResidentCommand,
+  ResidentSessionError,
+} from "./resident-session.mjs";
 import {
   createPreparedOperation,
   NO_TASK_RESOLUTION_AUTHORIZATION,
@@ -138,7 +146,7 @@ function sessionErrorStatus(error) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation|probe-order-audit|prepare-order-audit|execute-order-audit|reconcile-order-audit> [arguments]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|resident-start|resident-status|resident-probe|resident-execute-import|resident-reconcile|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation|probe-order-audit|prepare-order-audit|execute-order-audit|reconcile-order-audit> [arguments]",
     commands: {
       login: "打开当前管易浏览器会话，由用户手动登录。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
@@ -157,6 +165,13 @@ function help() {
         "经用户当次确认后请求短信验证码，从标准输入接收验证码并完成登录。",
       "login-auto-sms-task-center":
         "短信登录成功后在同一浏览器进程内执行任务中心只读探针。",
+      "resident-start":
+        "启动或复用服务器唯一的常驻管易浏览器；登录后保持运行并串行处理任务。",
+      "resident-status": "读取常驻浏览器状态，不启动第二个浏览器。",
+      "resident-execute-import":
+        `把已授权批次排入常驻浏览器；需要当次授权口令 ${SUBMIT_AUTHORIZATION}。`,
+      "resident-reconcile": "在常驻浏览器中只读核验一个可能已提交的批次。",
+      "resident-probe": "在常驻浏览器中只读检查登录与页面状态。",
       probe: "只读检查登录和页面状态；只关闭已登记的安全通知。",
       "navigate-import": "只读导航到自定义订单导入页面，不选择文件。",
       "prepare-import-form":
@@ -325,21 +340,130 @@ function commandMailbox(operationId) {
 }
 
 
-async function runLoginAutoWorker(operationId, credentialMode = "stored") {
-  if (!["stored", "agent_input"].includes(credentialMode)) {
+async function probeInResidentSession(page) {
+  await openApp(page);
+  const before = await detectState(page);
+  if (["needs_login", "needs_verification"].includes(before.state)) {
+    return before;
+  }
+  const popups = await dismissKnownPopups(page);
+  const after = await detectState(page);
+  return {
+    status: popups.unknown.length ? "popup_unknown" : "ready",
+    before: before.state,
+    after: after.state,
+    url: after.url,
+    dismissedPopups: popups.dismissed,
+    popupSummaries: popups.unknown,
+  };
+}
+
+
+async function serveResidentCommands(
+  operationId,
+  session,
+  authenticatedPage,
+  residentQueue,
+) {
+  const page = authenticatedPage;
+  await transitionLoginOperation(
+    operationId,
+    LoginOperationState.RESIDENT_READY,
+    {
+      reason: "resident_browser_authenticated",
+      expiresInMs: RESIDENT_SESSION_TTL_MS,
+    },
+  );
+  while (true) {
+    const item = await residentQueue.take();
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_EXECUTING,
+      {
+        reason: `resident_command_${item.command}`,
+        expiresInMs: RESIDENT_SESSION_TTL_MS,
+      },
+    );
+    try {
+      let result;
+      if (item.command === ResidentCommand.PROBE) {
+        result = await probeInResidentSession(page);
+        if (["needs_login", "needs_verification"].includes(result.state)) {
+          throw new SessionError(
+            "RESIDENT_SESSION_LOGIN_EXPIRED",
+            "常驻管易浏览器的登录状态已失效；请重新建立会话。",
+          );
+        }
+      } else if (item.command === ResidentCommand.EXECUTE_IMPORT) {
+        const observed = await probeInResidentSession(page);
+        if (["needs_login", "needs_verification"].includes(observed.state)) {
+          throw new SessionError(
+            "RESIDENT_SESSION_LOGIN_EXPIRED",
+            "常驻管易浏览器的登录状态已失效；本批尚未选择文件，请重新登录后再执行。",
+          );
+        }
+        result = await executeAuthorizedImportInSingleSession(
+          page,
+          item.browserOperationId,
+          item.authorization,
+        );
+      } else {
+        result = await reconcileImportInCurrentSession(
+          page,
+          item.browserOperationId,
+        );
+      }
+      item.resolve(result);
+    } catch (error) {
+      item.reject(error);
+      if (
+        error?.code === "RESIDENT_SESSION_LOGIN_EXPIRED" ||
+        page.isClosed() ||
+        (session.browser && !session.browser.isConnected())
+      ) {
+        throw error;
+      }
+    } finally {
+      const loaded = await loadLoginOperation(operationId).catch(() => null);
+      if (loaded?.record.state === LoginOperationState.RESIDENT_EXECUTING) {
+        await transitionLoginOperation(
+          operationId,
+          LoginOperationState.RESIDENT_READY,
+          {
+            reason: "resident_command_finished",
+            expiresInMs: RESIDENT_SESSION_TTL_MS,
+          },
+        ).catch(() => null);
+      }
+    }
+  }
+}
+
+
+async function runLoginAutoWorker(
+  operationId,
+  credentialMode = "stored",
+  workerMode = "one_shot",
+) {
+  if (!["stored", "agent_input", "auto"].includes(credentialMode)) {
     throw new LoginOperationError(
       "LOGIN_CREDENTIAL_MODE_INVALID",
       "登录凭据模式不受支持。",
     );
   }
   const mailbox = commandMailbox(operationId);
+  const residentQueue = createResidentCommandQueue();
+  const resident = workerMode === "resident";
   let server;
   let session;
   let pendingCommand = null;
   try {
     server = await createLoginControlServer(
       operationId,
-      async (message) => await mailbox.handle(message),
+      async (message) =>
+        message.action === "resident_command"
+          ? await residentQueue.enqueue(message)
+          : await mailbox.handle(message),
     );
     await setLoginWorkerProcess(operationId);
     await transitionLoginOperation(
@@ -350,21 +474,30 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     session = await launchSession();
     await openApp(session.page);
     if (!isLoginUrl(session.page.url())) {
-      await transitionLoginOperation(
-        operationId,
-        LoginOperationState.AUTHENTICATED,
-        { reason: "browser_session_authenticated" },
-      );
+      if (resident) {
+        return await serveResidentCommands(
+          operationId,
+          session,
+          session.page,
+          residentQueue,
+        );
+      }
+      await transitionLoginOperation(operationId, LoginOperationState.AUTHENTICATED, {
+        reason: "browser_session_authenticated",
+      });
       return 0;
     }
     await session.page.bringToFront();
     await markDedicatedLoginWindow(session.page);
     const loginOptions = {
       onHumanVerificationRequired: async (candidate, observation) => {
-        if (session.backend === "platform_cdp") {
+        if (
+          session.backend === "platform_cdp" ||
+          !HUMAN_TAKEOVER_AVAILABLE
+        ) {
           throw new SessionError(
             "LOGIN_LOCAL_VERIFICATION_REQUIRED",
-            "豆包云端登录遇到阿里云额外验证；请用户或管理员先在自己的可信电脑完整登录管易并通过验证。",
+            "远程登录遇到阿里云额外验证；请用户或管理员先在自己的可信电脑完整登录管易并通过验证。",
             {
               humanVerificationType: observation.humanVerificationType,
               safeUrl: observation.safeUrl,
@@ -443,7 +576,19 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         }
       },
     };
-    if (credentialMode === "agent_input") {
+    let authenticatedPage;
+    let selectedCredentialMode = credentialMode;
+    let storedCredentials = null;
+    if (credentialMode === "auto") {
+      try {
+        storedCredentials = await readStoredCredentials();
+        selectedCredentialMode = "stored";
+      } catch (error) {
+        if (!(error instanceof CredentialError)) throw error;
+        selectedCredentialMode = "agent_input";
+      }
+    }
+    if (selectedCredentialMode === "agent_input") {
       const waiting = await transitionLoginOperation(
         operationId,
         LoginOperationState.WAITING_FOR_CREDENTIALS,
@@ -483,7 +628,7 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         }
         pendingCommand.resolve(publicLoginOperation(authenticating.record));
         pendingCommand = null;
-        await waitForAuthenticatedPage(
+        authenticatedPage = await waitForAuthenticatedPage(
           session.context,
           session.page,
           LOGIN_TIMEOUT_MS,
@@ -495,13 +640,26 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
         throw error;
       }
     } else {
-      const credentials = await readStoredCredentials();
-      await loginWithCredentials(
-        session.context,
-        session.page,
-        credentials,
-        LOGIN_TIMEOUT_MS,
-        loginOptions,
+      const credentials = storedCredentials || (await readStoredCredentials());
+      try {
+        authenticatedPage = await loginWithCredentials(
+          session.context,
+          session.page,
+          credentials,
+          LOGIN_TIMEOUT_MS,
+          loginOptions,
+        );
+      } finally {
+        credentials.username = "";
+        credentials.password = "";
+      }
+    }
+    if (resident) {
+      return await serveResidentCommands(
+        operationId,
+        session,
+        authenticatedPage,
+        residentQueue,
       );
     }
     await transitionLoginOperation(
@@ -548,6 +706,144 @@ async function runLoginAutoWorker(operationId, credentialMode = "stored") {
     await new Promise((resolve) => server?.close(resolve) || resolve());
     await session?.close?.().catch(() => null);
   }
+}
+
+
+async function runResidentStart() {
+  const active = await findActiveLoginOperation();
+  if (active) {
+    if (isLoginWorkerAlive(active)) {
+      printJson(publicLoginOperation(active));
+      return active.state === LoginOperationState.FAILED ? 2 : 0;
+    }
+    await transitionLoginOperation(
+      active.operationId,
+      LoginOperationState.FAILED,
+      {
+        reason: "resident_worker_not_alive",
+        code: "RESIDENT_WORKER_EXITED",
+        message: "常驻管易浏览器进程已退出；可以安全启动新的常驻会话。",
+      },
+    ).catch(() => null);
+  }
+  const credentialMode = "auto";
+  const created = await createLoginOperation();
+  const child = spawn(
+    process.execPath,
+    [
+      fileURLToPath(import.meta.url),
+      "login-auto-worker",
+      created.record.operationId,
+      credentialMode,
+      "resident",
+    ],
+    {
+      detached: true,
+      env: process.env,
+      stdio: "ignore",
+      windowsHide: true,
+    },
+  );
+  child.once("error", async (error) => {
+    await transitionLoginOperation(
+      created.record.operationId,
+      LoginOperationState.FAILED,
+      {
+        reason: "resident_worker_spawn_failed",
+        code: error?.code || "RESIDENT_WORKER_SPAWN_FAILED",
+        message: "无法启动常驻管易浏览器进程。",
+      },
+    ).catch(() => null);
+  });
+  child.once("exit", async (code) => {
+    if (code === 0) return;
+    const loaded = await loadLoginOperation(created.record.operationId).catch(
+      () => null,
+    );
+    if (
+      loaded &&
+      ![
+        LoginOperationState.FAILED,
+        LoginOperationState.EXPIRED,
+      ].includes(loaded.record.state)
+    ) {
+      await transitionLoginOperation(
+        created.record.operationId,
+        LoginOperationState.FAILED,
+        {
+          reason: "resident_worker_exited",
+          code: "RESIDENT_WORKER_EXITED",
+          message: "常驻管易浏览器进程提前结束。",
+        },
+      ).catch(() => null);
+    }
+  });
+  child.unref();
+  const loaded = await waitForLoginOperation(created.record.operationId, {
+    timeoutMs: 30_000,
+  });
+  printJson(publicLoginOperation(loaded.record));
+  return loaded.record.state === LoginOperationState.FAILED ? 2 : 0;
+}
+
+
+async function currentResidentOperation() {
+  const record = await findActiveLoginOperation();
+  if (!record || !isLoginWorkerAlive(record)) {
+    return null;
+  }
+  return record;
+}
+
+
+async function runResidentStatus() {
+  const record = await currentResidentOperation();
+  if (!record) {
+    printJson({
+      status: "needs_login",
+      browserMode: "resident_single_owner",
+      instruction: "常驻管易浏览器尚未运行，请先启动登录。",
+    });
+    return 2;
+  }
+  printJson(publicLoginOperation(record));
+  return 0;
+}
+
+
+async function sendResidentCommand(command, browserOperationId, authorization) {
+  const record = await currentResidentOperation();
+  if (!record) {
+    printJson({
+      status: "needs_login",
+      browserMode: "resident_single_owner",
+      safety: "No browser write was attempted.",
+    });
+    return 2;
+  }
+  if (
+    ![
+      LoginOperationState.RESIDENT_READY,
+      LoginOperationState.RESIDENT_EXECUTING,
+    ].includes(record.state)
+  ) {
+    printJson(publicLoginOperation(record));
+    return 2;
+  }
+  const result = await sendLoginControl(
+    record.operationId,
+    "resident_command",
+    {
+      command,
+      browserOperationId,
+      authorization,
+      timeoutMs: 15 * 60_000,
+    },
+  );
+  printJson(result);
+  return command === ResidentCommand.EXECUTE_IMPORT
+    ? workflowExitCode(result)
+    : 0;
 }
 
 
@@ -695,6 +991,8 @@ async function runLoginStatus(operationId) {
     Date.parse(loaded.record.expiresAt) <= Date.now() &&
     ![
       LoginOperationState.AUTHENTICATED,
+      LoginOperationState.RESIDENT_READY,
+      LoginOperationState.RESIDENT_EXECUTING,
       LoginOperationState.FAILED,
       LoginOperationState.EXPIRED,
     ].includes(loaded.record.state)
@@ -730,6 +1028,7 @@ async function runLoginSmsSubmit(operationId) {
     timeoutMs: LOGIN_RESULT_TIMEOUT_MS + 5_000,
     states: new Set([
       LoginOperationState.AUTHENTICATED,
+      LoginOperationState.RESIDENT_READY,
       LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION,
       LoginOperationState.FAILED,
       LoginOperationState.EXPIRED,
@@ -737,6 +1036,7 @@ async function runLoginSmsSubmit(operationId) {
   });
   printJson(publicLoginOperation(loaded.record));
   if (loaded.record.state === LoginOperationState.AUTHENTICATED) return 0;
+  if (loaded.record.state === LoginOperationState.RESIDENT_READY) return 0;
   if (
     loaded.record.state ===
     LoginOperationState.WAITING_FOR_HUMAN_VERIFICATION
@@ -1281,6 +1581,11 @@ async function main() {
       "login-sms-submit",
       "login-auto-sms",
       "login-auto-sms-task-center",
+      "resident-start",
+      "resident-status",
+      "resident-execute-import",
+      "resident-reconcile",
+      "resident-probe",
       "probe",
       "navigate-import",
       "prepare-import-form",
@@ -1398,7 +1703,34 @@ async function main() {
   let session;
   try {
     if (command === "login-auto-worker") {
-      return await runLoginAutoWorker(process.argv[3], process.argv[4]);
+      return await runLoginAutoWorker(
+        process.argv[3],
+        process.argv[4],
+        process.argv[5],
+      );
+    }
+    if (command === "resident-start") {
+      return await runResidentStart();
+    }
+    if (command === "resident-status") {
+      return await runResidentStatus();
+    }
+    if (command === "resident-execute-import") {
+      return await sendResidentCommand(
+        ResidentCommand.EXECUTE_IMPORT,
+        process.argv[3],
+        process.argv[4],
+      );
+    }
+    if (command === "resident-reconcile") {
+      return await sendResidentCommand(
+        ResidentCommand.RECONCILE_IMPORT,
+        process.argv[3],
+        null,
+      );
+    }
+    if (command === "resident-probe") {
+      return await sendResidentCommand(ResidentCommand.PROBE, null, null);
     }
     if (command === "login-auto-start") {
       return await runLoginAutoStart();
@@ -1533,6 +1865,15 @@ async function main() {
         code: error.code,
         message: error.message,
         details: error.details,
+        screenshot,
+      });
+      return 2;
+    }
+    if (error instanceof ResidentSessionError) {
+      printJson({
+        status: "resident_browser_blocked",
+        code: error.code,
+        message: error.message,
         screenshot,
       });
       return 2;

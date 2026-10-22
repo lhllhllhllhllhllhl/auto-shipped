@@ -7,7 +7,7 @@
 - 使用独立 Chrome 配置保存管易登录会话。
 - 默认由用户首次手动登录；也可从 macOS 钥匙串读取凭证自动登录。
 - Skill、源码、JSON、日志、普通配置和命令行均不保存或输出账号密码；macOS 使用 Keychain，Windows 使用当前用户 DPAPI 加密存储。云端优先使用外部 Secret/Vault 凭证助手；平台没有安全入口且用户明确接受对话留存风险时，也可把本次账号密码发给 Agent，由 Agent 通过一次性`127.0.0.1`页面或私有stdin交给当前登录worker。聊天平台仍可能保留原消息，项目无法代为删除。
-- 浏览器接入分为两种：macOS/Windows继续由Playwright启动持久headed Chromium；Linux平台存在可信本机CDP端点时，Playwright连接平台自带的可见浏览器。两者复用同一套登录、导航、上传、任务核验和Geometry Guard。
+- 浏览器接入分为三种环境适配：macOS/Windows由Playwright启动持久headed Chromium；Linux平台存在可信本机CDP端点时连接平台自带可见浏览器；自管Ubuntu服务器由一个长期Playwright进程独占持久浏览器并串行接收任务。三者复用同一套登录、导航、上传、任务核验和Geometry Guard。
 - 使用页面文字、角色、URL 和状态验证，不使用固定坐标。
 - headed 模式使用 `viewport: null`；原生窗口由 Geometry Guard 通过 CDP 统一校准，不再使用 `--start-maximized`。
 - 自有Linux浏览器的原生垂直滚动条只在三次几何采样一致、无水平滚动、缩放正常且client/visual viewport证据一致时被识别。豆包`platform_cdp`浏览器由平台管理窗口，不要求外层窗口匹配`1440×850`，也不调用`Browser.setWindowBounds`；最大化窗口仍须三次采样稳定、缩放正常且有效client区域达到最小尺寸，宽高原生滚动条沟槽还须分别由document/visual一致证明且各不超过24px。两种模式都不使用全局20px宽容差。
@@ -22,6 +22,7 @@
 - `session.mjs`：专用 Chrome 会话、单一profile进程锁与登录状态；验证码提交后只返回脱敏结果分类。
 - `human-verification.mjs`：额外验证页白名单、脱敏URL分类和可替换的Linux窗口置前适配；不执行验证动作。
 - `login-operation.mjs`：跨消息凭据/短信验证的短时登录操作、分阶段有效期、私有控制通道和状态回执；不保存账号密码或验证码。
+- `resident-session.mjs`：常驻服务器命令校验和内存FIFO队列；不包含页面选择器、凭据或订单规则。
 - `geometry.mjs`：原生窗口策略、页面几何快照、稳定性检测与写后 fail-close 接口。
 - `screenshot.mjs`：不改变 viewport、缩放和滚动的只读截图。
 - `credentials.mjs`：macOS 钥匙串凭证提供器，可独立替换。
@@ -56,6 +57,11 @@ npm run login-status -- "<login-operation-id>"
 npm run login-sms-request -- "<login-operation-id>" "CONFIRM_REQUEST_GUANYI_SMS"
 npm run login-sms-submit -- "<login-operation-id>"
 npm run login-auto-sms
+npm run resident-start
+npm run resident-status
+npm run resident-probe
+npm run resident-execute-import -- "<operation-id>" "CONFIRM_GUANYI_IMPORT_SUBMISSION"
+npm run resident-reconcile -- "<operation-id>"
 npm run probe
 npm run navigate-import
 npm run prepare-import-form
@@ -100,6 +106,8 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 同一浏览器会话同时只允许一个执行器所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`。命令结束时，本地模式关闭自有context；CDP模式只断开Playwright控制连接，保留平台浏览器、标签、Cookie和profile。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的普通结果窗口默认45秒，登记的人工验证阶段默认15分钟。
 
+自管服务器例外地由`resident-start`保持一个长期owner；返回`resident_ready`后，`resident-probe`、`resident-execute-import`和`resident-reconcile`只通过原worker的内存FIFO队列执行，单批结束不关闭context。任务并发时只排队，不启动第二个浏览器。登录过期、worker退出或服务器重启后旧控制通道作废；已可能写入的批次仍只能核验。服务器凭据由root私有加密helper提供，helper缺失时才回退到本次stdin临时凭据。
+
 同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
 
 正式 Skill 包装入口只接受清单一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区，并只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层。显式指定普通复制目录不能绕过`runtime-manifest.json`；规则回退、实现引用失效、临时修改或打包不一致都会结构性拒绝浏览器入口。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
@@ -133,6 +141,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 23. `execute-order-audit`必须取得上传成功后的新授权`CONFIRM_GUANYI_ORDER_AUDIT`。上传授权不能复用；策略中的联动模式默认关闭。它只筛选已确认的待审核状态、核验结果中没有其他状态、全选当前页并点击审核，多页按页面签名逐页处理。
 24. `reconcile-order-audit`只读回查剩余待审核订单，不能勾选行或点击审核。写请求后页面状态不明时不得盲目重试。
 25. `probe-order-audit`必须分别在本地与豆包环境只读确认审核列、平台单号列、两个筛选框、全选框、审核按钮和真实待审核状态词；双环境未完成前生产审核门禁保持关闭。
+26. 自管服务器必须只有一个`resident_single_owner`浏览器；两个上传请求按FIFO顺序进入同一context。首个任务结束后浏览器仍为`resident_ready`，第二个任务不得新建浏览器。凭据、验证码和任务授权不得写入队列文件或登录operation回执。
 
 ## 实机验收记录
 

@@ -31,6 +31,9 @@ export const LOGIN_OPERATION_DIR = path.resolve(
   process.env.GUANYI_LOGIN_OPERATION_DIR ||
     path.join(RUNTIME_ROOT, "guanyi-login-operations"),
 );
+export const RESIDENT_SESSION_TTL_MS = Number(
+  process.env.GUANYI_RESIDENT_SESSION_TTL_MS || 365 * 24 * 60 * 60_000,
+);
 export const CREDENTIAL_HELPER = process.env.GUANYI_CREDENTIAL_HELPER || "";
 export function defaultBrowserBackend(
   platform = process.platform,
@@ -143,6 +146,8 @@ export const LOGIN_RESULT_TIMEOUT_MS = Number(
 export const HUMAN_VERIFICATION_TIMEOUT_MS = Number(
   process.env.GUANYI_HUMAN_VERIFICATION_TIMEOUT_MS || 15 * 60_000,
 );
+export const HUMAN_TAKEOVER_AVAILABLE =
+  String(process.env.GUANYI_HUMAN_TAKEOVER_AVAILABLE || "1") === "1";
 export const BROWSER_WINDOW_CLASS = "shangyu-guanyi-browser";
 export const KEYCHAIN_SERVICE =
   process.env.GUANYI_KEYCHAIN_SERVICE || "com.shangyu.auto-shipped.guanyi";

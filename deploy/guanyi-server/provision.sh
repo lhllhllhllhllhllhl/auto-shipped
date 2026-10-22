@@ -24,7 +24,7 @@ esac
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl git gnupg jq python3 python3-pip python3-venv \
+  ca-certificates curl git gnupg jq openssl python3 python3-pip python3-venv \
   software-properties-common \
   rsync unzip xauth x11-utils xvfb fonts-noto-cjk
 
@@ -80,6 +80,22 @@ if [[ ! -f "$CONFIG_ROOT/guanyi-server.env" ]]; then
   chown root:"$RUNNER_USER" "$CONFIG_ROOT/guanyi-server.env"
   chmod 0640 "$CONFIG_ROOT/guanyi-server.env"
 fi
+
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 \
+  "$SCRIPT_DIR/guanyi-credential-helper-root.sh" \
+  /usr/local/libexec/auto-shipped-guanyi-credential-helper
+install -o root -g root -m 0755 \
+  "$SCRIPT_DIR/guanyi-credential-helper.sh" \
+  /usr/local/bin/guanyi-credential-helper
+install -o root -g root -m 0755 \
+  "$SCRIPT_DIR/set-guanyi-credentials.sh" \
+  /usr/local/sbin/set-guanyi-credentials
+cat > /etc/sudoers.d/auto-shipped-guanyi-credential-helper <<EOF
+$RUNNER_USER ALL=(root) NOPASSWD: /usr/local/libexec/auto-shipped-guanyi-credential-helper get
+EOF
+chmod 0440 /etc/sudoers.d/auto-shipped-guanyi-credential-helper
+visudo -cf /etc/sudoers.d/auto-shipped-guanyi-credential-helper >/dev/null
 
 sed "s/@@RUNNER_USER@@/$RUNNER_USER/g" \
   "$SCRIPT_DIR/auto-shipped-xvfb.service" \

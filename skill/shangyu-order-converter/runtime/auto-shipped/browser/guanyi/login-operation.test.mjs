@@ -369,6 +369,97 @@ test("login control passes temporary credentials only through memory", async () 
 });
 
 
+test("resident browser stays non-terminal and returns to ready after one task", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
+  try {
+    const created = await createLoginOperation(directory, 60_000);
+    const operationId = created.record.operationId;
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "resident_started" },
+      directory,
+    );
+    let current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_READY,
+      { reason: "authenticated" },
+      directory,
+    );
+    assert.equal(publicLoginOperation(current.record).browserMode, "resident_single_owner");
+    assert.ok(current.record.control.token);
+
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_EXECUTING,
+      { reason: "execute_import" },
+      directory,
+    );
+    assert.equal(publicLoginOperation(current.record).queuePolicy, "fifo");
+    current = await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_READY,
+      { reason: "task_finished" },
+      directory,
+    );
+    assert.equal(current.record.state, LoginOperationState.RESIDENT_READY);
+    assert.ok(current.record.control.token);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("resident control carries only operation binding and authorization in memory", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
+  let server;
+  try {
+    const created = await createLoginOperation(directory, 60_000);
+    const operationId = created.record.operationId;
+    let observed = null;
+    server = await createLoginControlServer(
+      operationId,
+      async (message) => {
+        observed = message;
+        return { status: "verified" };
+      },
+      directory,
+    );
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.AUTHENTICATING,
+      { reason: "resident_started" },
+      directory,
+    );
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_READY,
+      { reason: "authenticated" },
+      directory,
+    );
+    const browserOperationId = "11111111-1111-4111-8111-111111111111";
+    const result = await sendLoginControl(operationId, "resident_command", {
+      command: "execute_import",
+      browserOperationId,
+      authorization: "CONFIRM_GUANYI_IMPORT_SUBMISSION",
+      directory,
+    });
+    assert.deepEqual(result, { status: "verified" });
+    assert.equal(observed.command, "execute_import");
+    assert.equal(observed.browserOperationId, browserOperationId);
+    const receipt = await fs.readFile(
+      path.join(directory, `${operationId}.json`),
+      "utf8",
+    );
+    assert.equal(receipt.includes(browserOperationId), false);
+    assert.equal(receipt.includes("CONFIRM_GUANYI_IMPORT_SUBMISSION"), false);
+  } finally {
+    await new Promise((resolve) => server?.close(resolve) || resolve());
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
 test("one-time localhost page hands credentials to the same login control", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-login-"));
   let server;

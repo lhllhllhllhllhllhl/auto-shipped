@@ -62,6 +62,9 @@ scp "${SCP_ARGS[@]}" \
   "$SCRIPT_DIR/doctor.sh" \
   "$SCRIPT_DIR/guanyi-server.env.example" \
   "$SCRIPT_DIR/auto-shipped-xvfb.service" \
+  "$SCRIPT_DIR/guanyi-credential-helper-root.sh" \
+  "$SCRIPT_DIR/guanyi-credential-helper.sh" \
+  "$SCRIPT_DIR/set-guanyi-credentials.sh" \
   "$archive" \
   "${SSH_USER}@${HOST}:$remote_stage/"
 
