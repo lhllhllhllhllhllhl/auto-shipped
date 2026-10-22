@@ -19,6 +19,7 @@
           "phase": {"enum": ["conversion", "upload", "post_upload", "post_fulfillment", "manual_entry"]},
           "source_refs": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
           "allowed_implementation_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "planned_implementation_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
           "question": {"type": "string"},
           "reason": {"type": "string"},
           "answer_type": {"enum": ["confirmation", "single_choice", "text", "file"]},

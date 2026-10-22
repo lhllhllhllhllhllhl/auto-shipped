@@ -4,7 +4,7 @@
 
 每条可执行业务规则只有一个权威定义。公司、路由、证据文档和代码只引用它，不各自复制一份值。
 
-完整的13个一级模块、依赖和实现归属见[系统模块治理目录](MODULE_GOVERNANCE.md)。该文档由`config/governance/system_module_catalog_v1.json`生成；每次增删模块、实现注册或共享策略后必须运行`python3 scripts/audit_modules.py --write-doc`。
+完整的一级模块数量、依赖和实现归属见[系统模块治理目录](MODULE_GOVERNANCE.md)。该文档由`config/governance/system_module_catalog_v1.json`生成；每次增删模块、实现注册或共享策略后必须运行`python3 scripts/audit_modules.py --write-doc`。
 
 ## 分层与唯一职责
 
@@ -55,6 +55,7 @@
 5. 新规则先判断是“跨公司共用”还是“公司特有”，再选择共享模块或公司规则包，禁止直接写进Excel渲染器。
 6. 规则包可增加新业务字段，但核心身份、版本和覆盖声明必须通过Schema；标记为`implemented`的引用还必须存在于实现注册表。
 7. 一条来源商品拆成多个目标商品不写入飞书一对一映射；长期组成事实统一写入正式工作簿的“组合商品规则”Sheet，来源规则包只声明执行策略。首次只能提出候选并等待用户确认目标SKU、数量倍数和复用范围；仅本次记录必须绑定来源文件SHA-256，长期新增必须走受控写入、版本锁、日志和回读。
+8. `allowed_implementation_refs`只允许引用实现注册表中真实存在的活动或历史兼容实现；尚未开发的候选必须放入`planned_implementation_refs`，不能让计划名称看起来像已经生效。
 
 ## 自营京东中通联系方式例外
 

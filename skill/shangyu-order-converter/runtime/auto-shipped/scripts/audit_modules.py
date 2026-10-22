@@ -29,6 +29,9 @@ def main() -> int:
         project_root=PROJECT_ROOT,
         implementation_registry_path=PROJECT_ROOT / "config/business_rules/implementation_registry_v1.json",
         policy_registry_path=PROJECT_ROOT / "config/platform_rules/guanyi/policy_modules_v1.json",
+        rule_catalog_path=PROJECT_ROOT
+        / "config/business_rules/shangyu_sop_rule_catalog_v1.json",
+        check_generated_doc=not args.write_doc,
     )
     if args.write_doc and result["status"] == "ready":
         destination = PROJECT_ROOT / "docs/MODULE_GOVERNANCE.md"
@@ -37,6 +40,16 @@ def main() -> int:
             encoding="utf-8",
         )
         result["generated_doc"] = str(destination.relative_to(PROJECT_ROOT))
+        result = audit_module_catalog(
+            catalog_path,
+            project_root=PROJECT_ROOT,
+            implementation_registry_path=PROJECT_ROOT
+            / "config/business_rules/implementation_registry_v1.json",
+            policy_registry_path=PROJECT_ROOT
+            / "config/platform_rules/guanyi/policy_modules_v1.json",
+            rule_catalog_path=PROJECT_ROOT
+            / "config/business_rules/shangyu_sop_rule_catalog_v1.json",
+        ) | {"generated_doc": str(destination.relative_to(PROJECT_ROOT))}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] == "ready" else 2
 
