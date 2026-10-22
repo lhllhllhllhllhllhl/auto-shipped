@@ -43,6 +43,7 @@ if [[ -L "$INSTALL_ROOT/current" && -r "$CONFIG_FILE" ]]; then
       SHANGYU_SKILL_STATE_ROOT="$SHANGYU_SKILL_STATE_ROOT" \
       GUANYI_BROWSER_BACKEND="$GUANYI_BROWSER_BACKEND" \
       GUANYI_CHROME_EXECUTABLE="$GUANYI_CHROME_EXECUTABLE" \
+      GUANYI_CREDENTIAL_HELPER="${GUANYI_CREDENTIAL_HELPER:-/usr/local/bin/guanyi-credential-helper}" \
       python3.11 "$INSTALL_ROOT/current/skill/shangyu-order-converter/scripts/doctor.py"
   ); then
     printf 'skill_doctor=ready\n'
