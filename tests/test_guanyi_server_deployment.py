@@ -78,6 +78,7 @@ def test_remote_job_wrapper_exposes_only_registered_executor_actions() -> None:
 
 def test_server_credentials_are_encrypted_and_read_through_a_narrow_helper() -> None:
     provision = (DEPLOY / "provision.sh").read_text(encoding="utf-8")
+    doctor = (DEPLOY / "doctor.sh").read_text(encoding="utf-8")
     setter = (DEPLOY / "set-guanyi-credentials.sh").read_text(encoding="utf-8")
     helper = (DEPLOY / "guanyi-credential-helper-root.sh").read_text(
         encoding="utf-8"
@@ -86,6 +87,7 @@ def test_server_credentials_are_encrypted_and_read_through_a_narrow_helper() -> 
     assert "openssl enc -aes-256-cbc -pbkdf2" in setter
     assert "openssl enc -d -aes-256-cbc -pbkdf2" in helper
     assert "NOPASSWD: /usr/local/libexec/auto-shipped-guanyi-credential-helper get" in provision
+    assert "GUANYI_CREDENTIAL_HELPER" in doctor
     assert "GUANYI_LOGIN_PASSWORD" not in setter
 
 
