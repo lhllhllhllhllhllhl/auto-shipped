@@ -237,12 +237,19 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("decision_bundle", schema["required"])
         self.assertIn("mapping_reuse_bundle", schema["required"])
         self.assertIn("store_assignment_notices", schema["required"])
+        self.assertIn("package_semantics_notices", schema["required"])
         notice = schema["$defs"]["storeAssignmentNotice"]["properties"]
         self.assertEqual(
             notice["code"]["const"],
             "NON_CORN_TO_TAOJUZI_FALLBACK",
         )
         self.assertFalse(notice["blocking"]["const"])
+        package_notice = schema["$defs"]["packageSemanticsNotice"]["properties"]
+        self.assertEqual(
+            package_notice["code"]["const"],
+            "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+        )
+        self.assertFalse(package_notice["blocking"]["const"])
         self.assertFalse(schema["additionalProperties"])
 
     def test_adaptive_plan_can_carry_only_masked_text_recipient_preview(self):

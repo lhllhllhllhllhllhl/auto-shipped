@@ -181,6 +181,8 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-USER-SELF-OPERATED-CHANNEL-001` | 2026-10-08；2026-10-14、2026-10-15修订 | 用户确认属于尚舆自营的天猫/京东文字玉米单；管易店铺字段分别填写精确上传名称`MANYANGCHI旗舰店`和`MAN YUAN QI旗舰店`，平台名称仅用于路由，不写入店铺字段；平台单号复制消息中的平台单号，不追加公共尾缀 | 自营文字订单路由、店铺与单号 | 已实现独立公司配置和规则包；2026-10-14清除误加入的`（天猫）`/`（京东）`说明性后缀，2026-10-15移除公共`A`尾缀，未知渠道继续阻断 |
 | `DEC-USER-SELF-OPERATED-BAG-JD-CARRIER-001` | 2026-10-08 | 尚舆自营天猫/京东的`袋`匹配8棒家庭装；文本`京东中通`专指京东旗舰店且物流原样填写 | 自营文字订单商品与物流 | 已确认并实现 |
 | `DEC-USER-PACKAGE-SEMANTICS-002` | 2026-10-09 | 数量单位与商品包装分离：RZD的`根`表示彩袋单棒装并按根数写数量；自营的`袋`表示8棒家庭装；其他公司第一次出现未登记表达时追问，长期确认保存为可回收提案 | 包装语义与商品映射 | 已确认并实现 |
+| `DEC-USER-CORN-EIGHT-PACK-001` | 2026-10-22 | 玉米`1袋/8根装/8根家庭装/8棒`全局统一为1件8棒家庭装；包装内含数不作为订单数量，不拆成8件单棒，执行后在结果小节告知 | 包装语义与数量提取 | 已确认并实现；来源专用规则优先 |
+| `DEC-USER-FIXED-SOURCE-CONTEXT-ISOLATION-001` | 2026-10-22 | 当前文件唯一高置信固定模板优先于旧对话公司、来源提示和自适应计划；批次级参数不得跨文件复用，运行时故障不得绕过统一入口 | 来源识别与上下文隔离 | 已确认并实现回归门禁 |
 | `DEC-USER-BARE-STICK-DISABLED-001` | 2026-10-09 | 黄糯、花糯、白糯裸棒只用于试吃，不进入普通发货；编码、名称或语义命中裸棒均阻断 | 发货商品门禁 | 已实现独立禁用SKU列表与转换门禁；试吃订单未来需独立订单类型 |
 | `DEC-USER-PACKAGE-PROPOSAL-COLLECTION-001` | 2026-10-09 | 各用户Agent把用户确认“以后沿用”的包装含义保存为本机独立待登记提案；所有者可定期要求导出JSON，审核合并到主系统正式规则后随Skill发布给所有用户 | 多用户规则治理 | 已实现本机独立存储、幂等proposal_id、冲突rule_key和无订单/收件信息导出；待登记提案不自动生效 |
 | `DEC-USER-RULE-MODULE-AUTHORITY-001` | 2026-10-08 | 同类跨公司规则只保存一个可执行定义；恬田、NDD和荣之达共同引用玉米店铺模块，公共买家会员、默认值、物流和备注也通过共享模块复用 | 规则治理结构 | 已实现共享策略注册表和引用解析；同一目标规则同时内联与引用时fail-close |
@@ -218,7 +220,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-PAYMENT-METHOD` | 支付方式 | `SRC-SOP-PDF-001` p.5 | `DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写网银在线；其他来源仍按各自规则包确认 |
 | `GY-ORDER-TYPE` | 订单类型 | `SRC-SOP-PDF-001` p.12 | `DEC-BLH-ROUTE-001`、`DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写销售订单；其他来源仍按各自规则包确认 |
 | `GY-ORDER-FLAGS` | 赠品、手机、货到付款和分销标记 | `SRC-GY-TEMPLATE-001` | 当前模板说明 | 寄样订单是否属于赠品未确认 |
-| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；文字来源先用公司级包装语义解析，未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
+| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-CORN-EIGHT-PACK-001`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；玉米8根家庭装表达走全局包装语义并在结果告知，其他未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
 | `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002` | `DEC-USER-SAM-BUNDLE-001`、`DEC-USER-SAM-BUNDLE-002`、`DEC-USER-ONE-TO-MANY-CONFIRMATION-001` | 当前已确认SAM白糯、花糯、黄糯8+1；其他组合商品只能提出候选，用户确认目标SKU、数量倍数和复用范围后才可登记 |
 | `GY-RECIPIENT-COMPLETENESS` | 收件信息完整性 | `SRC-SOP-PDF-001` p.5、p.8、p.10 | `SRC-SAMPLE-TT-001`、`SRC-SAMPLE-XHS-001`、`SRC-SAMPLE-ADDR-001` | 组合地址解析仍需边界测试 |
 | `GY-JD-ZTO-CONTACT-SUFFIX` | 自营京东中通联系电话尾码 | `SRC-SAMPLE-TEXT-ORDER-001` | `DEC-USER-JD-ZTO-CONTACT-SUFFIX-001` | 已确认并实现；仅对已确认尚舆自营、京东渠道且物流为京东中通的订单生效，冲突时fail-close |
@@ -251,7 +253,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | SAM | `SRC-SOP-PDF-001` p.8、p.9、`SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002`及SAM确认决策 | 表格转管易；有跟团号会员按原格式，无跟团号按`sam+类型+YYMMDD+_日序号`；白糯、花糯、黄糯8+1展开；SHOWA/尚和/尚合手套归入SH；店铺`sam`；平台单号使用订单编号优先身份且不追加公共尾缀；价格与支付金额为0、运费留空 | 核心样本规则已完整；新增SHOWA手套优先按来源语义归类，已确认SKU兜底，其他商品类型继续作为扩展回归 |
 | 尚舆自营天猫/京东文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-SELF-OPERATED-CHANNEL-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-JD-ZTO-CONTACT-SUFFIX-001`、`DEC-USER-AUTOMATION-SUFFIX-REMOVE-001` | 用户确认公司后按渠道选旗舰店；复制平台单号且不追加公共尾缀；袋匹配8棒家庭装；自营`京东中通`原样写入物流，并把姓名后的四位码追加到联系电话和联系手机 | 自营根尚未登记，首次出现时追问；新商品、新单位或未知渠道追问；京东中通四位码缺失或冲突时追问 |
 | 荣之达文字单 | `SRC-SAMPLE-TEXT-ORDER-001`、`DEC-USER-RZD-TEXT-001`、`DEC-USER-DAILY-SEQUENCE-001`、`DEC-USER-PACKAGE-SEMANTICS-002` | `RZD`可识别荣之达；根匹配彩袋单棒装并按根数写数量；玉米进入光明满元气；缺号时使用`RZD+YYYYMMDD+最少三位飞书中央日序号`，同一来源重跑复用 | 袋等未登记表达追问；旧分钟规则仅用于历史复跑 |
-| NDD | `SRC-SOP-PDF-001` p.10、`SRC-SAMPLE-NDD-001`、`SRC-SAMPLE-NDD-MANUAL-001`、`DEC-USER-NDD-STANDARD-TEMPLATE-001` | 最终标准模板、福利套餐四展开、NDD单号、物流、备注和管易路由均已实现 | 新套餐或套餐组成变化时追问 |
+| NDD | `SRC-SOP-PDF-001` p.10、`SRC-SAMPLE-NDD-001`、`SRC-SAMPLE-NDD-MANUAL-001`、`DEC-USER-NDD-STANDARD-TEMPLATE-001`、`DEC-USER-FIXED-SOURCE-CONTEXT-ISOLATION-001` | 最终标准模板、福利套餐四展开、NDD单号、物流、备注和管易路由均已实现；固定模板不会被旧对话SAM提示或自适应计划覆盖 | 新套餐或套餐组成变化时追问 |
 | 孚泽 | `SRC-SOP-PDF-001` p.10 | 店铺、单号示例、买家会员、金额和物流描述 | 原始Excel样本和基础编号规则确认 |
 | 百礼汇 | `SRC-SOP-PDF-001` p.11-p.14、`DEC-BLH-ROUTE-001` | 后台取单后导入管易，并在发货后回填物流 | 取单方式、订单样本、商品映射和写入授权 |
 | 无平台标识的手工单Excel | `DEC-XV-SOURCE-HINT-001` | Excel不能可靠识别平台时必须要求用户提供平台或订单类型 | 标准化来源提示格式待确定 |

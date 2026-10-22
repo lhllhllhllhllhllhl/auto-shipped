@@ -924,6 +924,73 @@ class GuanyiCustomImportTests(unittest.TestCase):
             {item.code for item in blocked.clarifications},
         )
 
+    def test_global_eight_pack_rule_keeps_one_pack_and_emits_notice(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "P1",
+                    "光明满元气 黄糯玉米8棒家庭装",
+                    "S1",
+                    "8袋/箱",
+                    1210,
+                    "上海尚舆商贸有限公司",
+                )
+            ],
+            package_semantics_registry={
+                "product_family_rules": [
+                    {
+                        "source_name_contains_any": ["黄糯"],
+                        "target_name_contains_all": ["黄糯", "玉米"],
+                    }
+                ],
+                "global_semantics": {
+                    "confirmed": True,
+                    "rules": [
+                        {
+                            "rule_id": "global_corn_eight_pack_v1",
+                            "source_spec_values": ["8根装"],
+                            "source_phrase_values": ["8根装"],
+                            "target_name_contains_all": ["8棒家庭装"],
+                            "quantity_strategy": "same_as_source",
+                            "sticks_per_target_unit": 8,
+                            "notice_code": "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+                            "notice": "8根装按1件8棒家庭装处理。",
+                        }
+                    ],
+                },
+            },
+        )
+        order = parsed_order()
+        order.items = [
+            ParsedItem(
+                source_product_name="黄糯玉米8根装",
+                source_spec="",
+                quantity=1,
+                unit="袋",
+                source_line_no=2,
+            )
+        ]
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.lines[0]["数量"], 1)
+        self.assertEqual(result.lines[0]["商品代码"], "P1")
+        self.assertEqual(len(result.package_semantics_notices), 1)
+        notice = result.package_semantics_notices[0]
+        self.assertEqual(notice["code"], "CORN_EIGHT_PACK_DEFAULT_APPLIED")
+        self.assertFalse(notice["blocking"])
+        self.assertEqual(notice["target"]["sticks_per_target_unit"], 8)
+        self.assertEqual(
+            result.mapping_evidence[0]["package_semantics"]["rule_id"],
+            "global_corn_eight_pack_v1",
+        )
+
     def test_platform_order_number_supports_company_prefix_without_global_suffix(self) -> None:
         rules = confirmed_rules()
         rules["platform_order_number"] = {

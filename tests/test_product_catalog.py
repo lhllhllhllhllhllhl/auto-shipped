@@ -1524,11 +1524,110 @@ class ProductCatalogTests(unittest.TestCase):
             source_product_name="黄糯",
             source_spec="8根装",
         )
-        self.assertEqual(pack_expression.status, "unconfirmed")
-        self.assertEqual(
-            pack_expression.match_method,
-            "package_semantics_unregistered",
+        self.assertEqual(pack_expression.status, "confirmed")
+        self.assertEqual(pack_expression.product.product_code, "JTW8E1")
+        self.assertEqual(pack_expression.quantity_strategy, "same_as_source")
+        self.assertEqual(pack_expression.sticks_per_target_unit, 8)
+
+    def test_global_corn_eight_pack_semantics_are_source_independent(self) -> None:
+        catalog = ProductCatalog.from_files(
+            PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+            PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
+            policy_paths=(
+                PROJECT_ROOT / "config/catalog/package_semantics_v1.json",
+            ),
         )
+        cases = (
+            ("黄糯", "1袋", "JTW8E1"),
+            ("花糯玉米8根装", "", "JTTZE1"),
+            ("白糯", "8棒", "JTBN1E1-EH"),
+        )
+        for source_name, source_spec, expected_product_code in cases:
+            with self.subTest(source_name=source_name, source_spec=source_spec):
+                result = catalog.resolve(
+                    "",
+                    source_profile_id="unregistered_company_text_v1",
+                    source_product_name=source_name,
+                    source_spec=source_spec,
+                )
+                self.assertEqual(result.status, "confirmed")
+                self.assertEqual(result.product.product_code, expected_product_code)
+                self.assertEqual(
+                    result.package_rule_id,
+                    "global_corn_eight_pack_v1",
+                )
+                self.assertEqual(
+                    result.package_notice_code,
+                    "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+                )
+                self.assertEqual(result.quantity_strategy, "same_as_source")
+                self.assertEqual(result.sticks_per_target_unit, 8)
+
+    def test_package_semantics_prevent_stale_name_alias_from_splitting_pack(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "PACK-8",
+                    "光明满元气 黄糯玉米8棒家庭装",
+                    "PACK-8-SPEC",
+                    "8袋/箱",
+                    1210,
+                    "上海仓",
+                ),
+                ProductRecord(
+                    "SINGLE-1",
+                    "光明满元气 黄糯玉米彩袋单棒装",
+                    "SINGLE-1-SPEC",
+                    "单棒",
+                    180,
+                    "上海仓",
+                ),
+            ],
+            [
+                {
+                    "source_profile_id": "legacy_text_v1",
+                    "identifier_type": "product_name",
+                    "source_value": "黄糯",
+                    "source_spec": "8根装",
+                    "product_code": "SINGLE-1",
+                    "spec_code": "SINGLE-1-SPEC",
+                    "confirmed": True,
+                }
+            ],
+            package_semantics_registry={
+                "product_family_rules": [
+                    {
+                        "source_name_contains_any": ["黄糯"],
+                        "target_name_contains_all": ["黄糯", "玉米"],
+                    }
+                ],
+                "global_semantics": {
+                    "confirmed": True,
+                    "rules": [
+                        {
+                            "rule_id": "global_corn_eight_pack_v1",
+                            "source_spec_values": ["8根装"],
+                            "target_name_contains_all": ["8棒家庭装"],
+                            "quantity_strategy": "same_as_source",
+                            "sticks_per_target_unit": 8,
+                            "notice_code": "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+                            "notice": "8根装按1件8棒家庭装处理。",
+                        }
+                    ],
+                },
+            },
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="legacy_text_v1",
+            source_product_name="黄糯",
+            source_spec="8根装",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.product.product_code, "PACK-8")
+        self.assertNotEqual(result.product.product_code, "SINGLE-1")
 
     def test_bare_stick_expression_is_forbidden_for_shipping(self) -> None:
         catalog = ProductCatalog.from_files(

@@ -16,6 +16,7 @@
     "mapping_reuse_bundle",
     "mapping_evidence",
     "store_assignment_notices",
+    "package_semantics_notices",
     "errors"
   ],
   "properties": {
@@ -39,6 +40,7 @@
           "clarifications",
           "decisions",
           "store_assignment_notices",
+          "package_semantics_notices",
           "errors"
         ],
         "properties": {
@@ -59,6 +61,11 @@
             "type": "array",
             "description": "非阻断店铺兜底说明；不含收件信息。",
             "items": {"$ref": "#/$defs/storeAssignmentNotice"}
+          },
+          "package_semantics_notices": {
+            "type": "array",
+            "description": "已执行的非阻断包装语义说明；不含收件信息。",
+            "items": {"$ref": "#/$defs/packageSemanticsNotice"}
           },
           "errors": { "type": "array", "items": { "type": "object" } }
         },
@@ -81,6 +88,20 @@
       "items": {
         "allOf": [
           {"$ref": "#/$defs/storeAssignmentNotice"},
+          {
+            "type": "object",
+            "properties": {"source_file": {"type": "string", "minLength": 1}},
+            "required": ["source_file"]
+          }
+        ]
+      }
+    },
+    "package_semantics_notices": {
+      "type": "array",
+      "description": "本批已执行的非阻断包装语义说明；只用于结果告知，不要求再次确认。",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/packageSemanticsNotice"},
           {
             "type": "object",
             "properties": {"source_file": {"type": "string", "minLength": 1}},
@@ -117,6 +138,56 @@
           "properties": {
             "product_code": {"type": "string", "minLength": 1},
             "spec_code": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "blocking": {"const": false},
+        "source_file": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "packageSemanticsNotice": {
+      "type": "object",
+      "required": [
+        "code",
+        "scope",
+        "source_ref",
+        "rule_id",
+        "message",
+        "source_expression",
+        "target",
+        "blocking"
+      ],
+      "properties": {
+        "code": {"const": "CORN_EIGHT_PACK_DEFAULT_APPLIED"},
+        "scope": {"const": "order"},
+        "source_ref": {"type": "string", "minLength": 1},
+        "rule_id": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "source_expression": {
+          "type": "object",
+          "required": ["product_name", "source_spec", "quantity", "unit"],
+          "properties": {
+            "product_name": {"type": "string"},
+            "source_spec": {"type": "string"},
+            "quantity": {"type": "number", "exclusiveMinimum": 0},
+            "unit": {"type": "string"}
+          },
+          "additionalProperties": false
+        },
+        "target": {
+          "type": "object",
+          "required": [
+            "product_code",
+            "spec_code",
+            "quantity_strategy",
+            "sticks_per_target_unit"
+          ],
+          "properties": {
+            "product_code": {"type": "string", "minLength": 1},
+            "spec_code": {"type": "string"},
+            "quantity_strategy": {"const": "same_as_source"},
+            "sticks_per_target_unit": {"const": 8}
           },
           "additionalProperties": false
         },

@@ -100,6 +100,7 @@ class ConversionResult:
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
+    package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -121,6 +122,7 @@ class ConversionResult:
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
             "store_assignment_notices": self.store_assignment_notices,
+            "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
         }
 
@@ -401,6 +403,11 @@ def convert_order_file(
     source = Path(source_path)
     source_file = source.name
     profiles = load_source_profiles(source_profiles_dir)
+    # Always inspect the current file without conversational hints first.  A
+    # high-confidence registered template is evidence carried by the file
+    # itself and must not be replaced by an adaptive plan left over from a
+    # previous batch or chat turn.
+    baseline_detection = detect_source(source, profiles)
     company_registry: dict[str, Any] | None = None
     if not company_hint:
         try:
@@ -448,7 +455,50 @@ def convert_order_file(
         company_hint = identity_resolution.company.company_id
     adaptive_plan: dict[str, Any] | None = None
     try:
-        if adaptive_plan_path is not None:
+        fixed_template_match = (
+            baseline_detection.status == "matched"
+            and baseline_detection.confidence == "high"
+            and bool(baseline_detection.source_profile_id)
+        )
+        if (
+            fixed_template_match
+            and source_profile_hint
+            and source_profile_hint != baseline_detection.source_profile_id
+        ):
+            return _needs_input(
+                source_file,
+                [
+                    ClarificationRequest(
+                        code="SOURCE_PROFILE_HINT_CONFLICTS_WITH_FIXED_SOURCE",
+                        scope="file",
+                        source_ref=source_file,
+                        question="本文件已唯一命中固定模板，但传入的来源提示属于其他模板；请移除旧批次提示后重试。",
+                        reason=(
+                            f"source_profile_hint={source_profile_hint}; "
+                            f"detected_profile={baseline_detection.source_profile_id}"
+                        ),
+                        answer_type="text",
+                    )
+                ],
+                detection=baseline_detection,
+            )
+        if fixed_template_match:
+            detection = baseline_detection
+            if adaptive_plan_path is not None:
+                detection.matched_features.append(
+                    "fixed_template_overrode_adaptive_plan"
+                )
+                detection.schema_warnings.append(
+                    {
+                        "code": "STALE_ADAPTIVE_PLAN_IGNORED",
+                        "message": (
+                            "当前文件已唯一命中固定模板；为避免跨批次上下文污染，"
+                            "本次忽略传入的自适应计划。"
+                        ),
+                        "blocking": False,
+                    }
+                )
+        elif adaptive_plan_path is not None:
             adaptive_plan = load_adaptive_plan(adaptive_plan_path)
             detection = _adaptive_detection(
                 adaptive_plan,
@@ -1117,6 +1167,7 @@ def convert_order_file(
             mapping_reuse_candidates=built.mapping_reuse_candidates,
             mapping_evidence=built.mapping_evidence,
             store_assignment_notices=built.store_assignment_notices,
+            package_semantics_notices=built.package_semantics_notices,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
         report_path.write_text(
@@ -1140,6 +1191,7 @@ def convert_order_file(
         mapping_reuse_candidates=built.mapping_reuse_candidates,
         mapping_evidence=built.mapping_evidence,
         store_assignment_notices=built.store_assignment_notices,
+        package_semantics_notices=built.package_semantics_notices,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"
     report_path.write_text(

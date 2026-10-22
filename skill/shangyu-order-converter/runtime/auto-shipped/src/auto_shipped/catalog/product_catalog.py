@@ -72,6 +72,8 @@ class ProductResolution:
     package_rule_id: str = ""
     quantity_strategy: str = "same_as_source"
     sticks_per_target_unit: int | None = None
+    package_notice_code: str = ""
+    package_notice: str = ""
     mapping_authority: str = ""
     reuse_scope: str = ""
     confidence_tier: str = ""
@@ -1210,17 +1212,21 @@ class ProductCatalog:
                 source_semantics = (
                     registry.get("source_semantics", {}).get(source_profile_id) or {}
                 )
-                spec_rules = [
-                    rule
-                    for rule in source_semantics.get("rules") or []
-                    if normalized_spec
-                    in {
-                        normalize_product_text(value)
-                        for value in rule.get("source_spec_values") or []
-                        if normalize_product_text(value)
-                    }
-                ]
-                if len(spec_rules) == 1 and source_semantics.get("confirmed") is True:
+                spec_rules = self._matching_package_semantic_rules(
+                    source_semantics.get("rules") or [],
+                    normalized_name=normalized_name,
+                    normalized_spec=normalized_spec,
+                )
+                semantic_confirmed = source_semantics.get("confirmed") is True
+                if not spec_rules:
+                    global_semantics = registry.get("global_semantics") or {}
+                    spec_rules = self._matching_package_semantic_rules(
+                        global_semantics.get("rules") or [],
+                        normalized_name=normalized_name,
+                        normalized_spec=normalized_spec,
+                    )
+                    semantic_confirmed = global_semantics.get("confirmed") is True
+                if len(spec_rules) == 1 and semantic_confirmed:
                     semantic = {
                         "strategy": "configured_name_tokens_and_source_spec",
                         "confirmed": True,
@@ -1294,6 +1300,34 @@ class ProductCatalog:
             source_spec=source_spec,
         )
 
+    @staticmethod
+    def _matching_package_semantic_rules(
+        rules: list[dict[str, Any]],
+        *,
+        normalized_name: str,
+        normalized_spec: str,
+    ) -> list[dict[str, Any]]:
+        matched: list[dict[str, Any]] = []
+        for rule in rules:
+            exact_values = {
+                normalize_product_text(value)
+                for value in rule.get("source_spec_values") or []
+                if normalize_product_text(value)
+            }
+            phrase_values = {
+                normalize_product_text(value)
+                for value in rule.get("source_phrase_values") or []
+                if normalize_product_text(value)
+            }
+            exact_match = bool(normalized_spec and normalized_spec in exact_values)
+            phrase_match = any(
+                phrase in normalized_name or phrase in normalized_spec
+                for phrase in phrase_values
+            )
+            if exact_match or phrase_match:
+                matched.append(rule)
+        return matched
+
     def _resolve_semantic_rules(
         self,
         *,
@@ -1312,16 +1346,11 @@ class ProductCatalog:
                 if normalize_product_text(token)
             )
         ]
-        spec_rules = [
-            rule
-            for rule in semantic.get("spec_rules") or []
-            if normalized_spec
-            in {
-                normalize_product_text(value)
-                for value in rule.get("source_spec_values") or []
-                if normalize_product_text(value)
-            }
-        ]
+        spec_rules = self._matching_package_semantic_rules(
+            semantic.get("spec_rules") or [],
+            normalized_name=normalized_name,
+            normalized_spec=normalized_spec,
+        )
         if len(name_rules) != 1 or len(spec_rules) != 1:
             return None
         target_tokens = [
@@ -1365,6 +1394,10 @@ class ProductCatalog:
                     if spec_rules[0].get("sticks_per_target_unit") is not None
                     else None
                 ),
+                package_notice_code=clean_identifier(
+                    spec_rules[0].get("notice_code")
+                ),
+                package_notice=clean_identifier(spec_rules[0].get("notice")),
             )
         if unique_candidates:
             return ProductResolution(
@@ -1522,6 +1555,18 @@ class ProductCatalog:
                     tuple(product_variants),
                 )
 
+        # Packaging meaning is its own business authority.  Once no explicit
+        # source code/identifier mapping has won, resolve registered package
+        # semantics before name aliases so an old alias cannot silently turn
+        # an eight-stick family pack into single-stick line items.
+        semantic_resolution = self._resolve_semantic_catalog_match(
+            source_profile_id=source_profile_id,
+            source_product_name=source_product_name,
+            source_spec=source_spec,
+        )
+        if semantic_resolution is not None:
+            return semantic_resolution
+
         name = clean_identifier(source_product_name) or ("" if key else key)
         if not name and not key:
             name = clean_identifier(external_sku)
@@ -1640,14 +1685,6 @@ class ProductCatalog:
             )
             if alias_family_resolution is not None:
                 return alias_family_resolution
-
-        semantic_resolution = self._resolve_semantic_catalog_match(
-            source_profile_id=source_profile_id,
-            source_product_name=source_product_name,
-            source_spec=source_spec,
-        )
-        if semantic_resolution is not None:
-            return semantic_resolution
 
         if (
             name
