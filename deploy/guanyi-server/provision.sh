@@ -103,7 +103,9 @@ sed "s/@@RUNNER_USER@@/$RUNNER_USER/g" \
 chmod 0644 /etc/systemd/system/auto-shipped-xvfb.service
 systemctl daemon-reload
 systemctl enable auto-shipped-xvfb.service
-systemctl restart auto-shipped-xvfb.service
+if ! systemctl is-active --quiet auto-shipped-xvfb.service; then
+  systemctl start auto-shipped-xvfb.service
+fi
 
 display_ready=0
 for _ in {1..20}; do

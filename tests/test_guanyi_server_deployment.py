@@ -109,12 +109,13 @@ def test_node_registry_is_configurable_without_changing_the_lockfile() -> None:
     assert "npm install" not in installer
 
 
-def test_deployment_restarts_display_and_doctor_uses_accessible_workdir() -> None:
+def test_deployment_preserves_healthy_display_and_doctor_uses_accessible_workdir() -> None:
     provision = (DEPLOY / "provision.sh").read_text(encoding="utf-8")
     doctor = (DEPLOY / "doctor.sh").read_text(encoding="utf-8")
     service = (DEPLOY / "auto-shipped-xvfb.service").read_text(encoding="utf-8")
 
-    assert "systemctl restart auto-shipped-xvfb.service" in provision
+    assert "systemctl is-active --quiet auto-shipped-xvfb.service" in provision
+    assert "systemctl restart auto-shipped-xvfb.service" not in provision
     assert "xdpyinfo" in provision
     assert "ReadWritePaths=/var/lib/auto-shipped /tmp" in service
     assert "cd /" in doctor
