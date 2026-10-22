@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "registry_id": "package_semantics_v1",
-  "version": 1,
+  "version": 2,
   "status": "active",
   "purpose": "把公司文字订单中的数量单位与管易商品包装分离；正式规则随Skill分发，未登记表达必须追问。",
   "product_family_rules": [
@@ -21,12 +21,29 @@
       "target_name_contains_all": ["白糯", "玉米"]
     }
   ],
-  "tracked_source_units": ["根", "袋", "盒", "份", "套", "礼盒", "家庭装", "裸棒"],
+  "tracked_source_units": ["根", "袋", "盒", "份", "套", "礼盒", "家庭装", "裸棒", "8根装", "8根袋装", "8根家庭装", "8棒", "8棒装", "8棒家庭装"],
   "default_candidate": {
     "source_unit": "根",
     "semantic_type": "single_stick_packaged",
     "target_name_contains_all": ["彩袋单棒装"],
     "action": "require_first_confirmation_per_source_profile"
+  },
+  "global_semantics": {
+    "confirmed": true,
+    "rules": [
+      {
+        "rule_id": "global_corn_eight_pack_v1",
+        "source_spec_values": ["袋", "1袋", "8根装", "8根袋装", "8根家庭装", "8棒", "8棒装", "8棒家庭装"],
+        "source_phrase_values": ["8根装", "8根袋装", "8根家庭装", "8棒", "8棒装", "8棒家庭装"],
+        "semantic_type": "eight_stick_family_pack",
+        "quantity_strategy": "same_as_source",
+        "sticks_per_target_unit": 8,
+        "target_name_contains_all": ["8棒家庭装"],
+        "notice_code": "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+        "notice": "已按通用玉米包装规则处理：1袋、8根装、8根家庭装和8棒均表示1件8棒家庭装，不拆成8件单棒装。"
+      }
+    ],
+    "source": "用户于2026-10-22确认：玉米的1袋、8根装、8根家庭装和8棒默认都表示1件8棒家庭装；程序直接处理，并在结果小节告知用户。"
   },
   "source_semantics": {
     "rongzhida_text_v1": {
@@ -51,7 +68,9 @@
           "semantic_type": "eight_stick_family_pack",
           "quantity_strategy": "same_as_source",
           "sticks_per_target_unit": 8,
-          "target_name_contains_all": ["8棒家庭装"]
+          "target_name_contains_all": ["8棒家庭装"],
+          "notice_code": "CORN_EIGHT_PACK_DEFAULT_APPLIED",
+          "notice": "已按通用玉米包装规则处理：1袋、8根装、8根家庭装和8棒均表示1件8棒家庭装，不拆成8件单棒装。"
         }
       ],
       "source": "用户于2026-10-08确认：尚舆自营天猫/京东文字玉米单中的袋表示8棒家庭装；自营根尚未登记，首次出现时追问。"

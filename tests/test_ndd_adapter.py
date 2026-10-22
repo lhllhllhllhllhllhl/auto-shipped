@@ -251,6 +251,71 @@ class NddAdapterTests(unittest.TestCase):
             finally:
                 workbook.close()
 
+    def test_standard_template_rejects_stale_sam_company_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "NDD标准订单.xlsx"
+            build_standard_sample(source)
+
+            result = convert_order_file(
+                source,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "output",
+                company_hint="sam",
+            )
+
+            self.assertEqual(result.status, "needs_input")
+            self.assertEqual(result.detection.source_profile_id, "ndd_order_v1")
+            self.assertIn(
+                "EXPLICIT_COMPANY_CONFLICTS_WITH_SOURCE",
+                {item.code for item in result.clarifications},
+            )
+
+    def test_standard_template_rejects_stale_sam_source_profile_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "NDD标准订单.xlsx"
+            build_standard_sample(source)
+
+            result = convert_order_file(
+                source,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "output",
+                source_profile_hint="sam_order_v1",
+            )
+
+            self.assertEqual(result.status, "needs_input")
+            self.assertIn(
+                "SOURCE_PROFILE_HINT_CONFLICTS_WITH_FIXED_SOURCE",
+                {item.code for item in result.clarifications},
+            )
+
+    def test_standard_template_ignores_stale_adaptive_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "NDD标准订单.xlsx"
+            stale_plan = root / "上批遗留计划.json"
+            build_standard_sample(source)
+            stale_plan.write_text("not valid json", encoding="utf-8")
+
+            result = convert_order_file(
+                source,
+                PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",
+                root / "output",
+                adaptive_plan_path=stale_plan,
+            )
+
+            self.assertEqual(result.status, "ready")
+            self.assertEqual(result.detection.source_profile_id, "ndd_order_v1")
+            self.assertIn(
+                "fixed_template_overrode_adaptive_plan",
+                result.detection.matched_features,
+            )
+            self.assertIn(
+                "STALE_ADAPTIVE_PLAN_IGNORED",
+                {item["code"] for item in result.detection.schema_warnings},
+            )
+
     def test_standard_template_quantity_multiplies_each_bundle_component(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

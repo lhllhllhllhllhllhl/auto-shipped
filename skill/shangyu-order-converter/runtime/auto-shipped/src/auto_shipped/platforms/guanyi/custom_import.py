@@ -59,6 +59,7 @@ class GuanyiBuildResult:
     )
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
+    package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -100,6 +101,52 @@ def _deduplicate_store_assignment_notices(
             str(notice.get("rule_id") or ""),
             str(product.get("product_code") or ""),
             str(product.get("spec_code") or ""),
+        )
+        unique[key] = notice
+    return list(unique.values())
+
+
+def _package_semantics_notice_record(
+    item: Any,
+    resolution: ProductResolution,
+    *,
+    platform_order_no: str,
+) -> dict[str, Any]:
+    product = resolution.product
+    return {
+        "code": resolution.package_notice_code,
+        "scope": "order",
+        "source_ref": f"订单:{platform_order_no}",
+        "rule_id": resolution.package_rule_id,
+        "message": resolution.package_notice,
+        "source_expression": {
+            "product_name": str(item.source_product_name or ""),
+            "source_spec": str(item.source_spec or ""),
+            "quantity": item.quantity,
+            "unit": str(item.unit or ""),
+        },
+        "target": {
+            "product_code": product.product_code if product else "",
+            "spec_code": product.spec_code if product else "",
+            "quantity_strategy": resolution.quantity_strategy,
+            "sticks_per_target_unit": resolution.sticks_per_target_unit,
+        },
+        "blocking": False,
+    }
+
+
+def _deduplicate_package_semantics_notices(
+    notices: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    unique: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    for notice in notices:
+        target = notice.get("target") or {}
+        key = (
+            str(notice.get("code") or ""),
+            str(notice.get("source_ref") or ""),
+            str(notice.get("rule_id") or ""),
+            str(target.get("product_code") or ""),
+            str(target.get("spec_code") or ""),
         )
         unique[key] = notice
     return list(unique.values())
@@ -440,6 +487,16 @@ def _mapping_evidence(
         "canonical_identity": identity.to_dict(),
         "mapping_ids": list(resolution.mapping_ids),
         "match_method": str(resolution.match_method or ""),
+        "package_semantics": (
+            {
+                "rule_id": str(resolution.package_rule_id),
+                "quantity_strategy": str(resolution.quantity_strategy or ""),
+                "sticks_per_target_unit": resolution.sticks_per_target_unit,
+                "notice_code": str(resolution.package_notice_code or ""),
+            }
+            if resolution.package_rule_id
+            else {}
+        ),
         "target": {
             "product_code": product.product_code if product else "",
             "spec_code": product.spec_code if product else "",
@@ -675,6 +732,9 @@ def build_custom_import_lines(
 
     resolved_products: dict[tuple[str, str, str, str, str, str, str], Any] = {}
     resolved_lines_by_order: dict[int, list[ResolvedLineItem]] = {}
+    package_notices_by_order: dict[
+        int, list[tuple[Any, ProductResolution]]
+    ] = {}
     official_mapping_clarification_added = False
     for order in orders:
         order_lines: list[ResolvedLineItem] = []
@@ -767,6 +827,14 @@ def build_custom_import_lines(
             result.mapping_evidence.append(
                 _mapping_evidence(catalog, item, resolution)
             )
+            if (
+                resolution.product is not None
+                and resolution.package_notice_code
+                and resolution.package_notice
+            ):
+                package_notices_by_order.setdefault(id(order), []).append(
+                    (item, resolution)
+                )
             source_label = _product_source_label(item)
             source_ref = f"商品:{source_label}"
             for warning in resolution.review_warnings:
@@ -1071,6 +1139,7 @@ def build_custom_import_lines(
                     evidence.get("canonical_identity"),
                     evidence.get("mapping_ids"),
                     evidence.get("match_method"),
+                    evidence.get("package_semantics"),
                     evidence.get("target"),
                 )
             ).encode("utf-8")
@@ -1146,6 +1215,14 @@ def build_custom_import_lines(
     seen_platform_numbers: dict[str, str] = {}
     for order in orders:
         platform_no = _platform_order_no(order, rules, platform_profile)
+        result.package_semantics_notices.extend(
+            _package_semantics_notice_record(
+                item,
+                resolution,
+                platform_order_no=platform_no,
+            )
+            for item, resolution in package_notices_by_order.get(id(order), [])
+        )
         previous = seen_platform_numbers.get(platform_no)
         if previous and previous != order.record_key:
             result.clarifications.append(
@@ -1403,6 +1480,9 @@ def build_custom_import_lines(
     result.clarifications = deduplicate_clarifications(result.clarifications)
     result.store_assignment_notices = _deduplicate_store_assignment_notices(
         result.store_assignment_notices
+    )
+    result.package_semantics_notices = _deduplicate_package_semantics_notices(
+        result.package_semantics_notices
     )
     if result.clarifications:
         result.lines = []

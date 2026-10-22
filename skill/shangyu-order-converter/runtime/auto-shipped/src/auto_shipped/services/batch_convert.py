@@ -42,6 +42,7 @@ class BatchSourceSummary:
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
+    package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -60,6 +61,7 @@ class BatchSourceSummary:
             "clarifications": self.clarifications,
             "decisions": self.decisions,
             "store_assignment_notices": self.store_assignment_notices,
+            "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
         }
 
@@ -80,6 +82,7 @@ class BatchConversionResult:
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
+    package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -102,6 +105,7 @@ class BatchConversionResult:
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
             "store_assignment_notices": self.store_assignment_notices,
+            "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
         }
 
@@ -164,6 +168,7 @@ def _summarize_conversion(
         clarifications=[item.to_dict() for item in result.clarifications],
         decisions=[item.to_dict() for item in result.decisions],
         store_assignment_notices=list(result.store_assignment_notices),
+        package_semantics_notices=list(result.package_semantics_notices),
         errors=list(result.errors),
         schema_warnings=warnings,
     )
@@ -329,6 +334,12 @@ def convert_order_batch(
                     conversion.store_assignment_notices,
                 )
             )
+            result.package_semantics_notices.extend(
+                _with_source_file(
+                    source.name,
+                    conversion.package_semantics_notices,
+                )
+            )
             if conversion.status == "needs_input":
                 result.clarifications.extend(
                     _with_source_file(source.name, summary.clarifications)
@@ -428,6 +439,7 @@ def convert_order_batch(
                     "canonical_identity": identity,
                     "mapping_ids": evidence.get("mapping_ids"),
                     "match_method": evidence.get("match_method"),
+                    "package_semantics": evidence.get("package_semantics"),
                     "target": target,
                 },
                 ensure_ascii=False,
@@ -440,6 +452,11 @@ def convert_order_batch(
             key = json.dumps(notice, ensure_ascii=False, sort_keys=True)
             unique_store_notices[key] = notice
         result.store_assignment_notices = list(unique_store_notices.values())
+        unique_package_notices: dict[str, dict[str, Any]] = {}
+        for notice in result.package_semantics_notices:
+            key = json.dumps(notice, ensure_ascii=False, sort_keys=True)
+            unique_package_notices[key] = notice
+        result.package_semantics_notices = list(unique_package_notices.values())
 
         route_keys = {
             (item.target_platform, item.target_profile_id) for item in result.sources

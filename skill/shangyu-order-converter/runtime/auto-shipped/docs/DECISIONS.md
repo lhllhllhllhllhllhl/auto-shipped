@@ -182,3 +182,8 @@
 - `DEC-USER-GUANYI-REMOTE-ADAPTER-001`：本机、豆包CDP和自管Ubuntu服务器是同一上传状态机的三个执行后端，不是三套业务实现。远端适配层只负责版本化传输、哈希复核、授权门禁、临时登录输入转发和脱敏状态回传；所有页面选择器、待审核表单、任务基线、文件选择、字段核对、提交与任务中心回读继续由`browser/guanyi`唯一实现。
 - `DEC-USER-GUANYI-REMOTE-SECRETS-001`：SSH连接参数保存在Skill外部配置，私钥正文不进入Skill或Git。管易账号密码和短信验证码只能经SSH标准输入直达当前登录进程，不写入远端job state、文件、环境变量、命令参数或日志。服务器profile可持久复用Cookie，但换服务器时不复制profile绕过平台验证。
 - `DEC-USER-GUANYI-REMOTE-WRITE-GATE-001`：远端暂存授权不等于上传授权。`prepare`不打开浏览器；`execute`必须收到当前对话对具体远端operation的`CONFIRM_GUANYI_IMPORT_SUBMISSION`。执行端在调用浏览器前先持久化`submit_maybe_sent`，SSH中断、超时或结果不明后结构性禁止再次`execute`，只能对同一browser operation执行只读`reconcile`。远端不开放审核、发货、作废或删除。
+
+## 2026-10-22 固定来源隔离与玉米8根家庭装
+
+- `DEC-USER-FIXED-SOURCE-CONTEXT-ISOLATION-001`：每个Excel第一次转换必须只根据当前文件运行无提示固定模板识别。唯一高置信固定模板优先于对话历史、上一批公司/来源提示和自适应计划；误传其他来源提示失败关闭，误传自适应计划由固定模板覆盖并在结果中记录。运行时缺失时不得直接调用仓库源码或手写低层命令绕过统一入口。
+- `DEC-USER-CORN-EIGHT-PACK-001`：玉米的`1袋`、`8根装`、`8根家庭装`、`8棒`、`8棒装`和`8棒家庭装`全局统一表示1件8棒家庭装。包装表达中的8是内含根数，不是订单数量；没有额外数量表达时按1件处理，不拆成8件单棒。系统默认执行并在结果“包装规则说明”小节告知，来源专用规则仍优先。
