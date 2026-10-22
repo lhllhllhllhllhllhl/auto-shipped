@@ -1089,7 +1089,7 @@ class ProductCatalog:
             ),
         )
 
-    def _mapping_identity_guard_reason(
+    def _mapping_identity_guard_review(
         self,
         *,
         source_profile_id: str,
@@ -1102,7 +1102,7 @@ class ProductCatalog:
         unit: Any,
         source_fingerprint: str,
         mappings: list[dict[str, Any]],
-    ) -> str:
+    ) -> dict[str, str] | None:
         if source_fingerprint and any(
             clean_identifier(mapping.get("reuse_scope")) == "current_batch"
             and clean_identifier(mapping.get("mapping_authority"))
@@ -1111,7 +1111,7 @@ class ProductCatalog:
             == clean_identifier(source_fingerprint)
             for mapping in mappings
         ):
-            return ""
+            return None
         policy = self.source_policies.get(source_profile_id) or {}
         normalized_value = self._normalize_source_value(identifier_type, source_value)
         matching_guards = [
@@ -1133,15 +1133,8 @@ class ProductCatalog:
             and not mapping_has_source_spec
         )
         normalized_name = normalize_product_text(source_product_name)
-        if not matching_guards:
-            return (
-                "来源编码命中正式映射，但该无规格映射缺少已登记的来源品名保护规则"
-                if guard_required and normalized_name
-                else ""
-            )
-
         if not normalized_name:
-            return ""
+            return None
         normalized_spec = normalize_product_text(source_spec)
         current_identity = self.canonicalize_source_identity(
             source_item_text=source_item_text,
@@ -1150,33 +1143,76 @@ class ProductCatalog:
             source_spec=source_spec,
             unit=unit,
         )
+        reference_identities: list[CanonicalSourceIdentity] = [
+            self._mapping_canonical_identity(mapping)
+            for mapping in mappings
+            if clean_identifier(mapping.get("canonical_source_product"))
+        ]
         for guard in matching_guards:
-            allowed_names = {
-                normalize_product_text(value)
+            allowed_name_values = {
+                clean_identifier(value)
                 for value in guard.get("allowed_product_names") or []
-                if normalize_product_text(value)
+                if clean_identifier(value)
+            }
+            allowed_spec_values = {
+                clean_identifier(value)
+                for value in guard.get("allowed_source_specs") or []
+                if clean_identifier(value)
+            }
+            allowed_names = {
+                normalize_product_text(value) for value in allowed_name_values
             }
             allowed_specs = {
-                normalize_product_text(value)
-                for value in guard.get("allowed_source_specs") or []
-                if normalize_product_text(value)
+                normalize_product_text(value) for value in allowed_spec_values
             }
             name_matches = not allowed_names or normalized_name in allowed_names
             spec_matches = not allowed_specs or normalized_spec in allowed_specs
             if name_matches and spec_matches:
-                return ""
-            for allowed_name in allowed_names or {normalized_name}:
-                for allowed_spec in allowed_specs or {normalized_spec}:
-                    guarded_identity = self.canonicalize_source_identity(
-                        source_product_name=allowed_name,
-                        source_spec=allowed_spec,
+                return None
+            for allowed_name in allowed_name_values or {
+                clean_identifier(source_product_name)
+            }:
+                for allowed_spec in allowed_spec_values or {
+                    clean_identifier(source_spec)
+                }:
+                    reference_identities.append(
+                        self.canonicalize_source_identity(
+                            source_product_name=allowed_name,
+                            source_spec=allowed_spec,
+                        )
                     )
-                    if (
-                        current_identity.product
-                        and current_identity.signature == guarded_identity.signature
-                    ):
-                        return ""
-        return "来源编码命中正式映射，但来源商品名称或规格与该映射的已确认身份不一致"
+
+        ambiguous = any(issue.endswith("_ambiguous") for issue in current_identity.issues)
+        if current_identity.product and not ambiguous:
+            for reference_identity in reference_identities:
+                reference_ambiguous = any(
+                    issue.endswith("_ambiguous")
+                    for issue in reference_identity.issues
+                )
+                if (
+                    not reference_ambiguous
+                    and current_identity.signature == reference_identity.signature
+                ):
+                    return {
+                        "code": "SOURCE_NAME_VARIANT_ACCEPTED_FOR_CONFIRMED_CODE_MAPPING",
+                        "severity": "notice_only",
+                        "message": (
+                            "来源编码/条码已唯一命中正式映射；来源商品名称只是已登记身份的"
+                            "等义写法，已按该映射直接生成成品"
+                        ),
+                    }
+
+        if not matching_guards and not reference_identities:
+            if not guard_required:
+                return None
+            message = "来源编码命中正式映射，但该无规格映射缺少已登记的来源品名保护规则"
+        else:
+            message = "来源编码命中正式映射，但来源商品名称或规格与该映射的已确认身份不一致"
+        return {
+            "code": "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
+            "severity": "review_required",
+            "message": message,
+        }
 
     def _resolve_semantic_catalog_match(
         self,
@@ -1452,7 +1488,7 @@ class ProductCatalog:
                     source_fingerprint,
                     source_profile_id,
                 )
-                guard_reason = self._mapping_identity_guard_reason(
+                guard_review = self._mapping_identity_guard_review(
                     source_profile_id=source_profile_id,
                     identifier_type=identifier_type,
                     source_value=key,
@@ -1464,17 +1500,11 @@ class ProductCatalog:
                     source_fingerprint=source_fingerprint,
                     mappings=mappings,
                 )
-                if guard_reason and resolved.product is not None:
+                if guard_review and resolved.product is not None:
                     return replace(
                         resolved,
-                        reason=guard_reason,
-                        review_warnings=(
-                            {
-                                "code": "SOURCE_NAME_DIFFERS_FROM_CONFIRMED_CODE_MAPPING",
-                                "severity": "review_required",
-                                "message": guard_reason,
-                            },
-                        ),
+                        reason=guard_review["message"],
+                        review_warnings=(guard_review,),
                     )
                 return resolved
 

@@ -41,6 +41,7 @@ class BatchSourceSummary:
     schema_warnings: list[dict[str, Any]] = field(default_factory=list)
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[dict[str, Any]] = field(default_factory=list)
+    mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -60,6 +61,7 @@ class BatchSourceSummary:
             "schema_warnings": self.schema_warnings,
             "clarifications": self.clarifications,
             "decisions": self.decisions,
+            "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
@@ -81,6 +83,7 @@ class BatchConversionResult:
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
     mapping_evidence: list[dict[str, Any]] = field(default_factory=list)
+    mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -104,6 +107,7 @@ class BatchConversionResult:
                 else []
             ).to_dict(),
             "mapping_evidence": self.mapping_evidence,
+            "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
             "errors": self.errors,
@@ -167,6 +171,7 @@ def _summarize_conversion(
         output_row_count=result.output_row_count,
         clarifications=[item.to_dict() for item in result.clarifications],
         decisions=[item.to_dict() for item in result.decisions],
+        mapping_identity_notices=list(result.mapping_identity_notices),
         store_assignment_notices=list(result.store_assignment_notices),
         package_semantics_notices=list(result.package_semantics_notices),
         errors=list(result.errors),
@@ -328,6 +333,12 @@ def convert_order_batch(
                 conversion.mapping_reuse_candidates
             )
             result.mapping_evidence.extend(conversion.mapping_evidence)
+            result.mapping_identity_notices.extend(
+                _with_source_file(
+                    source.name,
+                    conversion.mapping_identity_notices,
+                )
+            )
             result.store_assignment_notices.extend(
                 _with_source_file(
                     source.name,
@@ -447,6 +458,13 @@ def convert_order_batch(
             )
             unique_mapping_evidence[key] = evidence
         result.mapping_evidence = list(unique_mapping_evidence.values())
+        unique_mapping_identity_notices: dict[str, dict[str, Any]] = {}
+        for notice in result.mapping_identity_notices:
+            key = json.dumps(notice, ensure_ascii=False, sort_keys=True)
+            unique_mapping_identity_notices[key] = notice
+        result.mapping_identity_notices = list(
+            unique_mapping_identity_notices.values()
+        )
         unique_store_notices: dict[str, dict[str, Any]] = {}
         for notice in result.store_assignment_notices:
             key = json.dumps(notice, ensure_ascii=False, sort_keys=True)
