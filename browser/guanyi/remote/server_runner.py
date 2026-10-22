@@ -471,7 +471,11 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
         status = str(result.get("status") or result.get("state") or "")
         safely_prewrite = status in prewrite_statuses or (
             status == "login_operation_blocked"
-            and result.get("code") == "RESIDENT_SESSION_LOGIN_EXPIRED"
+            and result.get("code")
+            in {
+                "RESIDENT_SESSION_LOGIN_EXPIRED",
+                "UPLOAD_RULE_GATE_BLOCKED",
+            }
         )
         if safely_prewrite and progress.issubset({"authenticating"}):
             state.update(

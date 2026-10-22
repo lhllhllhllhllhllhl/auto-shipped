@@ -4,6 +4,8 @@ import hashlib
 import io
 import json
 import os
+import runpy
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -434,6 +436,63 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                         "remote-server-004", io.BytesIO(control.to_json_bytes())
                     )
                 self.assertEqual(raised.exception.code, "REMOTE_RESUBMISSION_BLOCKED")
+
+    def test_upload_rule_gate_rejection_remains_prewrite_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-005")
+                prepared = BrowserCommandResult(
+                    [
+                        {
+                            "status": "operation_prepared",
+                            "operationId": "00000000-0000-4000-8000-000000000005",
+                        }
+                    ],
+                    0,
+                )
+                gate_blocked = BrowserCommandResult(
+                    [
+                        {
+                            "status": "login_operation_blocked",
+                            "code": "UPLOAD_RULE_GATE_BLOCKED",
+                        }
+                    ],
+                    1,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared, gate_blocked, gate_blocked],
+                ):
+                    prepare_operation("remote-server-005")
+                    first = execute_operation(
+                        "remote-server-005", io.BytesIO(control.to_json_bytes())
+                    )
+                    self.assertEqual(first["code"], "UPLOAD_RULE_GATE_BLOCKED")
+                    self.assertEqual(
+                        operation_status("remote-server-005")["state"], "prepared"
+                    )
+                    second = execute_operation(
+                        "remote-server-005", io.BytesIO(control.to_json_bytes())
+                    )
+                    self.assertEqual(second["code"], "UPLOAD_RULE_GATE_BLOCKED")
+
+
+class GuanyiBrowserSkillGateTests(unittest.TestCase):
+    def test_resident_start_audits_and_propagates_upload_rule_readiness(self) -> None:
+        scripts = PROJECT_ROOT / "skill/shangyu-order-converter/scripts"
+        original_path = list(sys.path)
+        try:
+            sys.path.insert(0, str(scripts))
+            module = runpy.run_path(str(scripts / "guanyi_browser.py"))
+        finally:
+            sys.path[:] = original_path
+        self.assertIn("resident-start", module["UPLOAD_RULE_AUDIT_COMMANDS"])
+        self.assertIn("resident-start", module["UPLOAD_RULE_READY_COMMANDS"])
 
 
 if __name__ == "__main__":

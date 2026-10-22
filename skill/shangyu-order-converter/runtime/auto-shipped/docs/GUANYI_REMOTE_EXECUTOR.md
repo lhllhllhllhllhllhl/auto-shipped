@@ -125,6 +125,12 @@ printf '%s\n' '{"username":"<账号>","password":"<密码>"}' | \
 常驻状态为`resident_ready`后，`probe`、`execute`和`reconcile`都进入同一个浏览器
 队列；不得另启普通`probe`或第二个登录进程。
 
+`resident-start`在创建常驻worker前执行与正式提交相同的`upload`规则审计，并把
+当次审计通过标记传入worker。这样后续队列中的提交仍由同一Node写入门禁复核，
+不会因为worker早于批次命令启动而误判为未验收。规则门禁在文件选择前拒绝时，
+远端任务保持`prepared`且`execute_started=false`；确认运行时已修复后可以继续同一
+operation，不能另建批次或把该拒绝当成可能已上传。
+
 专用服务器默认设置`GUANYI_HUMAN_TAKEOVER_AVAILABLE=0`。如果服务器登录触发阿里云
 额外验证，执行器不会等待一个用户看不到的桌面，而是以
 `LOGIN_LOCAL_VERIFICATION_REQUIRED`安全停止，提示用户或管理员先在可信本机完成

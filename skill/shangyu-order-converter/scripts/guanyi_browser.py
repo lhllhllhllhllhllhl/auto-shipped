@@ -57,6 +57,18 @@ COMMANDS = {
 }
 
 
+UPLOAD_RULE_AUDIT_COMMANDS = frozenset(
+    {
+        "resident-start",
+        "resident-execute-import",
+        "submit-import",
+        "execute-import",
+    }
+)
+UPLOAD_RULE_READY_COMMANDS = UPLOAD_RULE_AUDIT_COMMANDS
+ORDER_AUDIT_RULE_COMMANDS = frozenset({"execute-order-audit"})
+
+
 def fail(code: str, message: str) -> int:
     print(json.dumps({"status": "failed", "code": code, "message": message}, ensure_ascii=False, indent=2))
     return 1
@@ -115,12 +127,7 @@ def main() -> int:
             "管易浏览器依赖尚未安装，请先运行 bootstrap_runtime.py。",
         )
 
-    if args.command in {
-        "submit-import",
-        "execute-import",
-        "resident-execute-import",
-        "execute-order-audit",
-    }:
+    if args.command in UPLOAD_RULE_AUDIT_COMMANDS | ORDER_AUDIT_RULE_COMMANDS:
         audit = subprocess.run(
             [
                 sys.executable,
@@ -128,7 +135,7 @@ def main() -> int:
                 "--phase",
                 (
                     "post_upload"
-                    if args.command == "execute-order-audit"
+                    if args.command in ORDER_AUDIT_RULE_COMMANDS
                     else "upload"
                 ),
                 "--project-root",
@@ -144,13 +151,13 @@ def main() -> int:
             return fail(
                 (
                     "ORDER_AUDIT_RULE_GATE_BLOCKED"
-                    if args.command == "execute-order-audit"
+                    if args.command in ORDER_AUDIT_RULE_COMMANDS
                     else "UPLOAD_RULE_GATE_BLOCKED"
                 ),
                 (
                     "订单审核规则门禁尚未全部通过；Skill 不执行真实审核。"
                     "请先完成本地和豆包只读探针。"
-                    if args.command == "execute-order-audit"
+                    if args.command in ORDER_AUDIT_RULE_COMMANDS
                     else "上传规则门禁尚未全部通过；Skill 不执行管易确定提交。"
                     "请检查规则状态、实现引用和运行时打包是否一致。"
                 ),
@@ -163,7 +170,7 @@ def main() -> int:
     ):
         environment["GUANYI_BROWSER_BACKEND"] = "platform_cdp"
         environment.setdefault("GUANYI_CDP_ENDPOINT", "http://127.0.0.1:9222")
-    if args.command in {"submit-import", "execute-import", "resident-execute-import"}:
+    if args.command in UPLOAD_RULE_READY_COMMANDS:
         environment["GUANYI_UPLOAD_RULES_READY"] = "1"
     if args.command == "execute-order-audit":
         environment["GUANYI_AUDIT_RULES_READY"] = "1"
