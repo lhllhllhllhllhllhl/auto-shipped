@@ -30,8 +30,6 @@
       "source_refs": ["尚舆发货流程.pdf p.3", "p.8", "p.10", "p.12"],
       "allowed_implementation_refs": [
         "guanyi.platform_order.preferred_order_identity",
-        "guanyi.platform_order.purchase_order_no",
-        "guanyi.platform_order.prefix_date_sequence",
         "guanyi.platform_order.prefix_daily_sequence",
         "guanyi.platform_order.prefix_minute_sequence",
         "guanyi.platform_order.affixed_preferred_order_identity"
@@ -43,7 +41,6 @@
       "phase": "conversion",
       "source_refs": ["尚舆发货流程.pdf p.8", "p.10"],
       "allowed_implementation_refs": [
-        "guanyi.defaults.buyer_member",
         "guanyi.buyer_member.sam_pattern",
         "guanyi.buyer_member.policy"
       ]
@@ -124,11 +121,10 @@
       "phase": "conversion",
       "source_refs": ["尚舆发货流程.pdf p.3", "p.10"],
       "allowed_implementation_refs": [
-        "guanyi.logistics.source_passthrough",
         "guanyi.logistics.corn_packaging_policy",
-        "guanyi.logistics.default_yunda",
-        "guanyi.logistics.weight_threshold"
+        "guanyi.logistics.default_yunda"
       ],
+      "planned_implementation_refs": ["guanyi.logistics.weight_threshold"],
       "question": "如果以后用重量公式替换当前包装规则，请提供重量阈值和适用商品重量。",
       "reason": "当前版本已确认按包装数量执行；未来重量公式作为可替换策略实现。",
       "answer_type": "single_choice",
@@ -144,7 +140,6 @@
       "phase": "conversion",
       "source_refs": ["尚舆发货流程.pdf p.3"],
       "allowed_implementation_refs": [
-        "guanyi.seller_remark.source_note_passthrough",
         "guanyi.seller_remark.rule_composition"
       ],
       "question": "后续新增系统提示时，按已确认的卖家备注组合策略接入。",
@@ -211,21 +206,24 @@
       "module": "bailihui.post_fulfillment",
       "phase": "post_fulfillment",
       "source_refs": ["尚舆发货流程.pdf p.13", "p.14"],
-      "allowed_implementation_refs": ["bailihui.shipping_backfill.guarded"]
+      "allowed_implementation_refs": [],
+      "planned_implementation_refs": ["bailihui.shipping_backfill.guarded"]
     },
     "GY-MANUAL-ADDRESS-RECOGNITION": {
       "title": "手工新增订单时使用地址智能识别",
       "module": "guanyi.manual_entry",
       "phase": "manual_entry",
       "source_refs": ["尚舆发货流程.pdf p.5"],
-      "allowed_implementation_refs": ["guanyi.manual_entry.smart_address"]
+      "allowed_implementation_refs": [],
+      "planned_implementation_refs": ["guanyi.manual_entry.smart_address"]
     },
     "GY-MANUAL-AUTO-CONCESSION": {
       "title": "手工新增订单时执行自动让利",
       "module": "guanyi.manual_entry",
       "phase": "manual_entry",
       "source_refs": ["尚舆发货流程.pdf p.6"],
-      "allowed_implementation_refs": ["guanyi.manual_entry.auto_concession"]
+      "allowed_implementation_refs": [],
+      "planned_implementation_refs": ["guanyi.manual_entry.auto_concession"]
     }
   },
   "scopes": {

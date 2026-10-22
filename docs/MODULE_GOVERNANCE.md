@@ -11,6 +11,7 @@
 - 转换模块只输出管易Excel、上传预检manifest和摘要；浏览器模块不读取原始订单或判断业务规则。
 - 缺少必要事实时停止并集中追问；能安全形成预览的决定放在结果小节确认。
 - 历史兼容实现必须单独登记为legacy，不能伪装成新订单活动实现。
+- 同一权威文件被多个模块使用时必须登记共享原因；未登记的路径重叠视为治理错误。
 
 ## 模块清单
 
@@ -29,7 +30,7 @@
 | `browser_upload` | 在用户明确指定批次并授权后选择已确认Excel、填写导入表单并提交。 | 不读取原始订单，不判断公司、商品、店铺或物流；不得把GitHub推送当作上传授权。 | conversion_delivery |
 | `post_upload_reconciliation` | 使用唯一新增任务核验指定批次的管易导入结果。 | 只确认导入结果，不继承上传授权、不执行订单审核、发货、作废或删除。 | browser_upload |
 | `order_audit` | 仅在指定导入批次确认全部上传成功后建立审核操作，并在用户另行批准后筛选待审核订单、分批审核和回读核验；默认审核当前全部待审核订单，只审核本批为特殊范围。 | 当前不得继承上传授权或自动连跑；不读取原始订单、不重判公司和商品，不执行发货、作废或删除；真实审核须先完成本地与豆包只读探针。 | post_upload_reconciliation |
-| `configuration_governance` | 校验配置结构、规则实现注册、模块唯一归属、依赖环、弃用污染和运行时打包完整性。 | 治理目录只引用权威配置，不复制可执行业务值。 | company_workflow_routing、adaptive_excel、mapping_governance、conversion_delivery、post_upload_reconciliation、order_audit |
+| `configuration_governance` | 校验配置结构、规则实现注册、模块唯一归属、共享权威路径、依赖环、生成文档漂移、弃用污染和运行时打包完整性。 | 治理目录只引用权威配置，不复制可执行业务值。 | company_workflow_routing、adaptive_excel、mapping_governance、conversion_delivery、post_upload_reconciliation、order_audit |
 
 ## 权威来源与实现归属
 
@@ -131,10 +132,20 @@
 历史兼容实现：无
 共享策略：无
 
+## 经批准的共享权威文件
+
+这些文件承载相邻模块的编排或分区注册表；共享路径不代表同一规则可重复定义。
+
+| 路径 | 模块 | 共享原因 |
+|---|---|---|
+| `config/platform_rules/guanyi/policy_modules_v1.json` | `store_assignment`、`order_business_policies` | 同一共享策略注册表按policy_module_id分区；每个策略仍由模块审计保证唯一归属。 |
+| `src/auto_shipped/platforms/guanyi/custom_import.py` | `order_identity`、`order_business_policies` | 管易行生成编排同时调用订单身份与字段策略；可执行实现引用仍分别唯一归属。 |
+| `browser/guanyi/operation-state.mjs` | `browser_upload`、`post_upload_reconciliation` | 上传与上传后核验共用同一操作状态机，避免出现第二套写入状态。 |
+
 ## 审计
 
 ```bash
 python3 scripts/audit_modules.py
 ```
 
-审计必须确保：所有实现和共享策略恰好归属一个模块、权威路径存在、依赖无环、弃用模块不污染活动规则。
+审计必须确保：所有活动实现和共享策略恰好归属一个模块、共享权威路径显式登记、生成文档与机器目录一致、权威路径存在、依赖无环、弃用模块不污染活动规则。

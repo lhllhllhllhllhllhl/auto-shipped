@@ -6,7 +6,25 @@
     "公司识别、商品映射、店铺、物流、单号和输出分别只有一个权威模块。",
     "转换模块只输出管易Excel、上传预检manifest和摘要；浏览器模块不读取原始订单或判断业务规则。",
     "缺少必要事实时停止并集中追问；能安全形成预览的决定放在结果小节确认。",
-    "历史兼容实现必须单独登记为legacy，不能伪装成新订单活动实现。"
+    "历史兼容实现必须单独登记为legacy，不能伪装成新订单活动实现。",
+    "同一权威文件被多个模块使用时必须登记共享原因；未登记的路径重叠视为治理错误。"
+  ],
+  "shared_authority_paths": [
+    {
+      "path": "config/platform_rules/guanyi/policy_modules_v1.json",
+      "module_ids": ["store_assignment", "order_business_policies"],
+      "reason": "同一共享策略注册表按policy_module_id分区；每个策略仍由模块审计保证唯一归属。"
+    },
+    {
+      "path": "src/auto_shipped/platforms/guanyi/custom_import.py",
+      "module_ids": ["order_identity", "order_business_policies"],
+      "reason": "管易行生成编排同时调用订单身份与字段策略；可执行实现引用仍分别唯一归属。"
+    },
+    {
+      "path": "browser/guanyi/operation-state.mjs",
+      "module_ids": ["browser_upload", "post_upload_reconciliation"],
+      "reason": "上传与上传后核验共用同一操作状态机，避免出现第二套写入状态。"
+    }
   ],
   "modules": [
     {
@@ -156,7 +174,7 @@
     {
       "module_id": "configuration_governance",
       "title": "Schema、规则覆盖与模块审计",
-      "responsibility": "校验配置结构、规则实现注册、模块唯一归属、依赖环、弃用污染和运行时打包完整性。",
+      "responsibility": "校验配置结构、规则实现注册、模块唯一归属、共享权威路径、依赖环、生成文档漂移、弃用污染和运行时打包完整性。",
       "boundary": "治理目录只引用权威配置，不复制可执行业务值。",
       "authority_paths": ["config/governance/system_module_catalog_v1.json", "contracts/system_module_catalog.schema.json", "src/auto_shipped/rules/module_catalog.py", "scripts/audit_modules.py"],
       "dependencies": ["company_workflow_routing", "adaptive_excel", "mapping_governance", "conversion_delivery", "post_upload_reconciliation", "order_audit"],
