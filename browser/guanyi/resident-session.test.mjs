@@ -8,6 +8,7 @@ import {
   validateResidentCommand,
 } from "./resident-session.mjs";
 import { SUBMIT_AUTHORIZATION } from "./submission.mjs";
+import { NO_TASK_RESOLUTION_AUTHORIZATION } from "./operation-state.mjs";
 
 
 const FIRST_OPERATION = "11111111-1111-4111-8111-111111111111";
@@ -61,4 +62,30 @@ test("resident command queue preserves FIFO order and serial ownership", async (
   assert.equal(secondItem.browserOperationId, SECOND_OPERATION);
   secondItem.resolve({ status: "reconciling" });
   assert.deepEqual(await second, { status: "reconciling" });
+});
+
+
+test("resident no-task resolution requires its own exact authorization", () => {
+  assert.throws(
+    () => validateResidentCommand({
+      command: ResidentCommand.RESOLVE_NO_TASK,
+      browserOperationId: FIRST_OPERATION,
+      authorization: SUBMIT_AUTHORIZATION,
+    }),
+    (error) =>
+      error instanceof ResidentSessionError &&
+      error.code === "RESIDENT_NO_TASK_RESOLUTION_AUTHORIZATION_REQUIRED",
+  );
+  assert.deepEqual(
+    validateResidentCommand({
+      command: ResidentCommand.RESOLVE_NO_TASK,
+      browserOperationId: FIRST_OPERATION,
+      authorization: NO_TASK_RESOLUTION_AUTHORIZATION,
+    }),
+    {
+      command: ResidentCommand.RESOLVE_NO_TASK,
+      browserOperationId: FIRST_OPERATION,
+      authorization: NO_TASK_RESOLUTION_AUTHORIZATION,
+    },
+  );
 });

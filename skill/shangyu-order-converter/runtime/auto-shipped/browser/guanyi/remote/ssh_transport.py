@@ -27,6 +27,8 @@ _ACTIONS = {
     "prepare",
     "execute",
     "reconcile",
+    "resolve-no-task",
+    "prepare-retry",
     "probe",
     "login-start",
     "login-status",

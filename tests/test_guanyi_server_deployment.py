@@ -58,6 +58,8 @@ def test_remote_job_wrapper_exposes_only_registered_executor_actions() -> None:
         "prepare",
         "execute",
         "reconcile",
+        "resolve-no-task",
+        "prepare-retry",
         "probe",
         "login-start",
         "login-status",

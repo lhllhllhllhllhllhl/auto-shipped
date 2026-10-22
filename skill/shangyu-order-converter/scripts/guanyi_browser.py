@@ -33,6 +33,7 @@ COMMANDS = {
     "resident-probe": "resident-probe",
     "resident-execute-import": "resident-execute-import",
     "resident-reconcile": "resident-reconcile",
+    "resident-resolve-no-task": "resident-resolve-no-task",
     "credential-set": "credential:set",
     "credential-web": "credential:web",
     "credential-status": "credential:status",

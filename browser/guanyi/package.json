@@ -20,6 +20,7 @@
     "resident-probe": "node cli.mjs resident-probe",
     "resident-execute-import": "node cli.mjs resident-execute-import",
     "resident-reconcile": "node cli.mjs resident-reconcile",
+    "resident-resolve-no-task": "node cli.mjs resident-resolve-no-task",
     "credential:set": "node credential-cli.mjs set",
     "credential:web": "node credential-web.mjs",
     "credential:status": "node credential-cli.mjs status",

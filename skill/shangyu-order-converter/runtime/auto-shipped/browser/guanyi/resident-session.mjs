@@ -1,10 +1,12 @@
 import { SUBMIT_AUTHORIZATION } from "./submission.mjs";
+import { NO_TASK_RESOLUTION_AUTHORIZATION } from "./operation-state.mjs";
 
 
 export const ResidentCommand = Object.freeze({
   PROBE: "probe",
   EXECUTE_IMPORT: "execute_import",
   RECONCILE_IMPORT: "reconcile_import",
+  RESOLVE_NO_TASK: "resolve_no_task",
 });
 
 
@@ -46,6 +48,14 @@ export function validateResidentCommand(message) {
     }
   } else if (command === ResidentCommand.RECONCILE_IMPORT) {
     validateOperationId(message.browserOperationId);
+  } else if (command === ResidentCommand.RESOLVE_NO_TASK) {
+    validateOperationId(message.browserOperationId);
+    if (message.authorization !== NO_TASK_RESOLUTION_AUTHORIZATION) {
+      throw new ResidentSessionError(
+        "RESIDENT_NO_TASK_RESOLUTION_AUTHORIZATION_REQUIRED",
+        "常驻浏览器未收到关闭无新增任务操作的精确授权。",
+      );
+    }
   }
   return {
     command,

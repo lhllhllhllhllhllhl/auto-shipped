@@ -12,6 +12,7 @@ from .protocol import (
     REMOTE_SMS_REQUEST_AUTHORIZATION,
     REMOTE_STAGING_CONFIRMATION,
     REMOTE_SUBMIT_AUTHORIZATION,
+    REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION,
     ControlRequest,
     ProtocolError,
     StageRequest,
@@ -93,6 +94,23 @@ class RemoteGuanyiClient:
     def reconcile(self, operation_id: str) -> dict[str, Any]:
         return self.transport.invoke("reconcile", validate_operation_id(operation_id))
 
+    def resolve_no_task(
+        self, operation_id: str, authorization: str
+    ) -> dict[str, Any]:
+        control = ControlRequest.build(
+            action="resolve-no-task", authorization=authorization
+        )
+        return self.transport.invoke(
+            "resolve-no-task",
+            validate_operation_id(operation_id),
+            payload=control.to_json_bytes(),
+        )
+
+    def prepare_retry(self, operation_id: str) -> dict[str, Any]:
+        return self.transport.invoke(
+            "prepare-retry", validate_operation_id(operation_id)
+        )
+
     def probe(self) -> dict[str, Any]:
         return self.transport.invoke("probe", "probe")
 
@@ -145,6 +163,7 @@ __all__ = [
     "CLIENT_CONFIG_VERSION",
     "REMOTE_CREDENTIALS_AUTHORIZATION",
     "REMOTE_SMS_REQUEST_AUTHORIZATION",
+    "REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION",
     "REMOTE_STAGING_CONFIRMATION",
     "REMOTE_SUBMIT_AUTHORIZATION",
     "RemoteGuanyiClient",

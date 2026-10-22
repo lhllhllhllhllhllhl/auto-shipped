@@ -213,6 +213,38 @@ test("does not close manual review when a verified new task exists", async () =>
 });
 
 
+test("does not close an attempt after the final import request may have been sent", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
+  try {
+    const created = await createPreparedOperation(manifest(), directory);
+    const id = created.record.operationId;
+    await recordTaskBaseline(id, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.SUBMIT_AUTHORIZED, "first_confirm_allowed"],
+      [OperationState.WRITE_REQUEST_SENT, "final_confirm_clicked"],
+      [OperationState.NEEDS_MANUAL_REVIEW, "final_result_uncertain"],
+    ]) {
+      await transitionOperation(id, state, { reason }, directory);
+    }
+    await assert.rejects(
+      resolveNoTaskManualReview(
+        id,
+        taskResult(["100"]),
+        NO_TASK_RESOLUTION_AUTHORIZATION,
+        directory,
+      ),
+      (error) =>
+        error instanceof OperationStateError &&
+        error.code === "NO_TASK_RESOLUTION_FINAL_SUBMIT_UNCERTAIN",
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
 test("closes a reconciling operation after a verified no-task result", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
   try {

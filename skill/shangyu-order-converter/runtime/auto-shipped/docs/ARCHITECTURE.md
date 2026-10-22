@@ -412,7 +412,7 @@ ParsedOrder
 
 同一 Agent、同一持续运行环境是默认部署方式：转换模块把生成的 Excel 路径和 manifest 路径直接交给浏览器执行器，不需要额外上传到另一台机器。若平台把附件复制到新的云端路径，Agent必须同时传入明确的当前 Excel 路径；执行器以原 manifest 的文件名、大小和 SHA-256 核验后建立路径绑定，并在 operation 中同时保留原始位置与当前位置。两部分仍通过 manifest 隔离：浏览器只读取 Excel 路径、SHA-256、目标平台配置、订单/行数摘要和 operation ID；不得读取原始公司订单，也不得重新判断公司、商品、白标、店铺、物流或备注。
 
-同一对话可以先后产生多个可上传 manifest。Agent维护当前对话已知的明确批次集合，用户说“把这些都上传”时先回显所指批次，再为每个 manifest 建立独立 operation ID，按顺序执行任务基线、两段提交和任务中心结果核验。第一次确定后必须完整核对虚拟滚动字段表，第二次确定后必须以唯一新增任务 ID 关联结果；“执行完成”仍不是业务成功，只有结果汇总显示全部成功才闭环。前一批未核验成功时停止后续批次；不扫描目录或按修改时间猜测文件。
+同一对话可以先后产生多个可上传 manifest。Agent维护当前对话已知的明确批次集合，用户说“把这些都上传”时先回显所指批次，再为每个 manifest 建立独立 operation ID，按顺序执行任务基线、两段提交和任务中心结果核验。第一次确定后必须完整核对虚拟滚动字段表，第二次确定后必须以唯一新增任务 ID 关联结果；“执行完成”仍不是业务成功，只有结果汇总显示全部成功才闭环。可信失败闭环可为同一远端批次重新创建browser operation、重建基线并在重新授权后最多安全重试2次；仍失败就标为`deferred`放到本轮队尾并继续其他批次。最终提交可能已发出但任务身份未闭环时仍阻塞全部后续上传，不能后移；不扫描目录或按修改时间猜测文件。
 
 Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入总数、成功数、失败分类、需要人工处理的来源行号和下一步建议。浏览器执行器不得把任务结果中的收件人、手机号、详细地址、原始失败行或页面响应正文写入状态、日志或对话。
 
@@ -420,7 +420,7 @@ Agent 向用户返回非敏感闭环结果：operation ID、任务 ID、导入�
 
 账号密码属于运行环境凭证，不属于 Skill 或订单数据合同。本地使用 Keychain/DPAPI；Linux/云端优先使用平台 Secret/Vault 的只读凭证助手。没有安全入口且用户明确接受对话留存风险时，现有登录 operation 可进入 `waiting_for_credentials`，通过随机令牌loopback控制通道或私有stdin把本次凭据交给worker。豆包工作Linux的Playwright worker通过loopback CDP连接平台自带浏览器，直接观察并操作同一管易页面；执行器只在内存填值，不把字段内容写入状态、文件、环境变量、命令或日志。短信验证码继续使用同一短时operation ID。单一浏览器会话锁禁止probe或第二个登录抢占当前worker。
 
-自管Ubuntu服务器使用`resident_single_owner`协调层：一个长期运行的Playwright进程独占持久profile和页面，上传、只读探测与结果核验通过内存FIFO队列依次进入该进程；登录完成后不在任务边界关闭context。协调层只调度现有`browser/guanyi`高层函数，不包含选择器或业务判断。服务器重启、浏览器崩溃或登录过期后旧worker必须标为失败，再由安全凭证helper建立新会话；可能已写入的operation仍只能核验，不能因为worker重启而重提。服务器凭证由root私有加密文件和只读helper提供，不写入Skill、Git、环境变量、命令参数或job state；短信码仍只经SSH stdin进入当前常驻worker。
+自管Ubuntu服务器使用`resident_single_owner`协调层：一个长期运行的Playwright进程独占持久profile和页面，上传、只读探测、结果核验与无任务关闭通过内存FIFO队列依次进入该进程；登录完成后不在任务边界关闭context。协调层只调度现有`browser/guanyi`高层函数，不包含选择器或业务判断。远端job记录每个browser operation及安全重试次数，并以`retry_same_batch`、`defer_to_tail`或`block_upload_queue`告诉Agent下一步；它不在服务端另建第二套业务队列。服务器重启、浏览器崩溃或登录过期后旧worker必须标为失败，再由安全凭证helper建立新会话；可能已写入的operation仍只能核验，不能因为worker重启而重提。服务器凭证由root私有加密文件和只读helper提供，不写入Skill、Git、环境变量、命令参数或job state；短信码仍只经SSH stdin进入当前常驻worker。
 
 额外安全验证采用“通用识别 + 接入策略”两层。核心只识别白名单URL，未知页面仍失败关闭。本机/独立headed浏览器可进入`waiting_for_human_verification`，保持原Playwright context/worker并把同一窗口交给当前电脑用户；窗口class/`xdotool`只属于显示适配。豆包`platform_cdp`命中阿里云验证页时不做云端交接，而以`LOGIN_LOCAL_VERIFICATION_REQUIRED`终止worker并释放锁；用户或管理员在自己的可信电脑完整登录并确认进入管易首页后，豆包只读探测并最多重试一次。两种路径都禁止盲目重登、重发短信、复制会话材料或删除profile。
 

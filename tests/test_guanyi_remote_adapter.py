@@ -14,6 +14,7 @@ from unittest.mock import patch
 from browser.guanyi.remote.client import RemoteGuanyiClient
 from browser.guanyi.remote.protocol import (
     REMOTE_CREDENTIALS_AUTHORIZATION,
+    REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION,
     REMOTE_SMS_REQUEST_AUTHORIZATION,
     REMOTE_STAGING_CONFIRMATION,
     REMOTE_SUBMIT_AUTHORIZATION,
@@ -28,7 +29,9 @@ from browser.guanyi.remote.server_runner import (
     login_credentials,
     operation_status,
     prepare_operation,
+    prepare_retry_operation,
     receive_file,
+    resolve_no_task_operation,
     verify_manifest,
 )
 from browser.guanyi.remote.ssh_transport import SshTransport, SshTransportConfig
@@ -176,9 +179,20 @@ class GuanyiRemoteClientTests(unittest.TestCase):
         client.login_sms_submit(
             "00000000-0000-4000-8000-000000000001", b"123456\n"
         )
+        client.resolve_no_task(
+            "remote-client-002", REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION
+        )
+        client.prepare_retry("remote-client-002")
         self.assertEqual(
             [call[0] for call in transport.calls],
-            ["execute", "login-credentials", "login-sms-request", "login-sms-submit"],
+            [
+                "execute",
+                "login-credentials",
+                "login-sms-request",
+                "login-sms-submit",
+                "resolve-no-task",
+                "prepare-retry",
+            ],
         )
         self.assertNotIn("fixture-password", " ".join(transport.calls[1][:2]))
         self.assertIn(b"fixture-password", transport.calls[1][2])
@@ -427,6 +441,10 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                         "remote-server-004", io.BytesIO(control.to_json_bytes())
                     )
                     self.assertEqual(second["status"], "submission_blocked")
+                    self.assertEqual(
+                        second["retryPolicy"]["queueDisposition"],
+                        "block_upload_queue",
+                    )
                 self.assertEqual(
                     operation_status("remote-server-004")["state"],
                     "needs_manual_review",
@@ -480,6 +498,86 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                         "remote-server-005", io.BytesIO(control.to_json_bytes())
                     )
                     self.assertEqual(second["code"], "UPLOAD_RULE_GATE_BLOCKED")
+
+    def test_safe_no_task_resolution_prepares_two_retries_then_defers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            submit = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            resolve = ControlRequest.build(
+                action="resolve-no-task",
+                authorization=REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION,
+            )
+            operation_ids = [
+                "00000000-0000-4000-8000-000000000010",
+                "00000000-0000-4000-8000-000000000011",
+                "00000000-0000-4000-8000-000000000012",
+            ]
+            results = [
+                BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": operation_ids[0], "attemptNumber": 1}],
+                    0,
+                )
+            ]
+            for index in range(3):
+                results.extend(
+                    [
+                        BrowserCommandResult(
+                            [{"status": "submission_blocked", "code": "FIELD_MAPPING_VERIFICATION_FAILED"}],
+                            2,
+                        ),
+                        BrowserCommandResult(
+                            [{"status": "operation_retryable_no_task", "state": "retryable_failed", "attemptNumber": index + 1}],
+                            0,
+                        ),
+                    ]
+                )
+                if index < 2:
+                    results.append(
+                        BrowserCommandResult(
+                            [{
+                                "status": "operation_prepared",
+                                "operationId": operation_ids[index + 1],
+                                "attemptNumber": index + 2,
+                                "retryOf": operation_ids[index],
+                            }],
+                            0,
+                        )
+                    )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-006")
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=results,
+                ):
+                    prepare_operation("remote-server-006")
+                    for retry_index in range(3):
+                        execute_operation(
+                            "remote-server-006", io.BytesIO(submit.to_json_bytes())
+                        )
+                        closed = resolve_no_task_operation(
+                            "remote-server-006", io.BytesIO(resolve.to_json_bytes())
+                        )
+                        if retry_index < 2:
+                            self.assertEqual(
+                                closed["retryPolicy"]["queueDisposition"],
+                                "retry_same_batch",
+                            )
+                            prepared = prepare_retry_operation("remote-server-006")
+                            self.assertEqual(
+                                prepared["retryPolicy"]["safeRetryCount"],
+                                retry_index + 1,
+                            )
+                        else:
+                            self.assertEqual(
+                                closed["retryPolicy"]["queueDisposition"],
+                                "defer_to_tail",
+                            )
+                    final = operation_status("remote-server-006")
+                    self.assertEqual(final["state"], "deferred")
+                    self.assertEqual(final["retryPolicy"]["safeRetryCount"], 2)
 
 
 class GuanyiBrowserSkillGateTests(unittest.TestCase):

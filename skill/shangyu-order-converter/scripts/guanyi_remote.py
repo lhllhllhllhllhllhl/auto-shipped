@@ -60,6 +60,15 @@ def main() -> int:
     execute.add_argument("authorization")
     reconcile = subparsers.add_parser("reconcile", help="只读核验可能已提交的远端任务")
     reconcile.add_argument("operation_id")
+    resolve_no_task = subparsers.add_parser(
+        "resolve-no-task", help="以任务中心无新增证据关闭一个未最终提交的失败尝试"
+    )
+    resolve_no_task.add_argument("operation_id")
+    resolve_no_task.add_argument("authorization")
+    prepare_retry = subparsers.add_parser(
+        "prepare-retry", help="为已安全关闭的批次准备下一次受控尝试"
+    )
+    prepare_retry.add_argument("operation_id")
     subparsers.add_parser("probe", help="只读检查远端管易会话")
     subparsers.add_parser("login-start", help="启动远端临时凭据登录操作")
     login_status = subparsers.add_parser("login-status", help="读取远端登录操作状态")
@@ -114,6 +123,10 @@ def main() -> int:
             result = client.execute(args.operation_id, args.authorization)
         elif args.command == "reconcile":
             result = client.reconcile(args.operation_id)
+        elif args.command == "resolve-no-task":
+            result = client.resolve_no_task(args.operation_id, args.authorization)
+        elif args.command == "prepare-retry":
+            result = client.prepare_retry(args.operation_id)
         elif args.command == "probe":
             result = client.probe()
         elif args.command == "login-start":

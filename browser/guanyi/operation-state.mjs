@@ -700,6 +700,12 @@ export async function resolveNoTaskManualReview(
       "只有 reconciling 或 needs_manual_review 状态才能按无新增任务关闭。",
     );
   }
+  if (loaded.record.write.requestSent) {
+    throw new OperationStateError(
+      "NO_TASK_RESOLUTION_FINAL_SUBMIT_UNCERTAIN",
+      "最终导入请求可能已经发出；即使暂时没有新增任务也不能关闭或重试，只能继续只读核验。",
+    );
+  }
   let diff;
   try {
     diff = diffVerifiedTaskSnapshot(

@@ -43,8 +43,8 @@
 |---|---|---|
 | `remote/protocol.py` | 版本化任务合同、文件描述、操作 ID 与安全边界 | 网络、浏览器、业务规则 |
 | `remote/ssh_transport.py` | 用 OpenSSH stdin 私密传输元数据和文件 | 解释订单、执行页面动作 |
-| `remote/client.py` | 编排暂存、准备、登录交接、提交与核验 | 自动重试、猜测最新文件 |
-| `remote/server_runner.py` | 私有落盘、授权门禁、调用正式浏览器入口、保存脱敏状态 | 页面选择器、业务规则、明文凭据 |
+| `remote/client.py` | 编排暂存、准备、登录交接、提交、核验与安全重试原语 | 自行推断重试、猜测最新文件 |
+| `remote/server_runner.py` | 私有落盘、授权门禁、调用正式浏览器入口、保存脱敏状态和重试计数 | 页面选择器、业务规则、明文凭据 |
 | `resident-session.mjs` | 校验常驻命令、FIFO排队、保持单一浏览器owner | 页面选择器、订单规则、授权推断 |
 | `guanyi_remote.py` | Skill 的统一调用入口 | 保存服务器私钥或管易凭证 |
 
@@ -122,7 +122,7 @@ printf '%s\n' '{"username":"<账号>","password":"<密码>"}' | \
   ssh <server> 'sudo -n /usr/local/sbin/set-guanyi-credentials set'
 ```
 
-常驻状态为`resident_ready`后，`probe`、`execute`和`reconcile`都进入同一个浏览器
+常驻状态为`resident_ready`后，`probe`、`execute`、`reconcile`和`resolve-no-task`都进入同一个浏览器
 队列；不得另启普通`probe`或第二个登录进程。
 
 `resident-start`在创建常驻worker前执行与正式提交相同的`upload`规则审计，并把
@@ -151,6 +151,32 @@ python3 <skill-dir>/scripts/guanyi_remote.py execute \
 python3 <skill-dir>/scripts/guanyi_remote.py reconcile <remote-operation-id>
 ```
 
+核验结果只有两类可以安全重试：一是任务中心已唯一关联到明确失败的导入任务；
+二是最终导入请求明确未发出，并且任务中心相对原基线确认没有新增任务。第二类
+必须显式关闭当前尝试：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py resolve-no-task \
+  <remote-operation-id> CONFIRM_CLOSE_NO_TASK_OPERATION
+```
+
+状态返回`retryPolicy.queueDisposition=retry_same_batch`后，才可准备新的browser
+operation：
+
+```bash
+python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
+```
+
+初次尝试后最多允许2次安全重试。每次都会创建新browser operation、关联`retryOf`、
+递增`attemptNumber`、重建任务基线，并要求再次执行带有当次上传授权的`execute`。
+第二次重试仍失败时状态变为`deferred`、返回`queueDisposition=defer_to_tail`；Agent把
+该批放到本轮队尾并继续下一批，不自动第三次重试。队尾批次只向用户报告或等待
+新的明确授权。
+
+若返回`queueDisposition=block_upload_queue`，表示最终提交可能已发出但没有唯一可信
+闭环，或存在多条新增任务、任务ID证据不足等歧义；此时必须停止全部后续上传，
+继续只读核验或交人工确认，不能借“放到队尾”绕过。
+
 不得扫描目录或按时间猜测“最新文件”。相同操作 ID 与不同哈希冲突时必须停止；
 暂存请求重跑幂等。SSH 在提交前断开不构成成功；进入提交后断开则按“可能已
 写入”处理，只能核验，不能盲目重提。
@@ -171,6 +197,8 @@ python3 <skill-dir>/scripts/guanyi_remote.py reconcile <remote-operation-id>
 - 常驻协调器是唯一浏览器owner，任务FIFO串行；服务器重启或worker失效后不复用
   陈旧控制通道，重新登录前先确认没有可能已写入但未核验的operation。
 - `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
+- `resolve-no-task`不能关闭`write.requestSent=true`的尝试；没有新增任务不等于最终提交未发生。
+- 安全失败最多重试2次；`deferred`只允许队列继续，不代表该批成功或可以无限重试。
 - 日志和响应不返回 Excel 内容、收件人、手机号或详细地址。
 
 ## 服务器迁移

@@ -108,7 +108,7 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 自管服务器例外地由`resident-start`保持一个长期owner；返回`resident_ready`后，`resident-probe`、`resident-execute-import`和`resident-reconcile`只通过原worker的内存FIFO队列执行，单批结束不关闭context。任务并发时只排队，不启动第二个浏览器。登录过期、worker退出或服务器重启后旧控制通道作废；已可能写入的批次仍只能核验。服务器凭据由root私有加密helper提供，helper缺失时才回退到本次stdin临时凭据。
 
-同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID；前一批没有到达 `post_write_verified` 时，不开始下一批。不得扫描目录猜测“最新文件”。
+同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID。可信闭环的失败可以建立新operation并最多安全重试2次；两次仍失败则标为`deferred`并移到本轮队尾，继续后续批次，不自动进行第三次尝试。`reconciling`、最终提交结果不明、多条新增任务或任务ID证据不足会阻塞整条上传队列，不得后移绕过。不得扫描目录猜测“最新文件”。
 
 正式 Skill 包装入口只接受清单一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区，并只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层。显式指定普通复制目录不能绕过`runtime-manifest.json`；规则回退、实现引用失效、临时修改或打包不一致都会结构性拒绝浏览器入口。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
 
@@ -136,12 +136,14 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 18. `submit-import` 只有在用户明确授权当前批次后才可运行；文件选择只允许出现已登记的管易取 OSS 地址与指定 OSS 暂存请求，且两条响应必须成功。第一次“确定”后必须唯一出现“自定义字段对应”，完整遍历虚拟滚动表格的全部行，确认系统字段与 Excel 字段逐行同名、一一对应且必填字段齐全；随后才允许点击第二次“确定”。模板读取和最终导入请求必须分别精确匹配已登记接口，缺失、重复、非成功响应或任何额外写请求都停止并进入查重，禁止刷新、重选或重提。
 19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
 20. 相同 Excel 哈希只有在 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 或明确失败关闭后允许创建新操作，新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得用户授权。
-21. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再依次完成表单、基线、提交和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent 先走标准短信交接，再重新执行当前已授权批次。两分钟内仍无唯一结果时返回 `reconciling`，后续仅允许只读续查。
-22. `prepare-order-audit`只接受`post_write_verified`上传操作，默认建立`all_pending`范围；只有用户明确要求“只审核本批”时才使用`current_batch`并绑定manifest平台单号。
-23. `execute-order-audit`必须取得上传成功后的新授权`CONFIRM_GUANYI_ORDER_AUDIT`。上传授权不能复用；策略中的联动模式默认关闭。它只筛选已确认的待审核状态、核验结果中没有其他状态、全选当前页并点击审核，多页按页面签名逐页处理。
-24. `reconcile-order-audit`只读回查剩余待审核订单，不能勾选行或点击审核。写请求后页面状态不明时不得盲目重试。
-25. `probe-order-audit`必须分别在本地与豆包环境只读确认审核列、平台单号列、两个筛选框、全选框、审核按钮和真实待审核状态词；双环境未完成前生产审核门禁保持关闭。
-26. 自管服务器必须只有一个`resident_single_owner`浏览器；两个上传请求按FIFO顺序进入同一context。首个任务结束后浏览器仍为`resident_ready`，第二个任务不得新建浏览器。凭据、验证码和任务授权不得写入队列文件或登录operation回执。
+21. `resident-resolve-no-task`只允许用精确口令`CONFIRM_CLOSE_NO_TASK_OPERATION`关闭最终导入请求明确未发出、且任务中心相对原基线确认没有新增任务的尝试。若`write.requestSent=true`，即使当前看不到新增任务也必须拒绝关闭，继续只读核验。
+22. 远端批次的`safeRetryCount`只在创建新的browser operation时递增；初次尝试后最多再创建2次安全重试。第二次重试仍闭环失败时返回`queueDisposition=defer_to_tail`；结果不明返回`block_upload_queue`。这只是调度策略，不改变每次重试都要重新取得当前批次上传授权的门禁。
+23. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再依次完成表单、基线、提交和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent 先走标准短信交接，再重新执行当前已授权批次。两分钟内仍无唯一结果时返回 `reconciling`，后续仅允许只读续查。
+24. `prepare-order-audit`只接受`post_write_verified`上传操作，默认建立`all_pending`范围；只有用户明确要求“只审核本批”时才使用`current_batch`并绑定manifest平台单号。
+25. `execute-order-audit`必须取得上传成功后的新授权`CONFIRM_GUANYI_ORDER_AUDIT`。上传授权不能复用；策略中的联动模式默认关闭。它只筛选已确认的待审核状态、核验结果中没有其他状态、全选当前页并点击审核，多页按页面签名逐页处理。
+26. `reconcile-order-audit`只读回查剩余待审核订单，不能勾选行或点击审核。写请求后页面状态不明时不得盲目重试。
+27. `probe-order-audit`必须分别在本地与豆包环境只读确认审核列、平台单号列、两个筛选框、全选框、审核按钮和真实待审核状态词；双环境未完成前生产审核门禁保持关闭。
+28. 自管服务器必须只有一个`resident_single_owner`浏览器；两个上传请求按FIFO顺序进入同一context。首个任务结束后浏览器仍为`resident_ready`，第二个任务不得新建浏览器。凭据、验证码和任务授权不得写入队列文件或登录operation回执。
 
 ## 实机验收记录
 

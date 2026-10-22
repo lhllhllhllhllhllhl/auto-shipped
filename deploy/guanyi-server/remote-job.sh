@@ -9,7 +9,7 @@ STATE_ROOT="${AUTO_SHIPPED_STATE_ROOT:-/var/lib/auto-shipped}"
 CONFIG_FILE="${AUTO_SHIPPED_CONFIG_FILE:-/etc/auto-shipped/guanyi-server.env}"
 
 [[ "${EUID}" -eq 0 ]] || { echo '{"status":"failed","code":"REMOTE_ROOT_REQUIRED"}' >&2; exit 1; }
-[[ "$ACTION" =~ ^(health|init|put-manifest|put-artifact|verify|status|prepare|execute|reconcile|probe|login-start|login-status|login-credentials|login-sms-request|login-sms-submit)$ ]] || {
+[[ "$ACTION" =~ ^(health|init|put-manifest|put-artifact|verify|status|prepare|execute|reconcile|resolve-no-task|prepare-retry|probe|login-start|login-status|login-credentials|login-sms-request|login-sms-submit)$ ]] || {
   echo '{"status":"failed","code":"REMOTE_ACTION_INVALID"}'
   exit 2
 }

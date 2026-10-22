@@ -146,7 +146,7 @@ function sessionErrorStatus(error) {
 function help() {
   printJson({
     usage:
-      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|resident-start|resident-status|resident-probe|resident-execute-import|resident-reconcile|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation|probe-order-audit|prepare-order-audit|execute-order-audit|reconcile-order-audit> [arguments]",
+      "node cli.mjs <login|login-auto|login-auto-start|login-agent-start|login-credentials-submit|login-status|login-sms-request|login-sms-submit|login-auto-sms|resident-start|resident-status|resident-probe|resident-execute-import|resident-reconcile|resident-resolve-no-task|probe|navigate-import|prepare-import-form|probe-task-center|probe-completed-imports|capture-task-baseline|inspect-file-selection|select-import-file|submit-import|execute-import|reconcile-operation|resolve-no-task|verify-manifest|prepare-operation|probe-order-audit|prepare-order-audit|execute-order-audit|reconcile-order-audit> [arguments]",
     commands: {
       login: "打开当前管易浏览器会话，由用户手动登录。",
       "login-auto": "从当前系统安全凭证提供器读取凭证并登录；不输出凭证。",
@@ -171,6 +171,8 @@ function help() {
       "resident-execute-import":
         `把已授权批次排入常驻浏览器；需要当次授权口令 ${SUBMIT_AUTHORIZATION}。`,
       "resident-reconcile": "在常驻浏览器中只读核验一个可能已提交的批次。",
+      "resident-resolve-no-task":
+        `任务中心确认没有新增任务且最终请求未发出时关闭本次尝试；需要口令 ${NO_TASK_RESOLUTION_AUTHORIZATION}。`,
       "resident-probe": "在常驻浏览器中只读检查登录与页面状态。",
       probe: "只读检查登录和页面状态；只关闭已登记的安全通知。",
       "navigate-import": "只读导航到自定义订单导入页面，不选择文件。",
@@ -403,6 +405,12 @@ async function serveResidentCommands(
           );
         }
         result = await executeAuthorizedImportInSingleSession(
+          page,
+          item.browserOperationId,
+          item.authorization,
+        );
+      } else if (item.command === ResidentCommand.RESOLVE_NO_TASK) {
+        result = await resolveNoTaskInCurrentSession(
           page,
           item.browserOperationId,
           item.authorization,
@@ -1474,11 +1482,21 @@ async function runResolveNoTask(page, operationId, authorization) {
       "关闭人工复核操作需要操作 ID。",
     );
   }
+  const result = await resolveNoTaskInCurrentSession(
+    page,
+    operationId,
+    authorization,
+  );
+  printJson(result);
+  return ["needs_login", "needs_verification"].includes(result.state) ? 2 : 0;
+}
+
+
+async function resolveNoTaskInCurrentSession(page, operationId, authorization) {
   await openApp(page);
   const observed = await detectState(page);
   if (["needs_login", "needs_verification"].includes(observed.state)) {
-    printJson(observed);
-    return 2;
+    return observed;
   }
   const tasks = await probeImportTaskSnapshot(page);
   const closed = await resolveNoTaskManualReview(
@@ -1486,14 +1504,14 @@ async function runResolveNoTask(page, operationId, authorization) {
     tasks,
     authorization,
   );
-  printJson({
+  return {
     status: "operation_retryable_no_task",
     operationId,
     state: closed.record.state,
+    attemptNumber: closed.record.attemptNumber,
     failureCode: closed.record.failure.code,
     safety: "The verified task snapshot had no additions; no browser write was performed.",
-  });
-  return 0;
+  };
 }
 
 
@@ -1585,6 +1603,7 @@ async function main() {
       "resident-status",
       "resident-execute-import",
       "resident-reconcile",
+      "resident-resolve-no-task",
       "resident-probe",
       "probe",
       "navigate-import",
@@ -1727,6 +1746,13 @@ async function main() {
         ResidentCommand.RECONCILE_IMPORT,
         process.argv[3],
         null,
+      );
+    }
+    if (command === "resident-resolve-no-task") {
+      return await sendResidentCommand(
+        ResidentCommand.RESOLVE_NO_TASK,
+        process.argv[3],
+        process.argv[4],
       );
     }
     if (command === "resident-probe") {

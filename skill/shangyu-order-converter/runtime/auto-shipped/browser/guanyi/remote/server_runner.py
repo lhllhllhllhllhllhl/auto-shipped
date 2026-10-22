@@ -26,6 +26,7 @@ from .protocol import (
     MAX_ARTIFACT_BYTES,
     MAX_MANIFEST_BYTES,
     REMOTE_CREDENTIALS_AUTHORIZATION,
+    REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION,
     REMOTE_SMS_REQUEST_AUTHORIZATION,
     REMOTE_SUBMIT_AUTHORIZATION,
     ControlRequest,
@@ -40,6 +41,7 @@ JOB_SCHEMA_VERSION = "guanyi-remote-job-state/1.0"
 DEFAULT_JOB_ROOT = Path("/var/lib/auto-shipped/inbox")
 EXECUTOR_TIMEOUT_SECONDS = 300
 LOGIN_TIMEOUT_SECONDS = 180
+MAX_SAFE_RETRIES = 2
 _SMS_CODE = re.compile(rb"^[0-9]{4,6}$")
 
 
@@ -137,11 +139,8 @@ def public_state(request: StageRequest, state: dict[str, Any]) -> dict[str, Any]
             "sizeBytes": request.manifest.size_bytes,
             "sha256": request.manifest.sha256,
         },
-        "safety": (
-            "A write may have been attempted; do not resubmit. Reconcile this exact operation."
-            if state.get("execute_started")
-            else "No browser write was requested for this remote job."
-        ),
+        "safety": _public_safety(state),
+        "retryPolicy": _retry_policy(state),
     }
     verification = state.get("verification")
     if isinstance(verification, dict):
@@ -157,6 +156,40 @@ def public_state(request: StageRequest, state: dict[str, Any]) -> dict[str, Any]
     if isinstance(state.get("last_result"), dict):
         response["lastResult"] = state["last_result"]
     return response
+
+
+def _retry_policy(state: dict[str, Any]) -> dict[str, Any]:
+    retry_count = int(state.get("safe_retry_count") or 0)
+    current = str(state.get("state") or "")
+    if current == "deferred":
+        disposition = "defer_to_tail"
+    elif current == "retryable_failed":
+        disposition = "retry_same_batch"
+    elif current in {"needs_manual_review", "reconciling", "submit_maybe_sent"}:
+        disposition = "block_upload_queue"
+    elif current == "verified":
+        disposition = "completed"
+    else:
+        disposition = "continue_current"
+    return {
+        "safeRetryCount": retry_count,
+        "maxSafeRetries": MAX_SAFE_RETRIES,
+        "queueDisposition": disposition,
+    }
+
+
+def _public_safety(state: dict[str, Any]) -> str:
+    current = str(state.get("state") or "")
+    if current == "verified":
+        return "The exact browser operation was verified through the task center."
+    if current in {"retryable_failed", "deferred"}:
+        return (
+            "The prior attempt was closed with verified evidence and has no unresolved "
+            "final-submit outcome."
+        )
+    if state.get("execute_started"):
+        return "A write may have been attempted; do not resubmit. Reconcile this exact operation."
+    return "No browser write was requested for this remote job."
 
 
 def initialize(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
@@ -181,6 +214,8 @@ def initialize(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
             "operation_id": operation_id,
             "state": "receiving",
             "received": {"manifest": False, "artifact": False},
+            "safe_retry_count": 0,
+            "browser_operation_history": [],
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
@@ -344,12 +379,42 @@ def _remote_result(
     remote_operation_id: str,
     browser_operation_id: str | None,
     result: dict[str, Any],
+    state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = dict(result)
     payload["remoteOperationId"] = remote_operation_id
     if browser_operation_id:
         payload["browserOperationId"] = browser_operation_id
+    if state is not None:
+        payload["retryPolicy"] = _retry_policy(state)
     return payload
+
+
+def _closed_failure_state(state: dict[str, Any]) -> str:
+    return (
+        "deferred"
+        if int(state.get("safe_retry_count") or 0) >= MAX_SAFE_RETRIES
+        else "retryable_failed"
+    )
+
+
+def _prepare_browser_operation(
+    directory: Path, request: StageRequest
+) -> tuple[dict[str, Any], str]:
+    manifest = directory / request.manifest.file_name
+    artifact = directory / request.artifact.file_name
+    command = run_browser_command(
+        "prepare-operation", str(manifest), str(artifact), timeout=60
+    )
+    result = command.final
+    if command.returncode != 0 or result.get("status") != "operation_prepared":
+        raise ProtocolError(
+            str(result.get("code") or "REMOTE_PREPARE_REJECTED"),
+            str(result.get("message") or "服务器未能准备上传操作。"),
+        )
+    browser_operation_id = str(result.get("operationId") or "")
+    validate_operation_id(browser_operation_id)
+    return result, browser_operation_id
 
 
 def prepare_operation(operation_id: str) -> dict[str, Any]:
@@ -363,33 +428,27 @@ def prepare_operation(operation_id: str) -> dict[str, Any]:
                 "browserOperationId": state["browser_operation_id"],
                 "state": state.get("state"),
                 "safety": "No browser was opened and no upload was performed.",
+                "retryPolicy": _retry_policy(state),
             }
         if state.get("state") != "preflight_ready":
             raise ProtocolError(
                 "REMOTE_PREFLIGHT_REQUIRED",
                 "远端任务必须先完成 manifest 与 Excel 预检。",
             )
-        manifest = directory / request.manifest.file_name
-        artifact = directory / request.artifact.file_name
-        command = run_browser_command(
-            "prepare-operation", str(manifest), str(artifact), timeout=60
-        )
-        result = command.final
-        if command.returncode != 0 or result.get("status") != "operation_prepared":
+        try:
+            result, browser_operation_id = _prepare_browser_operation(
+                directory, request
+            )
+        except ProtocolError as error:
             state.update(
                 {
                     "state": "prepare_rejected",
-                    "code": str(result.get("code") or "REMOTE_PREPARE_REJECTED"),
-                    "last_result": _safe_result(result),
+                    "code": error.code,
                     "updated_at": now_iso(),
                 }
             )
             atomic_json(state_path(directory), state)
-            raise ProtocolError(
-                state["code"], str(result.get("message") or "服务器未能准备上传操作。")
-            )
-        browser_operation_id = str(result.get("operationId") or "")
-        validate_operation_id(browser_operation_id)
+            raise
         state.update(
             {
                 "state": "prepared",
@@ -399,6 +458,7 @@ def prepare_operation(operation_id: str) -> dict[str, Any]:
                 "updated_at": now_iso(),
             }
         )
+        state.setdefault("browser_operation_history", []).append(browser_operation_id)
         state.pop("code", None)
         atomic_json(state_path(directory), state)
         return {
@@ -408,6 +468,51 @@ def prepare_operation(operation_id: str) -> dict[str, Any]:
             "state": "prepared",
             "orders": result.get("orders"),
             "itemRows": result.get("itemRows"),
+            "safety": "No browser was opened and no upload was performed.",
+            "retryPolicy": _retry_policy(state),
+        }
+
+
+def prepare_retry_operation(operation_id: str) -> dict[str, Any]:
+    with job_lock(operation_id) as directory:
+        request = load_request(directory)
+        state = load_state(directory)
+        if state.get("state") != "retryable_failed":
+            raise ProtocolError(
+                "REMOTE_RETRY_NOT_READY",
+                "只有已经用可信证据安全关闭的失败尝试才能准备重试。",
+            )
+        retry_count = int(state.get("safe_retry_count") or 0)
+        if retry_count >= MAX_SAFE_RETRIES:
+            state["state"] = "deferred"
+            state["updated_at"] = now_iso()
+            atomic_json(state_path(directory), state)
+            raise ProtocolError(
+                "REMOTE_SAFE_RETRY_LIMIT_REACHED",
+                "该批次已经完成两次安全重试，现已后移等待人工处理。",
+            )
+        result, browser_operation_id = _prepare_browser_operation(directory, request)
+        state.update(
+            {
+                "state": "prepared",
+                "browser_operation_id": browser_operation_id,
+                "execute_started": False,
+                "safe_retry_count": retry_count + 1,
+                "last_result": _safe_result(result),
+                "updated_at": now_iso(),
+            }
+        )
+        state.setdefault("browser_operation_history", []).append(browser_operation_id)
+        state.pop("code", None)
+        atomic_json(state_path(directory), state)
+        return {
+            "status": "remote_retry_prepared",
+            "remoteOperationId": operation_id,
+            "browserOperationId": browser_operation_id,
+            "state": "prepared",
+            "attemptNumber": result.get("attemptNumber"),
+            "retryOf": result.get("retryOf"),
+            "retryPolicy": _retry_policy(state),
             "safety": "No browser was opened and no upload was performed.",
         }
 
@@ -502,6 +607,15 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
                     "updated_at": now_iso(),
                 }
             )
+        elif status == "retryable_failed":
+            state.update(
+                {
+                    "state": _closed_failure_state(state),
+                    "execute_started": False,
+                    "last_result": _safe_result(result),
+                    "updated_at": now_iso(),
+                }
+            )
         else:
             state.update(
                 {
@@ -511,7 +625,7 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
                 }
             )
         atomic_json(state_path(directory), state)
-        return _remote_result(operation_id, browser_operation_id, result)
+        return _remote_result(operation_id, browser_operation_id, result, state)
 
 
 def reconcile_operation(operation_id: str) -> dict[str, Any]:
@@ -533,17 +647,83 @@ def reconcile_operation(operation_id: str) -> dict[str, Any]:
             remote_state = "verified"
         elif status == "reconciling":
             remote_state = "reconciling"
+        elif status == "retryable_failed":
+            remote_state = _closed_failure_state(state)
         else:
             remote_state = "needs_manual_review"
         state.update(
             {
                 "state": remote_state,
+                "execute_started": False
+                if remote_state in {"retryable_failed", "deferred", "verified"}
+                else state.get("execute_started"),
                 "last_result": _safe_result(result),
                 "updated_at": now_iso(),
             }
         )
         atomic_json(state_path(directory), state)
-        return _remote_result(operation_id, browser_operation_id, result)
+        return _remote_result(operation_id, browser_operation_id, result, state)
+
+
+def resolve_no_task_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
+    control = ControlRequest.from_json_bytes(
+        stream.read(4097), expected_action="resolve-no-task"
+    )
+    if control.authorization != REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION:
+        raise ProtocolError(
+            "REMOTE_ACTION_NOT_AUTHORIZED", "缺少关闭无新增任务操作的授权。"
+        )
+    with job_lock(operation_id) as directory:
+        load_request(directory)
+        state = load_state(directory)
+        browser_operation_id = state.get("browser_operation_id")
+        if not browser_operation_id or not state.get("execute_started"):
+            raise ProtocolError(
+                "REMOTE_NO_TASK_RESOLUTION_NOT_READY",
+                "该任务没有待关闭的浏览器尝试。",
+            )
+        if state.get("state") not in {"reconciling", "needs_manual_review"}:
+            raise ProtocolError(
+                "REMOTE_NO_TASK_RESOLUTION_NOT_READY",
+                "当前远端状态不允许按无新增任务关闭。",
+            )
+        command = run_browser_command(
+            "resident-resolve-no-task",
+            browser_operation_id,
+            REMOTE_NO_TASK_RESOLUTION_AUTHORIZATION,
+            timeout=15 * 60,
+        )
+        result = command.final
+        if (
+            command.returncode != 0
+            or result.get("status") != "operation_retryable_no_task"
+        ):
+            state.update(
+                {
+                    "state": "needs_manual_review",
+                    "last_result": _safe_result(result),
+                    "updated_at": now_iso(),
+                }
+            )
+            atomic_json(state_path(directory), state)
+            raise ProtocolError(
+                str(result.get("code") or "REMOTE_NO_TASK_RESOLUTION_REJECTED"),
+                str(
+                    result.get("message")
+                    or "任务中心证据不足，不能安全关闭本次尝试。"
+                ),
+            )
+        state.update(
+            {
+                "state": _closed_failure_state(state),
+                "execute_started": False,
+                "last_result": _safe_result(result),
+                "updated_at": now_iso(),
+            }
+        )
+        state.pop("code", None)
+        atomic_json(state_path(directory), state)
+        return _remote_result(operation_id, browser_operation_id, result, state)
 
 
 def _read_control_line(stream: BinaryIO, expected_action: str) -> tuple[ControlRequest, bytes]:
@@ -687,6 +867,8 @@ def health() -> dict[str, Any]:
             "prepare",
             "execute",
             "reconcile",
+            "resolve-no-task",
+            "prepare-retry",
             "probe",
             "login",
         ],
@@ -715,6 +897,10 @@ def run(action: str, operation_id: str, stream: BinaryIO) -> dict[str, Any]:
         return execute_operation(operation_id, stream)
     if action == "reconcile":
         return reconcile_operation(operation_id)
+    if action == "resolve-no-task":
+        return resolve_no_task_operation(operation_id, stream)
+    if action == "prepare-retry":
+        return prepare_retry_operation(operation_id)
     if action == "probe":
         return run_browser_command("resident-probe").final
     if action == "login-start":
@@ -754,6 +940,8 @@ def main() -> int:
             "prepare",
             "execute",
             "reconcile",
+            "resolve-no-task",
+            "prepare-retry",
             "probe",
             "login-start",
             "login-status",
