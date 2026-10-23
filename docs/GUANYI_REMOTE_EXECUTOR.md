@@ -173,9 +173,17 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 该批放到本轮队尾并继续下一批，不自动第三次重试。队尾批次只向用户报告或等待
 新的明确授权。
 
-若返回`queueDisposition=block_upload_queue`，表示最终提交可能已发出但没有唯一可信
+若返回`queueDisposition=block_upload_queue`，表示未满5分钟的最终提交仍没有唯一可信
 闭环，或存在多条新增任务、任务ID证据不足等歧义；此时必须停止全部后续上传，
 继续只读核验或交人工确认，不能借“放到队尾”绕过。
+
+最终请求记录发出后满5分钟仍无唯一新增任务时，状态变为`quarantined`并返回
+`queueDisposition=continue_other_batches`。该状态不会关闭原操作，也绝不允许重传原批次；
+它只允许后续不同批次继续。开始下一批前，Agent必须先对隔离操作再做一次只读
+`reconcile`，随后为新批次捕获全新任务基线；新批次提交后优先闭环当前新批次，再续查
+隔离操作。已被其他operation认领的任务ID会从隔离操作的候选中排除；“查看结果”总数
+还必须等于manifest订单数。数量相同只能作为辅助证据，若仍有多条候选或其他歧义，仍须
+停止并交人工确认。
 
 不得扫描目录或按时间猜测“最新文件”。相同操作 ID 与不同哈希冲突时必须停止；
 暂存请求重跑幂等。SSH 在提交前断开不构成成功；进入提交后断开则按“可能已
@@ -199,6 +207,7 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 - `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
 - `resolve-no-task`不能关闭`write.requestSent=true`的尝试；没有新增任务不等于最终提交未发生。
 - 安全失败最多重试2次；`deferred`只允许队列继续，不代表该批成功或可以无限重试。
+- `quarantined`只在最终请求发出后连续5分钟无唯一任务时释放后续不同批次；原批次仍禁止重传并保留只读续查。
 - 日志和响应不返回 Excel 内容、收件人、手机号或详细地址。
 
 ## 服务器迁移

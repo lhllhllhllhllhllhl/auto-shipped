@@ -163,6 +163,8 @@ def _retry_policy(state: dict[str, Any]) -> dict[str, Any]:
     current = str(state.get("state") or "")
     if current == "deferred":
         disposition = "defer_to_tail"
+    elif current == "quarantined":
+        disposition = "continue_other_batches"
     elif current == "retryable_failed":
         disposition = "retry_same_batch"
     elif current in {"needs_manual_review", "reconciling", "submit_maybe_sent"}:
@@ -182,6 +184,12 @@ def _public_safety(state: dict[str, Any]) -> str:
     current = str(state.get("state") or "")
     if current == "verified":
         return "The exact browser operation was verified through the task center."
+    if current == "quarantined":
+        return (
+            "The final request may have been sent, but no unique task appeared within "
+            "five minutes. Never resubmit this batch; later distinct batches may continue "
+            "with fresh baselines while this operation remains read-only reconcilable."
+        )
     if current in {"retryable_failed", "deferred"}:
         return (
             "The prior attempt was closed with verified evidence and has no unresolved "
@@ -371,6 +379,9 @@ def _safe_result(result: dict[str, Any]) -> dict[str, Any]:
         "browserMode",
         "queuePolicy",
         "safety",
+        "quarantineAfterMs",
+        "elapsedMs",
+        "retryAfterMs",
     }
     return {key: result[key] for key in allowed if key in result}
 
@@ -607,6 +618,14 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
                     "updated_at": now_iso(),
                 }
             )
+        elif status == "quarantined":
+            state.update(
+                {
+                    "state": "quarantined",
+                    "last_result": _safe_result(result),
+                    "updated_at": now_iso(),
+                }
+            )
         elif status == "retryable_failed":
             state.update(
                 {
@@ -647,6 +666,8 @@ def reconcile_operation(operation_id: str) -> dict[str, Any]:
             remote_state = "verified"
         elif status == "reconciling":
             remote_state = "reconciling"
+        elif status == "quarantined":
+            remote_state = "quarantined"
         elif status == "retryable_failed":
             remote_state = _closed_failure_state(state)
         else:

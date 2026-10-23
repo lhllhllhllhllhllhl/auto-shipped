@@ -694,10 +694,187 @@ test("keeps a submitted operation reconciling when no new task is visible yet", 
       id,
       taskResult(["100"]),
       directory,
+      { nowMs: Date.now() + 4 * 60 * 1_000 },
     );
     assert.equal(result.status, "reconciling");
     assert.equal(result.record.state, OperationState.RECONCILING);
     assert.equal(result.record.write.requestSent, true);
+    assert.ok(result.retryAfterMs > 0);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("quarantines a submitted operation after five minutes without a task", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
+  try {
+    const created = await createPreparedOperation(manifest(), directory);
+    const id = created.record.operationId;
+    await recordTaskBaseline(id, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.SUBMIT_AUTHORIZED, "current_batch_authorized"],
+      [OperationState.WRITE_REQUEST_SENT, "submit_clicked_once"],
+    ]) {
+      await transitionOperation(id, state, { reason }, directory);
+    }
+    const result = await reconcileOperationTask(
+      id,
+      taskResult(["100"]),
+      directory,
+      { nowMs: Date.now() + 5 * 60 * 1_000 },
+    );
+    assert.equal(result.status, "quarantined");
+    assert.equal(result.record.state, OperationState.QUARANTINED);
+    assert.equal(result.record.write.requestSent, true);
+    assert.equal(result.quarantineAfterMs, 5 * 60 * 1_000);
+    assert.equal(
+      result.record.history.at(-1).reason,
+      "submitted_task_not_visible_after_quarantine_window",
+    );
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("a quarantined operation ignores a task already claimed by a later batch", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
+  try {
+    const first = await createPreparedOperation(manifest(), directory);
+    await recordTaskBaseline(first.record.operationId, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.SUBMIT_AUTHORIZED, "current_batch_authorized"],
+      [OperationState.WRITE_REQUEST_SENT, "submit_clicked_once"],
+    ]) {
+      await transitionOperation(first.record.operationId, state, { reason }, directory);
+    }
+    await reconcileOperationTask(
+      first.record.operationId,
+      taskResult(["100"]),
+      directory,
+      { nowMs: Date.now() + 5 * 60 * 1_000 },
+    );
+
+    const secondManifest = {
+      ...manifest(),
+      manifestPath: "/tmp/preflight-2.json",
+      workbookPath: "/tmp/orders-2.xlsx",
+      artifactFileName: "orders-2.xlsx",
+      artifactSha256: "b".repeat(64),
+    };
+    const second = await createPreparedOperation(secondManifest, directory);
+    await recordTaskBaseline(second.record.operationId, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.RECONCILING, "task_center_reconciliation_started"],
+      [OperationState.TASK_ID_OBSERVED, "unique_new_task_from_verified_baseline"],
+    ]) {
+      await transitionOperation(
+        second.record.operationId,
+        state,
+        {
+          reason,
+          ...(state === OperationState.TASK_ID_OBSERVED
+            ? {
+                taskId: "101",
+                taskName: "自定义订单导入",
+                taskStatus: "执行完成",
+              }
+            : {}),
+        },
+        directory,
+      );
+    }
+
+    const result = await reconcileOperationTask(
+      first.record.operationId,
+      taskResult(["101", "100"]),
+      directory,
+      { nowMs: Date.now() + 6 * 60 * 1_000 },
+    );
+    assert.equal(result.status, "quarantined");
+    assert.equal(result.record.write.taskId, null);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("a quarantined operation can still claim its later unique task", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
+  try {
+    const created = await createPreparedOperation(manifest(), directory);
+    const id = created.record.operationId;
+    await recordTaskBaseline(id, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.SUBMIT_AUTHORIZED, "current_batch_authorized"],
+      [OperationState.WRITE_REQUEST_SENT, "submit_clicked_once"],
+    ]) {
+      await transitionOperation(id, state, { reason }, directory);
+    }
+    await reconcileOperationTask(
+      id,
+      taskResult(["100"]),
+      directory,
+      { nowMs: Date.now() + 5 * 60 * 1_000 },
+    );
+    const result = await reconcileOperationTask(
+      id,
+      taskResult(["101", "100"]),
+      directory,
+      { nowMs: Date.now() + 6 * 60 * 1_000 },
+    );
+    assert.equal(result.status, "result_required");
+    assert.equal(result.record.state, OperationState.TASK_ID_OBSERVED);
+    assert.equal(result.record.write.taskId, "101");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("requires task result order count to match the manifest batch", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "guanyi-operation-"));
+  try {
+    const created = await createPreparedOperation(manifest(), directory);
+    const id = created.record.operationId;
+    await recordTaskBaseline(id, taskResult(["100"]), directory);
+    for (const [state, reason] of [
+      [OperationState.FILE_SELECTION_STARTED, "authorized_file_selection"],
+      [OperationState.WRITE_REQUEST_MAYBE_SENT, "file_input_changed"],
+      [OperationState.RECONCILING, "task_center_reconciliation_started"],
+    ]) {
+      await transitionOperation(id, state, { reason }, directory);
+    }
+    await transitionOperation(
+      id,
+      OperationState.TASK_ID_OBSERVED,
+      {
+        reason: "unique_new_task_from_verified_baseline",
+        taskId: "101",
+        taskName: "自定义订单导入",
+        taskStatus: "执行完成",
+      },
+      directory,
+    );
+    const result = await recordImportTaskResult(
+      id,
+      importResult("101", { total: 1, successful: 1 }),
+      directory,
+    );
+    assert.equal(result.status, "needs_manual_review");
+    assert.equal(result.reason, "task_result_order_count_mismatch");
+    assert.equal(result.record.state, OperationState.NEEDS_MANUAL_REVIEW);
+    assert.equal(result.expectedOrders, 2);
+    assert.equal(result.observedTotal, 1);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

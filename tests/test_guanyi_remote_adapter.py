@@ -31,6 +31,7 @@ from browser.guanyi.remote.server_runner import (
     prepare_operation,
     prepare_retry_operation,
     receive_file,
+    reconcile_operation,
     resolve_no_task_operation,
     verify_manifest,
 )
@@ -454,6 +455,54 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                         "remote-server-004", io.BytesIO(control.to_json_bytes())
                     )
                 self.assertEqual(raised.exception.code, "REMOTE_RESUBMISSION_BLOCKED")
+
+    def test_quarantined_submit_allows_other_batches_but_stays_reconcilable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            browser_operation_id = "00000000-0000-4000-8000-000000000014"
+            prepared = BrowserCommandResult(
+                [{"status": "operation_prepared", "operationId": browser_operation_id}],
+                0,
+            )
+            reconciling = BrowserCommandResult(
+                [{"status": "reconciling", "state": "reconciling"}],
+                0,
+            )
+            quarantined = BrowserCommandResult(
+                [
+                    {
+                        "status": "quarantined",
+                        "state": "quarantined",
+                        "reason": "submitted_task_not_visible_after_quarantine_window",
+                        "quarantineAfterMs": 300000,
+                    }
+                ],
+                0,
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-014")
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared, reconciling, quarantined],
+                ):
+                    prepare_operation("remote-server-014")
+                    execute_operation(
+                        "remote-server-014", io.BytesIO(control.to_json_bytes())
+                    )
+                    result = reconcile_operation("remote-server-014")
+                self.assertEqual(result["status"], "quarantined")
+                self.assertEqual(
+                    result["retryPolicy"]["queueDisposition"],
+                    "continue_other_batches",
+                )
+                status = operation_status("remote-server-014")
+                self.assertEqual(status["state"], "quarantined")
+                self.assertTrue(status["received"]["manifest"])
+                self.assertIn("Never resubmit this batch", status["safety"])
 
     def test_upload_rule_gate_rejection_remains_prewrite_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

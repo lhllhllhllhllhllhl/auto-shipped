@@ -47,6 +47,18 @@ test("fails closed when multiple new tasks appear", () => {
 });
 
 
+test("does not offer task ids already claimed by another operation", () => {
+  const baseline = buildVerifiedTaskSnapshot(result(["20"]));
+  const diff = diffVerifiedTaskSnapshot(
+    baseline,
+    result(["22", "21", "20"]),
+    { excludedTaskIds: ["22"] },
+  );
+  assert.equal(diff.status, "unique_new_task");
+  assert.equal(diff.task.taskId, "21");
+});
+
+
 test("rejects task ids without record-model verification", () => {
   assert.throws(
     () => buildVerifiedTaskSnapshot(result(["20"], "task_record_ids_observed")),

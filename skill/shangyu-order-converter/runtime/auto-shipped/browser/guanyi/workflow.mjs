@@ -58,6 +58,9 @@ function publicReconciliationResult(result, operationId) {
     state: result.record.state,
     task: result.task || null,
     candidates: result.candidates || null,
+    quarantineAfterMs: result.quarantineAfterMs ?? null,
+    elapsedMs: result.elapsedMs ?? null,
+    retryAfterMs: result.retryAfterMs ?? null,
   };
 }
 

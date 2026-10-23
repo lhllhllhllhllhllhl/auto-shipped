@@ -17,6 +17,7 @@ export const OperationState = Object.freeze({
   SUBMIT_AUTHORIZED: "submit_authorized",
   WRITE_REQUEST_SENT: "write_request_sent",
   RECONCILING: "reconciling",
+  QUARANTINED: "quarantined",
   TASK_ID_OBSERVED: "task_id_observed",
   POST_WRITE_VERIFIED: "post_write_verified",
   NEEDS_MANUAL_REVIEW: "needs_manual_review",
@@ -57,10 +58,15 @@ const TRANSITIONS = Object.freeze({
     OperationState.FAILED_CLOSED,
   ]),
   [OperationState.RECONCILING]: new Set([
+    OperationState.QUARANTINED,
     OperationState.TASK_ID_OBSERVED,
     OperationState.NEEDS_MANUAL_REVIEW,
     OperationState.RETRYABLE_FAILED,
     OperationState.FAILED_CLOSED,
+  ]),
+  [OperationState.QUARANTINED]: new Set([
+    OperationState.TASK_ID_OBSERVED,
+    OperationState.NEEDS_MANUAL_REVIEW,
   ]),
   [OperationState.TASK_ID_OBSERVED]: new Set([
     OperationState.POST_WRITE_VERIFIED,
@@ -79,6 +85,7 @@ const TRANSITIONS = Object.freeze({
 
 
 const IMPORT_TASK_NAME = "自定义订单导入";
+export const DEFAULT_NO_TASK_QUARANTINE_MS = 5 * 60 * 1_000;
 const VERIFIED_SUCCESS_STATUSES = new Set(["执行完成", "完成", "成功"]);
 const RUNNING_STATUSES = new Set(["执行中", "等待执行", "排队中", "处理中"]);
 const FAILED_STATUSES = new Set(["执行失败", "失败", "已失败"]);
@@ -221,6 +228,45 @@ async function findArtifactOperations(artifactSha256, directory) {
       Date.parse(right.updatedAt || right.createdAt || 0) -
       Date.parse(left.updatedAt || left.createdAt || 0),
   );
+}
+
+
+async function claimedTaskIdsByOtherOperations(operationId, directory) {
+  let entries = [];
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+  const claimed = new Set();
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try {
+      const record = JSON.parse(
+        await fs.readFile(path.join(directory, entry.name), "utf8"),
+      );
+      if (
+        record?.schemaVersion === "guanyi-operation/1.0" &&
+        record?.operationId !== operationId &&
+        /^\d+$/.test(record?.write?.taskId || "")
+      ) {
+        claimed.add(record.write.taskId);
+      }
+    } catch {
+      // Ignore unrelated or incomplete files; direct loads still validate strictly.
+    }
+  }
+  return [...claimed];
+}
+
+
+function requestSentAt(record) {
+  const transition = [...(record.history || [])]
+    .reverse()
+    .find((entry) => entry?.to === OperationState.WRITE_REQUEST_SENT);
+  const timestamp = Date.parse(transition?.at || "");
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 
@@ -432,6 +478,10 @@ export async function reconcileOperationTask(
   operationId,
   currentTaskResult,
   directory = OPERATION_DIR,
+  {
+    nowMs = Date.now(),
+    noTaskQuarantineMs = DEFAULT_NO_TASK_QUARANTINE_MS,
+  } = {},
 ) {
   let loaded = await loadOperation(operationId, directory);
   if (
@@ -439,6 +489,7 @@ export async function reconcileOperationTask(
       OperationState.WRITE_REQUEST_MAYBE_SENT,
       OperationState.WRITE_REQUEST_SENT,
       OperationState.RECONCILING,
+      OperationState.QUARANTINED,
       OperationState.TASK_ID_OBSERVED,
     ].includes(loaded.record.state)
   ) {
@@ -449,6 +500,7 @@ export async function reconcileOperationTask(
   }
   if (
     loaded.record.state !== OperationState.RECONCILING &&
+    loaded.record.state !== OperationState.QUARANTINED &&
     loaded.record.state !== OperationState.TASK_ID_OBSERVED
   ) {
     loaded = await transitionOperation(
@@ -460,9 +512,14 @@ export async function reconcileOperationTask(
   }
   let diff;
   try {
+    const excludedTaskIds = await claimedTaskIdsByOtherOperations(
+      operationId,
+      directory,
+    );
     diff = diffVerifiedTaskSnapshot(
       loaded.record.taskBaseline,
       currentTaskResult,
+      { excludedTaskIds },
     );
   } catch (error) {
     if (error instanceof TaskReconciliationError) {
@@ -499,6 +556,49 @@ export async function reconcileOperationTask(
         status: "retryable_failed",
         reason: "file_staged_without_submit_task",
         record: retryable.record,
+      };
+    }
+    if (loaded.record.write.requestSent) {
+      const sentAt = requestSentAt(loaded.record);
+      if (sentAt === null) {
+        const reviewed = await transitionOperation(
+          operationId,
+          OperationState.NEEDS_MANUAL_REVIEW,
+          { reason: "write_request_timestamp_missing" },
+          directory,
+        );
+        return {
+          status: "needs_manual_review",
+          reason: "write_request_timestamp_missing",
+          record: reviewed.record,
+        };
+      }
+      const elapsedMs = Math.max(0, nowMs - sentAt);
+      if (
+        elapsedMs >= noTaskQuarantineMs &&
+        loaded.record.state !== OperationState.QUARANTINED
+      ) {
+        loaded = await transitionOperation(
+          operationId,
+          OperationState.QUARANTINED,
+          { reason: "submitted_task_not_visible_after_quarantine_window" },
+          directory,
+        );
+      }
+      if (loaded.record.state === OperationState.QUARANTINED) {
+        return {
+          status: "quarantined",
+          reason: "submitted_task_not_visible_after_quarantine_window",
+          quarantineAfterMs: noTaskQuarantineMs,
+          elapsedMs,
+          record: loaded.record,
+        };
+      }
+      return {
+        status: "reconciling",
+        reason: "no_new_task",
+        retryAfterMs: Math.max(0, noTaskQuarantineMs - elapsedMs),
+        record: loaded.record,
       };
     }
     return { status: "reconciling", reason: "no_new_task", record: loaded.record };
@@ -599,6 +699,28 @@ export async function recordImportTaskResult(
       "IMPORT_RESULT_TASK_MISMATCH",
       "导入结果与当前操作关联的任务不一致。",
     );
+  }
+  if (result.summary.total !== loaded.record.counts.orders) {
+    const reviewed = await transitionOperation(
+      operationId,
+      OperationState.NEEDS_MANUAL_REVIEW,
+      {
+        reason: "task_result_order_count_mismatch",
+        taskId: result.taskId,
+        taskName: result.taskName,
+        taskStatus: result.taskStatus,
+        importResult: result,
+      },
+      directory,
+    );
+    return {
+      status: "needs_manual_review",
+      reason: "task_result_order_count_mismatch",
+      expectedOrders: loaded.record.counts.orders,
+      observedTotal: result.summary.total,
+      result,
+      record: reviewed.record,
+    };
   }
   if (
     result.summary.total > 0 &&
@@ -772,6 +894,7 @@ function writeFlagsFor(state, previous, patch) {
       state === OperationState.WRITE_REQUEST_MAYBE_SENT ||
       state === OperationState.WRITE_REQUEST_SENT ||
       state === OperationState.RECONCILING ||
+      state === OperationState.QUARANTINED ||
       state === OperationState.TASK_ID_OBSERVED ||
       state === OperationState.POST_WRITE_VERIFIED,
     submitAuthorized:

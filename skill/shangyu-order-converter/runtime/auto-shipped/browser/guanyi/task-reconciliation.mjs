@@ -65,7 +65,11 @@ export function buildVerifiedTaskSnapshot(result, capturedAt = new Date().toISOS
 }
 
 
-export function diffVerifiedTaskSnapshot(baseline, currentResult) {
+export function diffVerifiedTaskSnapshot(
+  baseline,
+  currentResult,
+  { excludedTaskIds = [] } = {},
+) {
   if (
     baseline?.schemaVersion !== "guanyi-task-baseline/1.0" ||
     !Array.isArray(baseline.taskIds)
@@ -76,7 +80,10 @@ export function diffVerifiedTaskSnapshot(baseline, currentResult) {
     );
   }
   const current = safeVerifiedTasks(currentResult);
-  const previousIds = new Set(baseline.taskIds);
+  const previousIds = new Set([
+    ...baseline.taskIds,
+    ...excludedTaskIds.filter((taskId) => /^\d+$/.test(taskId || "")),
+  ]);
   const newTasks = current.filter((task) => !previousIds.has(task.taskId));
   if (newTasks.length === 0) {
     return { status: "no_new_task", newTasks: [] };
