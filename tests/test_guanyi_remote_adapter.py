@@ -636,6 +636,76 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                     )
                 self.assertEqual(result["state"], "task_id_observed")
 
+    def test_visible_ambiguous_tasks_release_later_distinct_batches(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-018a")
+                self._preflight_job(root, "remote-server-018b")
+                prepared_a = BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": "00000000-0000-4000-8000-000000000019"}],
+                    0,
+                )
+                ambiguous_a = BrowserCommandResult(
+                    [
+                        {
+                            "status": "needs_manual_review",
+                            "reason": "multiple_new_tasks",
+                            "candidates": [
+                                {"taskId": "707700019"},
+                                {"taskId": "707700020"},
+                            ],
+                        }
+                    ],
+                    2,
+                )
+                prepared_b = BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": "00000000-0000-4000-8000-000000000021"}],
+                    0,
+                )
+                task_observed_b = BrowserCommandResult(
+                    [
+                        {
+                            "status": "reconciling",
+                            "state": "task_id_observed",
+                            "task": {"taskId": "707700021"},
+                        }
+                    ],
+                    2,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[
+                        prepared_a,
+                        ambiguous_a,
+                        prepared_b,
+                        task_observed_b,
+                    ],
+                ):
+                    prepare_operation("remote-server-018a")
+                    ambiguous = execute_operation(
+                        "remote-server-018a", io.BytesIO(control.to_json_bytes())
+                    )
+                    self.assertEqual(
+                        ambiguous["retryPolicy"]["queueDisposition"],
+                        "continue_other_batches",
+                    )
+                    first_status = operation_status("remote-server-018a")
+                    self.assertEqual(
+                        first_status["state"], "tasks_observed_ambiguous"
+                    )
+                    self.assertIn("must never be resubmitted", first_status["safety"])
+
+                    prepare_operation("remote-server-018b")
+                    result = execute_operation(
+                        "remote-server-018b", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(result["state"], "task_id_observed")
+
     def test_upload_rule_gate_rejection_remains_prewrite_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

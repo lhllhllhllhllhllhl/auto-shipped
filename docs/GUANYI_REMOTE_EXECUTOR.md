@@ -177,9 +177,12 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 该批放到本轮队尾并继续下一批，不自动第三次重试。队尾批次只向用户报告或等待
 新的明确授权。
 
-若返回`queueDisposition=block_upload_queue`，表示最终提交仍没有绑定唯一可信任务ID，
-或存在多条新增任务、任务ID证据不足等歧义；此时必须停止全部后续上传，
-继续只读核验或交人工确认，不能借“放到队尾”绕过。
+若返回`queueDisposition=block_upload_queue`，表示最终提交后尚未看见任何可信任务，
+或写入结果仍然未知；此时必须停止全部后续上传，只允许继续只读核验。
+
+若任务中心已经看见多条新增任务，当前批次进入`tasks_observed_ambiguous`：它仍须
+人工确认归属且永久禁止重传，但这些可见任务会被下一批的新基线排除，因此返回
+`continue_other_batches`。这只释放后续不同批次，不会把任一候选任务自动绑定给原批次。
 
 若返回`queueDisposition=continue_other_batches`且状态为`task_observed`，表示当前批次已经
 绑定唯一任务ID但结果尚未完成；只读任务中心页继续核验该ID，上传页可在60秒节流后处理
@@ -216,7 +219,7 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 - `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
 - `resolve-no-task`不能关闭`write.requestSent=true`的尝试；没有新增任务不等于最终提交未发生。
 - 安全失败最多重试2次；`deferred`只允许队列继续，不代表该批成功或可以无限重试。
-- `task_observed`在唯一任务ID绑定后立即释放后续不同批次，最终结果仍由只读页续查；`quarantined`只在最终请求发出后连续5分钟无唯一任务时释放后续不同批次，原批次仍禁止重传并保留只读续查。
+- `task_observed`在唯一任务ID绑定后立即释放后续不同批次；`tasks_observed_ambiguous`在多条新增任务均已可见后释放后续不同批次，但原批次保持人工复核且禁止重传；`quarantined`只在最终请求发出后连续5分钟无唯一任务时释放后续不同批次。三者的原批次都只允许继续只读核验。
 - 日志和响应不返回 Excel 内容、收件人、手机号或详细地址。
 
 ## 服务器迁移

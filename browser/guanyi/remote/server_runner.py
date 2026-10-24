@@ -131,6 +131,20 @@ def _has_unique_task_binding(state: dict[str, Any]) -> bool:
     return bool(str(task.get("taskId") or "").strip())
 
 
+def _has_visible_ambiguous_tasks(result: dict[str, Any]) -> bool:
+    candidates = result.get("candidates")
+    return (
+        result.get("reason") == "multiple_new_tasks"
+        and isinstance(candidates, list)
+        and bool(candidates)
+        and all(
+            isinstance(candidate, dict)
+            and bool(str(candidate.get("taskId") or "").strip())
+            for candidate in candidates
+        )
+    )
+
+
 def blocking_remote_jobs(current_operation_id: str) -> list[str]:
     blocked: list[str] = []
     for candidate in job_root().iterdir():
@@ -192,7 +206,7 @@ def _retry_policy(state: dict[str, Any]) -> dict[str, Any]:
         disposition = "continue_other_batches"
     elif current == "retryable_failed":
         disposition = "retry_same_batch"
-    elif current == "task_observed":
+    elif current in {"task_observed", "tasks_observed_ambiguous"}:
         disposition = "continue_other_batches"
     elif current == "needs_manual_review" and _has_unique_task_binding(state):
         disposition = "continue_other_batches"
@@ -223,6 +237,12 @@ def _public_safety(state: dict[str, Any]) -> str:
         return (
             "This batch is bound to one verified Guanyi task ID. Later distinct batches "
             "may enter the writer queue while this task remains read-only reconcilable."
+        )
+    if current == "tasks_observed_ambiguous":
+        return (
+            "Multiple new Guanyi task IDs are visible, so this batch remains manual-review "
+            "only and must never be resubmitted. A fresh baseline may isolate later distinct "
+            "batches without assigning any of these tasks automatically."
         )
     if current in {"retryable_failed", "deferred"}:
         return (
@@ -674,6 +694,14 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
                     "updated_at": now_iso(),
                 }
             )
+        elif _has_visible_ambiguous_tasks(result):
+            state.update(
+                {
+                    "state": "tasks_observed_ambiguous",
+                    "last_result": _safe_result(result),
+                    "updated_at": now_iso(),
+                }
+            )
         elif status == "retryable_failed":
             state.update(
                 {
@@ -720,6 +748,8 @@ def reconcile_operation(operation_id: str) -> dict[str, Any]:
             )
         elif status == "quarantined":
             remote_state = "quarantined"
+        elif _has_visible_ambiguous_tasks(result):
+            remote_state = "tasks_observed_ambiguous"
         elif status == "retryable_failed":
             remote_state = _closed_failure_state(state)
         else:

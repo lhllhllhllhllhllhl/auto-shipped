@@ -194,11 +194,11 @@
 - `DEC-USER-GUANYI-RESIDENT-OWNER-001`：自管Ubuntu执行端只运行一个长期浏览器owner，登录、上传、只读probe和reconcile在同一Playwright context中完成；任务通过内存FIFO队列串行，禁止每个SSH请求重新启动浏览器或建立第二套页面逻辑。本机macOS/Windows和豆包CDP路径保持不变，三者仍汇入同一`browser/guanyi`状态机。
 - `DEC-USER-GUANYI-RESIDENT-RECOVERY-001`：常驻worker、浏览器或服务器重启后旧控制通道失效；新worker可以读取安全凭据重新登录，但任何已进入可能写入状态的operation仍只能reconcile。登录过期在文件选择前失败关闭，不得把重新登录当作重新提交授权。
 - `DEC-USER-GUANYI-SERVER-CREDENTIAL-HELPER-001`：专用服务器账号密码允许保存在root私有AES-256加密文件中，并仅通过固定`get` helper短暂输出给浏览器进程。密文、密钥和明文都不进入Git、Skill、环境变量、命令参数、job state或日志；业务用户无需知道密码。更换服务器时重新部署并经stdin单独配置，不复制profile或密钥。
-- `DEC-USER-GUANYI-DEFERRED-RETRY-QUEUE-001`：多批上传按明确清单串行。同一批只有在任务中心给出可信失败闭环、或者最终请求明确未发出且相对基线确认没有新增任务时，才允许创建新browser operation、重建基线并重新授权；初次尝试后最多安全重试2次，仍失败则标记`deferred`并移到本轮队尾，继续下一批，不自动第三次重试。未满5分钟的`reconciling`、多条新增任务或任务ID证据不足仍阻塞整条上传队列；满5分钟无唯一任务的最终已提交操作按下一条隔离规则处理。
+- `DEC-USER-GUANYI-DEFERRED-RETRY-QUEUE-001`：多批上传按明确清单串行。同一批只有在任务中心给出可信失败闭环、或者最终请求明确未发出且相对基线确认没有新增任务时，才允许创建新browser operation、重建基线并重新授权；初次尝试后最多安全重试2次，仍失败则标记`deferred`并移到本轮队尾，继续下一批，不自动第三次重试。未满5分钟且尚未看见可信任务的`reconciling`或任务ID证据不足仍阻塞整条上传队列；多条新增任务已经全部可见时改为`tasks_observed_ambiguous`，原批次禁止重传并交人工复核，后续不同批次可用包含这些任务的新基线继续。满5分钟无唯一任务的最终已提交操作按下一条隔离规则处理。
 - `DEC-USER-GUANYI-NO-TASK-QUARANTINE-001`：最终导入请求已记录发出、但任务中心连续5分钟仍没有唯一新增任务时，将该operation转为`quarantined`。隔离状态不是失败、成功或重试许可：相同批次仍禁止重传并保留只读续查，但允许后续不同批次用全新基线继续。继续前先复查隔离操作；当前新批次优先闭环，已被其他operation认领的任务ID不得重复归属，任务结果总数还必须与manifest订单数一致。仍有多条候选、ID证据不足或数量不符时进入人工确认。
 
 ## 2026-10-24 管易多批次流水线
 
 - `DEC-USER-GUANYI-PIPELINED-BATCHES-001`：自管服务器继续只有一个常驻浏览器owner和一个Playwright context；context内固定分工为一个专用上传页与一个只读任务中心页。上传页只执行待审核表单、文件选择、字段核对和两段确定，任务中心页只执行基线、显式刷新、任务ID绑定与结果回读，禁止第二个浏览器或第二个写入页。
-- `DEC-USER-GUANYI-SUBMISSION-CADENCE-001`：多批次按FIFO写入，相邻提交默认至少间隔60秒。前一批一旦绑定唯一、双重核验且未被其他operation认领的任务ID，即进入`task_observed`并允许后续不同批次继续；任务仍在执行、已完成但需读取结果或已有唯一ID的人工处理状态不阻塞后续批次。尚未绑定唯一任务、多条新增任务或ID证据不足继续`block_upload_queue`。
+- `DEC-USER-GUANYI-SUBMISSION-CADENCE-001`：多批次按FIFO写入，相邻提交默认至少间隔60秒。前一批一旦绑定唯一、双重核验且未被其他operation认领的任务ID，即进入`task_observed`并允许后续不同批次继续；任务仍在执行、已完成但需读取结果或已有唯一ID的人工处理状态不阻塞后续批次。若任务中心已看见多条新增任务，原批次进入`tasks_observed_ambiguous`并保持人工复核、禁止重传，但下一批以包含这些已见任务的新基线继续；尚未看见任何可信任务或写入结果未知时才继续`block_upload_queue`。
 - `DEC-USER-GUANYI-RESULT-READER-001`：只读任务中心页统一续查所有已绑定任务；“执行完成”只证明任务结束，不代表导入成功。能打开查看结果时继续回读总数、成功数与失败分类；平台只给失败状态、不提供更细原因时如实返回“平台未提供详细原因”，不得猜测Excel错误，也不得因缺少失败详情重传或阻塞其他已隔离批次。
