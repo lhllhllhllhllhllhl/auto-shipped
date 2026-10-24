@@ -76,6 +76,7 @@ const TRANSITIONS = Object.freeze({
   ]),
   [OperationState.POST_WRITE_VERIFIED]: new Set(),
   [OperationState.NEEDS_MANUAL_REVIEW]: new Set([
+    OperationState.RECONCILING,
     OperationState.RETRYABLE_FAILED,
     OperationState.FAILED_CLOSED,
   ]),
@@ -491,6 +492,7 @@ export async function reconcileOperationTask(
       OperationState.RECONCILING,
       OperationState.QUARANTINED,
       OperationState.TASK_ID_OBSERVED,
+      OperationState.NEEDS_MANUAL_REVIEW,
     ].includes(loaded.record.state)
   ) {
     throw new OperationStateError(

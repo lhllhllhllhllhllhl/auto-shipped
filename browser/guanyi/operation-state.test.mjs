@@ -622,6 +622,14 @@ test("routes ambiguous new tasks to manual review", async () => {
     );
     assert.equal(result.status, "needs_manual_review");
     assert.equal(result.record.state, OperationState.NEEDS_MANUAL_REVIEW);
+    const revisited = await reconcileOperationTask(
+      id,
+      taskResult(["102", "101", "100"]),
+      directory,
+    );
+    assert.equal(revisited.status, "needs_manual_review");
+    assert.equal(revisited.reason, "multiple_new_tasks");
+    assert.equal(revisited.record.state, OperationState.NEEDS_MANUAL_REVIEW);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
