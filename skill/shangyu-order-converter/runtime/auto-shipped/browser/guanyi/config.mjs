@@ -34,6 +34,9 @@ export const LOGIN_OPERATION_DIR = path.resolve(
 export const RESIDENT_SESSION_TTL_MS = Number(
   process.env.GUANYI_RESIDENT_SESSION_TTL_MS || 365 * 24 * 60 * 60_000,
 );
+export const RESIDENT_SUBMISSION_INTERVAL_MS = Number(
+  process.env.GUANYI_RESIDENT_SUBMISSION_INTERVAL_MS || 60_000,
+);
 export const CREDENTIAL_HELPER = process.env.GUANYI_CREDENTIAL_HELPER || "";
 export function defaultBrowserBackend(
   platform = process.platform,

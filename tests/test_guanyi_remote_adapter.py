@@ -24,8 +24,10 @@ from browser.guanyi.remote.protocol import (
 )
 from browser.guanyi.remote.server_runner import (
     BrowserCommandResult,
+    atomic_json,
     execute_operation,
     initialize,
+    load_state,
     login_credentials,
     operation_status,
     prepare_operation,
@@ -33,6 +35,7 @@ from browser.guanyi.remote.server_runner import (
     receive_file,
     reconcile_operation,
     resolve_no_task_operation,
+    state_path,
     verify_manifest,
 )
 from browser.guanyi.remote.ssh_transport import SshTransport, SshTransportConfig
@@ -226,7 +229,7 @@ class SshTransportTests(unittest.TestCase):
 class GuanyiRemoteServerRunnerTests(unittest.TestCase):
     def _preflight_job(self, root: Path, operation_id: str) -> tuple[Path, Path]:
         source = root / "source"
-        source.mkdir()
+        source.mkdir(exist_ok=True)
         manifest, artifact = write_fixture(source)
         request = StageRequest.build(
             operation_id=operation_id,
@@ -503,6 +506,135 @@ class GuanyiRemoteServerRunnerTests(unittest.TestCase):
                 self.assertEqual(status["state"], "quarantined")
                 self.assertTrue(status["received"]["manifest"])
                 self.assertIn("Never resubmit this batch", status["safety"])
+
+    def test_verified_task_binding_releases_later_batches_before_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            browser_operation_id = "00000000-0000-4000-8000-000000000015"
+            prepared = BrowserCommandResult(
+                [{"status": "operation_prepared", "operationId": browser_operation_id}],
+                0,
+            )
+            task_observed = BrowserCommandResult(
+                [
+                    {
+                        "status": "reconciling",
+                        "state": "task_id_observed",
+                        "reason": "task_still_running",
+                        "task": {
+                            "taskId": "707700015",
+                            "taskName": "自定义订单导入",
+                            "status": "执行中",
+                        },
+                    }
+                ],
+                2,
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-015")
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared, task_observed],
+                ):
+                    prepare_operation("remote-server-015")
+                    result = execute_operation(
+                        "remote-server-015", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(result["state"], "task_id_observed")
+                self.assertEqual(
+                    result["retryPolicy"]["queueDisposition"],
+                    "continue_other_batches",
+                )
+                status = operation_status("remote-server-015")
+                self.assertEqual(status["state"], "task_observed")
+                self.assertIn("verified Guanyi task ID", status["safety"])
+
+    def test_unbound_submitted_job_blocks_a_later_remote_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-016a")
+                self._preflight_job(root, "remote-server-016b")
+                prepared_a = BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": "00000000-0000-4000-8000-000000000016"}],
+                    0,
+                )
+                reconciling_a = BrowserCommandResult(
+                    [{"status": "reconciling", "state": "reconciling"}],
+                    2,
+                )
+                prepared_b = BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": "00000000-0000-4000-8000-000000000017"}],
+                    0,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared_a, reconciling_a, prepared_b],
+                ):
+                    prepare_operation("remote-server-016a")
+                    execute_operation(
+                        "remote-server-016a", io.BytesIO(control.to_json_bytes())
+                    )
+                    prepare_operation("remote-server-016b")
+                    with self.assertRaises(ProtocolError) as raised:
+                        execute_operation(
+                            "remote-server-016b", io.BytesIO(control.to_json_bytes())
+                        )
+                self.assertEqual(raised.exception.code, "REMOTE_UPLOAD_QUEUE_BLOCKED")
+
+    def test_task_bound_manual_review_does_not_block_a_later_remote_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = {"GUANYI_REMOTE_JOB_ROOT": str(root / "jobs")}
+            control = ControlRequest.build(
+                action="execute", authorization=REMOTE_SUBMIT_AUTHORIZATION
+            )
+            with patch.dict(os.environ, environment, clear=False):
+                self._preflight_job(root, "remote-server-017a")
+                self._preflight_job(root, "remote-server-017b")
+                first = root / "jobs" / "remote-server-017a"
+                reviewed = load_state(first)
+                reviewed.update(
+                    {
+                        "state": "needs_manual_review",
+                        "last_result": {
+                            "status": "needs_manual_review",
+                            "task": {"taskId": "707700017"},
+                        },
+                    }
+                )
+                atomic_json(state_path(first), reviewed)
+                prepared_b = BrowserCommandResult(
+                    [{"status": "operation_prepared", "operationId": "00000000-0000-4000-8000-000000000018"}],
+                    0,
+                )
+                task_observed_b = BrowserCommandResult(
+                    [
+                        {
+                            "status": "reconciling",
+                            "state": "task_id_observed",
+                            "task": {"taskId": "707700018"},
+                        }
+                    ],
+                    2,
+                )
+                with patch(
+                    "browser.guanyi.remote.server_runner.run_browser_command",
+                    side_effect=[prepared_b, task_observed_b],
+                ):
+                    prepare_operation("remote-server-017b")
+                    result = execute_operation(
+                        "remote-server-017b", io.BytesIO(control.to_json_bytes())
+                    )
+                self.assertEqual(result["state"], "task_id_observed")
 
     def test_upload_rule_gate_rejection_remains_prewrite_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -13,6 +13,7 @@ import {
   LOGIN_RESULT_TIMEOUT_MS,
   LOGIN_TIMEOUT_MS,
   RESIDENT_SESSION_TTL_MS,
+  RESIDENT_SUBMISSION_INTERVAL_MS,
 } from "./config.mjs";
 import {
   CredentialError,
@@ -41,6 +42,7 @@ import {
 } from "./login-operation.mjs";
 import {
   createResidentCommandQueue,
+  createResidentSubmissionCadence,
   ResidentCommand,
   ResidentSessionError,
 } from "./resident-session.mjs";
@@ -361,6 +363,42 @@ async function probeInResidentSession(page) {
 }
 
 
+const RESIDENT_TASK_OBSERVER_NAME = "shangyu_guanyi_task_observer_v1";
+
+
+async function createResidentTaskObserver(session, writerPage) {
+  for (const candidate of session.context.pages()) {
+    if (candidate === writerPage || candidate.isClosed()) continue;
+    const name = await candidate
+      .evaluate(() => globalThis.name || "")
+      .catch(() => "");
+    if (name === RESIDENT_TASK_OBSERVER_NAME) {
+      await openApp(candidate);
+      await writerPage.bringToFront();
+      return candidate;
+    }
+  }
+  const observerPage = await session.context.newPage();
+  await observerPage.evaluate(
+    (name) => {
+      globalThis.name = name;
+    },
+    RESIDENT_TASK_OBSERVER_NAME,
+  );
+  await openApp(observerPage);
+  const observed = await detectState(observerPage);
+  if (["needs_login", "needs_verification"].includes(observed.state)) {
+    await observerPage.close({ runBeforeUnload: false }).catch(() => null);
+    throw new SessionError(
+      "RESIDENT_TASK_OBSERVER_LOGIN_EXPIRED",
+      "只读任务中心页面没有复用到当前登录会话；已停止，未执行上传。",
+    );
+  }
+  await writerPage.bringToFront();
+  return observerPage;
+}
+
+
 async function serveResidentCommands(
   operationId,
   session,
@@ -368,6 +406,10 @@ async function serveResidentCommands(
   residentQueue,
 ) {
   const page = authenticatedPage;
+  let taskObserverPage = await createResidentTaskObserver(session, page);
+  const submissionCadence = createResidentSubmissionCadence({
+    minimumIntervalMs: RESIDENT_SUBMISSION_INTERVAL_MS,
+  });
   await transitionLoginOperation(
     operationId,
     LoginOperationState.RESIDENT_READY,
@@ -404,20 +446,52 @@ async function serveResidentCommands(
             "常驻管易浏览器的登录状态已失效；本批尚未选择文件，请重新登录后再执行。",
           );
         }
+        if (!taskObserverPage || taskObserverPage.isClosed()) {
+          taskObserverPage = await createResidentTaskObserver(session, page);
+        }
+        const cadence = await submissionCadence.waitForNextAttempt();
+        submissionCadence.markAttemptStarted();
         result = await executeAuthorizedImportInSingleSession(
           page,
           item.browserOperationId,
           item.authorization,
+          {
+            taskCenterPage: taskObserverPage,
+            onProgress: async (event) => {
+              if (
+                ["submit_maybe_sent", "file_selection_write_detected"].includes(
+                  event?.status,
+                )
+              ) {
+                submissionCadence.markSubmissionObserved();
+              }
+            },
+          },
         );
+        result = {
+          ...result,
+          queuePolicy: {
+            writerPage: "dedicated_upload_page",
+            taskObserverPage: "same_context_read_only_page",
+            minimumSubmissionIntervalMs: RESIDENT_SUBMISSION_INTERVAL_MS,
+            cadenceWaitedMs: cadence.waitedMs,
+          },
+        };
       } else if (item.command === ResidentCommand.RESOLVE_NO_TASK) {
+        if (!taskObserverPage || taskObserverPage.isClosed()) {
+          taskObserverPage = await createResidentTaskObserver(session, page);
+        }
         result = await resolveNoTaskInCurrentSession(
-          page,
+          taskObserverPage,
           item.browserOperationId,
           item.authorization,
         );
       } else {
+        if (!taskObserverPage || taskObserverPage.isClosed()) {
+          taskObserverPage = await createResidentTaskObserver(session, page);
+        }
         result = await reconcileImportInCurrentSession(
-          page,
+          taskObserverPage,
           item.browserOperationId,
         );
       }

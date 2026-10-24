@@ -43,6 +43,7 @@ EXECUTOR_TIMEOUT_SECONDS = 300
 LOGIN_TIMEOUT_SECONDS = 180
 MAX_SAFE_RETRIES = 2
 _SMS_CODE = re.compile(rb"^[0-9]{4,6}$")
+QUEUE_BLOCKING_STATES = frozenset({"submit_maybe_sent", "reconciling"})
 
 
 class BrowserCommandResult:
@@ -123,6 +124,30 @@ def load_state(directory: Path) -> dict[str, Any]:
     return value
 
 
+def _has_unique_task_binding(state: dict[str, Any]) -> bool:
+    if state.get("state") == "task_observed":
+        return True
+    task = (state.get("last_result") or {}).get("task") or {}
+    return bool(str(task.get("taskId") or "").strip())
+
+
+def blocking_remote_jobs(current_operation_id: str) -> list[str]:
+    blocked: list[str] = []
+    for candidate in job_root().iterdir():
+        if not candidate.is_dir() or candidate.name == current_operation_id:
+            continue
+        try:
+            state = load_state(candidate)
+        except ProtocolError:
+            continue
+        current = str(state.get("state") or "")
+        if current in QUEUE_BLOCKING_STATES or (
+            current == "needs_manual_review" and not _has_unique_task_binding(state)
+        ):
+            blocked.append(candidate.name)
+    return sorted(blocked)
+
+
 def public_state(request: StageRequest, state: dict[str, Any]) -> dict[str, Any]:
     response: dict[str, Any] = {
         "status": "remote_job_status",
@@ -167,6 +192,10 @@ def _retry_policy(state: dict[str, Any]) -> dict[str, Any]:
         disposition = "continue_other_batches"
     elif current == "retryable_failed":
         disposition = "retry_same_batch"
+    elif current == "task_observed":
+        disposition = "continue_other_batches"
+    elif current == "needs_manual_review" and _has_unique_task_binding(state):
+        disposition = "continue_other_batches"
     elif current in {"needs_manual_review", "reconciling", "submit_maybe_sent"}:
         disposition = "block_upload_queue"
     elif current == "verified":
@@ -189,6 +218,11 @@ def _public_safety(state: dict[str, Any]) -> str:
             "The final request may have been sent, but no unique task appeared within "
             "five minutes. Never resubmit this batch; later distinct batches may continue "
             "with fresh baselines while this operation remains read-only reconcilable."
+        )
+    if current == "task_observed":
+        return (
+            "This batch is bound to one verified Guanyi task ID. Later distinct batches "
+            "may enter the writer queue while this task remains read-only reconcilable."
         )
     if current in {"retryable_failed", "deferred"}:
         return (
@@ -545,6 +579,12 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
             )
         if state.get("state") != "prepared":
             raise ProtocolError("REMOTE_OPERATION_NOT_READY", "远端任务当前不能提交。")
+        blocked = blocking_remote_jobs(operation_id)
+        if blocked:
+            raise ProtocolError(
+                "REMOTE_UPLOAD_QUEUE_BLOCKED",
+                "已有批次尚未绑定唯一任务 ID；已暂停新的上传提交。",
+            )
         state.update(
             {
                 "state": "submit_maybe_sent",
@@ -610,6 +650,14 @@ def execute_operation(operation_id: str, stream: BinaryIO) -> dict[str, Any]:
                     "updated_at": now_iso(),
                 }
             )
+        elif status == "reconciling" and result.get("state") == "task_id_observed":
+            state.update(
+                {
+                    "state": "task_observed",
+                    "last_result": _safe_result(result),
+                    "updated_at": now_iso(),
+                }
+            )
         elif status == "reconciling":
             state.update(
                 {
@@ -665,7 +713,11 @@ def reconcile_operation(operation_id: str) -> dict[str, Any]:
         if status == "verified":
             remote_state = "verified"
         elif status == "reconciling":
-            remote_state = "reconciling"
+            remote_state = (
+                "task_observed"
+                if result.get("state") == "task_id_observed"
+                else "reconciling"
+            )
         elif status == "quarantined":
             remote_state = "quarantined"
         elif status == "retryable_failed":

@@ -18,7 +18,7 @@ import {
 
 
 const DEFAULT_RECONCILIATION_TIMEOUT_MS = Number(
-  process.env.GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS || 120_000,
+  process.env.GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS || 45_000,
 );
 
 
@@ -141,6 +141,7 @@ export async function executeAuthorizedImportInSingleSession(
   authorization,
   {
     directory,
+    taskCenterPage = page,
     reconciliationTimeoutMs = DEFAULT_RECONCILIATION_TIMEOUT_MS,
     pollMs = 2_000,
     onProgress = async () => {},
@@ -170,7 +171,7 @@ export async function executeAuthorizedImportInSingleSession(
     importOptions: form.importOptions,
   });
 
-  const baseline = await service.probeImportTaskSnapshot(page);
+  const baseline = await service.probeImportTaskSnapshot(taskCenterPage);
   const saved = await service.recordTaskBaseline(
     operationId,
     baseline,
@@ -198,7 +199,7 @@ export async function executeAuthorizedImportInSingleSession(
     return submitted;
   }
 
-  return await reconcileImportInCurrentSession(page, operationId, {
+  return await reconcileImportInCurrentSession(taskCenterPage, operationId, {
     directory,
     timeoutMs: reconciliationTimeoutMs,
     pollMs,

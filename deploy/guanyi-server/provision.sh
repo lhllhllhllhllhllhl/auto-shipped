@@ -77,9 +77,17 @@ if [[ ! -f "$CONFIG_ROOT/guanyi-server.env" ]]; then
   sed "s#/var/lib/auto-shipped#$STATE_ROOT#g" \
     "$SCRIPT_DIR/guanyi-server.env.example" \
     > "$CONFIG_ROOT/guanyi-server.env"
-  chown root:"$RUNNER_USER" "$CONFIG_ROOT/guanyi-server.env"
-  chmod 0640 "$CONFIG_ROOT/guanyi-server.env"
 fi
+
+server_env="$CONFIG_ROOT/guanyi-server.env"
+if grep -qx 'GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS=120000' "$server_env"; then
+  sed -i 's/^GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS=120000$/GUANYI_WORKFLOW_RECONCILIATION_TIMEOUT_MS=45000/' "$server_env"
+fi
+if ! grep -q '^GUANYI_RESIDENT_SUBMISSION_INTERVAL_MS=' "$server_env"; then
+  printf '%s\n' 'GUANYI_RESIDENT_SUBMISSION_INTERVAL_MS=60000' >> "$server_env"
+fi
+chown root:"$RUNNER_USER" "$server_env"
+chmod 0640 "$server_env"
 
 install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 \

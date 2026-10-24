@@ -147,7 +147,7 @@
 - `DEC-USER-BROWSER-SESSION-LEASE-001`：同一持久profile同时只允许一个Playwright所有者；活动登录期间仅允许读取同一operation状态，probe、导航、上传和第二个登录必须返回忙碌，防止并发进程关闭或污染当前会话。
 - `DEC-USER-CLOUD-RUNTIME-INTEGRITY-001`：云端只读Skill副本必须完整复制到可写状态目录并保持`runtime-manifest.json`一致；显式`SHANGYU_AUTO_SHIPPED_ROOT`不能让普通临时副本绕过清单。默认状态目录不可写时允许回退到用户独占临时目录，但必须报告`persistent=false`，不能宣称跨工作区保留profile。
 - `DEC-USER-LINUX-GEOMETRY-001`：自有Linux headed Chromium允许稳定的原生垂直滚动条gutter，但只在三次采样一致、没有水平滚动、页面缩放正常且document/visual viewport宽度证据一致时放行。豆包`platform_cdp`窗口由平台托管，不要求外层窗口匹配自有浏览器的`1440×850`目标，也不做原生窗口修复；平台最大化或动态调整后的窗口仍须三次采样稳定、有效client区域达到最小尺寸且缩放正常。若同时保留宽高滚动条gutter，document/visual必须在两个方向分别一致且每个gutter不超过24px。禁止把全部几何容差统一扩大。
-- `DEC-USER-MULTI-BATCH-UPLOAD-001`：同一对话中“把这些都上传”可以授权多个已明确列出的 manifest。每批仍使用独立哈希、operation ID 和任务基线，并严格串行执行；前一批未核验成功时停止后续批次。隔离只防止串批，不限制自然语言选择全部或部分批次。
+- `DEC-USER-MULTI-BATCH-UPLOAD-001`：同一对话中“把这些都上传”可以授权多个已明确列出的 manifest。每批仍使用独立哈希、operation ID 和任务基线，并由同一浏览器owner按FIFO串行写入；是否放行后续不同批次以“前一批是否已绑定唯一任务ID”为准，不要求等待最终成功。隔离只防止串批，不限制自然语言选择全部或部分批次。
 - `DEC-USER-RECONCILING-001`：已经点击确定后，短时没有新增任务不直接判失败或人工结束，而是持久化为`reconciling`并允许稍后只读复查。只有文件暂存、未授权或点击确定，且任务中心确认无新增任务时进入`retryable_failed`；多条新增、任务ID证据不足、未知状态进入人工确认。
 - `DEC-USER-UPLOAD-RETRY-001`：防重复只永久阻止已`post_write_verified`的同哈希Excel；`reconciling`和`needs_manual_review`只作临时锁。`retryable_failed`与明确失败的关闭状态允许新尝试，新操作必须记录`retryOf`、递增`attemptNumber`、重建任务基线并重新取得用户上传授权。
 
@@ -196,3 +196,9 @@
 - `DEC-USER-GUANYI-SERVER-CREDENTIAL-HELPER-001`：专用服务器账号密码允许保存在root私有AES-256加密文件中，并仅通过固定`get` helper短暂输出给浏览器进程。密文、密钥和明文都不进入Git、Skill、环境变量、命令参数、job state或日志；业务用户无需知道密码。更换服务器时重新部署并经stdin单独配置，不复制profile或密钥。
 - `DEC-USER-GUANYI-DEFERRED-RETRY-QUEUE-001`：多批上传按明确清单串行。同一批只有在任务中心给出可信失败闭环、或者最终请求明确未发出且相对基线确认没有新增任务时，才允许创建新browser operation、重建基线并重新授权；初次尝试后最多安全重试2次，仍失败则标记`deferred`并移到本轮队尾，继续下一批，不自动第三次重试。未满5分钟的`reconciling`、多条新增任务或任务ID证据不足仍阻塞整条上传队列；满5分钟无唯一任务的最终已提交操作按下一条隔离规则处理。
 - `DEC-USER-GUANYI-NO-TASK-QUARANTINE-001`：最终导入请求已记录发出、但任务中心连续5分钟仍没有唯一新增任务时，将该operation转为`quarantined`。隔离状态不是失败、成功或重试许可：相同批次仍禁止重传并保留只读续查，但允许后续不同批次用全新基线继续。继续前先复查隔离操作；当前新批次优先闭环，已被其他operation认领的任务ID不得重复归属，任务结果总数还必须与manifest订单数一致。仍有多条候选、ID证据不足或数量不符时进入人工确认。
+
+## 2026-10-24 管易多批次流水线
+
+- `DEC-USER-GUANYI-PIPELINED-BATCHES-001`：自管服务器继续只有一个常驻浏览器owner和一个Playwright context；context内固定分工为一个专用上传页与一个只读任务中心页。上传页只执行待审核表单、文件选择、字段核对和两段确定，任务中心页只执行基线、显式刷新、任务ID绑定与结果回读，禁止第二个浏览器或第二个写入页。
+- `DEC-USER-GUANYI-SUBMISSION-CADENCE-001`：多批次按FIFO写入，相邻提交默认至少间隔60秒。前一批一旦绑定唯一、双重核验且未被其他operation认领的任务ID，即进入`task_observed`并允许后续不同批次继续；任务仍在执行、已完成但需读取结果或已有唯一ID的人工处理状态不阻塞后续批次。尚未绑定唯一任务、多条新增任务或ID证据不足继续`block_upload_queue`。
+- `DEC-USER-GUANYI-RESULT-READER-001`：只读任务中心页统一续查所有已绑定任务；“执行完成”只证明任务结束，不代表导入成功。能打开查看结果时继续回读总数、成功数与失败分类；平台只给失败状态、不提供更细原因时如实返回“平台未提供详细原因”，不得猜测Excel错误，也不得因缺少失败详情重传或阻塞其他已隔离批次。

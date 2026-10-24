@@ -22,14 +22,14 @@
 - `session.mjs`：专用 Chrome 会话、单一profile进程锁与登录状态；验证码提交后只返回脱敏结果分类。
 - `human-verification.mjs`：额外验证页白名单、脱敏URL分类和可替换的Linux窗口置前适配；不执行验证动作。
 - `login-operation.mjs`：跨消息凭据/短信验证的短时登录操作、分阶段有效期、私有控制通道和状态回执；不保存账号密码或验证码。
-- `resident-session.mjs`：常驻服务器命令校验和内存FIFO队列；不包含页面选择器、凭据或订单规则。
+- `resident-session.mjs`：常驻服务器命令校验、内存FIFO队列和相邻批次提交节流；不包含页面选择器、凭据或订单规则。
 - `geometry.mjs`：原生窗口策略、页面几何快照、稳定性检测与写后 fail-close 接口。
 - `screenshot.mjs`：不改变 viewport、缩放和滚动的只读截图。
 - `credentials.mjs`：macOS 钥匙串凭证提供器，可独立替换。
 - `popup.mjs`：已知通知处理和未知弹窗阻断。
 - `states.mjs`：页面状态识别。
 - `navigation.mjs`：订单查询、自定义导入导航和“待审核”表单状态准备。
-- `task-center.mjs`：只读任务中心导航、结构探针、已完成导入任务记录 ID 核验和结果窗口回读；结果仅返回汇总数量与脱敏失败原因。
+- `task-center.mjs`：只读任务中心导航、显式刷新、执行中/已完成任务记录ID核验和结果窗口回读；结果仅返回汇总数量与脱敏失败原因。
 - `task-reconciliation.mjs`：合并“执行中 + 已完成”任务建立上传前 ID 基线，并以集合差异识别唯一新增任务。
 - `manifest.mjs`：验证预检 manifest，并把用户明确交付的当前 Excel 路径绑定到原始文件名、大小和 SHA-256；不扫描目录、不改写 manifest。
 - `operation-state.mjs`：为通过预检的批次建立不可跳级的操作状态机和非敏感本地回执。
@@ -106,9 +106,9 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 
 同一浏览器会话同时只允许一个执行器所有者。登录worker占用期间另启`probe`、导航、上传或第二个登录会返回`browser_session_busy`。命令结束时，本地模式关闭自有context；CDP模式只断开Playwright控制连接，保留平台浏览器、标签、Cookie和profile。等待凭据、短信授权和验证码的阶段默认分别为10分钟；验证码提交后的普通结果窗口默认45秒，登记的人工验证阶段默认15分钟。
 
-自管服务器例外地由`resident-start`保持一个长期owner；返回`resident_ready`后，`resident-probe`、`resident-execute-import`和`resident-reconcile`只通过原worker的内存FIFO队列执行，单批结束不关闭context。任务并发时只排队，不启动第二个浏览器。登录过期、worker退出或服务器重启后旧控制通道作废；已可能写入的批次仍只能核验。服务器凭据由root私有加密helper提供，helper缺失时才回退到本次stdin临时凭据。
+自管服务器例外地由`resident-start`保持一个长期owner；返回`resident_ready`后，`resident-probe`、`resident-execute-import`和`resident-reconcile`只通过原worker的内存FIFO队列执行，单批结束不关闭context。该owner在同一context内维护一个专用上传页和一个只读任务中心页：上传页只执行表单与两段提交，任务中心页只建立基线、刷新列表、绑定任务ID并回读结果。任务并发时只排队，不启动第二个浏览器或第二个写入页；相邻批次默认至少间隔60秒。登录过期、worker退出或服务器重启后旧控制通道作废；已可能写入的批次仍只能核验。服务器凭据由root私有加密helper提供，helper缺失时才回退到本次stdin临时凭据。
 
-同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍按顺序逐批运行。每批独立校验哈希、建立任务基线、提交并核验唯一任务 ID。可信闭环的失败可以建立新operation并最多安全重试2次；两次仍失败则标为`deferred`并移到本轮队尾，继续后续批次，不自动进行第三次尝试。最终请求已发出但5分钟没有唯一新增任务时标为`quarantined`：保留原操作只读续查、禁止重传该批，同时允许后续不同批次建立全新基线后继续。未满5分钟的`reconciling`、多条新增任务或任务ID证据不足仍会阻塞整条上传队列。不得扫描目录猜测“最新文件”。
+同一对话中可以存在多个已经转换成功的 Excel。Agent 必须先把“这些都上传”解析并回显为明确的 manifest/operation 清单；一次自然语言授权可以覆盖这份明确清单，但执行器仍由同一owner按FIFO逐批写入。每批独立校验哈希、建立任务基线、提交并绑定唯一任务ID；绑定后即允许后续不同批次按60秒节奏继续，不必等待前一任务执行完成。只读任务中心页统一刷新、续查并回读最终结果。可信闭环的失败可以建立新operation并最多安全重试2次；两次仍失败则标为`deferred`并移到本轮队尾。尚未绑定唯一任务ID、多条新增或证据不足仍阻塞；最终请求已发出但5分钟没有唯一任务时标为`quarantined`，禁止重传该批并放行后续不同批次。不得扫描目录猜测“最新文件”。
 
 正式 Skill 包装入口只接受清单一致的内置/状态运行时，或相关浏览器与Skill入口文件没有未提交修改的Git开发工作区，并只在 `GY-UPLOAD-SUBMISSION` 达到 `implemented + confirmed` 时为本次进程开启 Node 写入层。显式指定普通复制目录不能绕过`runtime-manifest.json`；规则回退、实现引用失效、临时修改或打包不一致都会结构性拒绝浏览器入口。开发维护者未来需要重新验收时可临时设置 `GUANYI_CONTROLLED_WRITE_VALIDATION=CONFIRM_CONTROLLED_GUANYI_WRITE_VALIDATION`；该口令不参与普通生产流程，且不能代替当前批次的用户提交授权。
 
@@ -134,16 +134,16 @@ Linux/云端存在 Secret/Vault 时，由平台管理员配置绝对路径 `GUAN
 16. `inspect-file-selection` 必须重新校验 manifest、文件 SHA-256、操作状态和任务基线，并唯一定位“订单信息上传”输入框；只报告就绪，不调用文件选择。
 17. `select-import-file` 只有在用户当次明确授权后才可运行；必须使用精确授权口令，选择文件前写入 `file_selection_started`，选择尝试后立即写入 `write_request_maybe_sent`。它记录脱敏网络请求元数据，但不点击“确定”；无论页面是否显示上传结果，都不得自动重试。
 18. `submit-import` 只有在用户明确授权当前批次后才可运行；文件选择只允许出现已登记的管易取 OSS 地址与指定 OSS 暂存请求，且两条响应必须成功。第一次“确定”后必须唯一出现“自定义字段对应”，完整遍历虚拟滚动表格的全部行，确认系统字段与 Excel 字段逐行同名、一一对应且必填字段齐全；随后才允许点击第二次“确定”。模板读取和最终导入请求必须分别精确匹配已登记接口，缺失、重复、非成功响应或任何额外写请求都停止并进入查重，禁止刷新、重选或重提。
-19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；从最终请求记录时间起满5分钟仍无唯一任务时进入`quarantined`。只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增且未被其他operation认领的任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数；总数必须与manifest订单数一致。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功或数量不符进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
+19. `reconcile-operation` 先进入持久的 `reconciling` 状态。已经点击第二次确定但短时间没有新任务时保持该状态并允许稍后只读复查；识别到唯一新增任务后进入`task_id_observed`，此时后续不同批次可以继续，但当前批次仍未证明成功。从最终请求记录时间起满5分钟仍无唯一任务时进入`quarantined`。只有文件暂存、没有授权或没有进入最终提交，且任务中心确认无新增任务时进入 `retryable_failed`。唯一新增且未被其他operation认领的任务 ID、任务名称和“执行完成”状态只证明任务已经结束，执行器还必须打开该任务的“查看结果”，回读导入总数、成功数、格式错误数和非法数据数；总数必须与manifest订单数一致。只有 `成功数=总数` 且失败数为零才进入 `post_write_verified`；部分成功或数量不符进入 `needs_manual_review`，全部失败进入 `retryable_failed`，多条新增、ID 证据不足、统计矛盾或未知状态进入人工确认。
 20. 相同 Excel 哈希只有在 `post_write_verified` 或仍有未闭环操作时阻止新操作。`retryable_failed` 或明确失败关闭后允许创建新操作，新记录必须关联 `retryOf`、递增 `attemptNumber`、重建任务基线并重新取得用户授权。
 21. `resident-resolve-no-task`只允许用精确口令`CONFIRM_CLOSE_NO_TASK_OPERATION`关闭最终导入请求明确未发出、且任务中心相对原基线确认没有新增任务的尝试。若`write.requestSent=true`，即使当前看不到新增任务也必须拒绝关闭，继续只读核验。
 22. 远端批次的`safeRetryCount`只在创建新的browser operation时递增；初次尝试后最多再创建2次安全重试。第二次重试仍闭环失败时返回`queueDisposition=defer_to_tail`；未满5分钟的结果不明返回`block_upload_queue`；满5分钟且仍无唯一任务的最终已提交操作返回`continue_other_batches`。后者不关闭、不重试原批次，只允许后续不同批次继续；继续前先只读续查隔离批次，随后为新批次捕获全新基线，并优先闭环当前新批次。
-23. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再依次完成表单、基线、提交和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent 先走标准短信交接，再重新执行当前已授权批次。两分钟内仍无唯一结果时返回 `reconciling`，后续仅允许只读续查。
+23. `execute-import` 是正常生产路径：只接受已 `prepared` 且得到当前批次授权的操作。浏览器会话不可用时，它先在当前进程读取安全凭证并自动登录，再由上传页完成表单和提交、由同一context的只读任务中心页完成基线和结果回读；不得在这些阶段之间关闭浏览器或重新登录。若管易要求短信验证，命令只返回 `needs_verification`，不发送短信、不选择文件；Agent先走标准短信交接，再重新执行当前已授权批次。45秒内已识别唯一任务但尚未完成时返回`task_id_observed`并允许后续不同批次继续；仍无唯一任务时返回`reconciling`并阻塞新的写入，后续仅允许只读续查。
 24. `prepare-order-audit`只接受`post_write_verified`上传操作，默认建立`all_pending`范围；只有用户明确要求“只审核本批”时才使用`current_batch`并绑定manifest平台单号。
 25. `execute-order-audit`必须取得上传成功后的新授权`CONFIRM_GUANYI_ORDER_AUDIT`。上传授权不能复用；策略中的联动模式默认关闭。它只筛选已确认的待审核状态、核验结果中没有其他状态、全选当前页并点击审核，多页按页面签名逐页处理。
 26. `reconcile-order-audit`只读回查剩余待审核订单，不能勾选行或点击审核。写请求后页面状态不明时不得盲目重试。
 27. `probe-order-audit`必须分别在本地与豆包环境只读确认审核列、平台单号列、两个筛选框、全选框、审核按钮和真实待审核状态词；双环境未完成前生产审核门禁保持关闭。
-28. 自管服务器必须只有一个`resident_single_owner`浏览器；两个上传请求按FIFO顺序进入同一context。首个任务结束后浏览器仍为`resident_ready`，第二个任务不得新建浏览器。凭据、验证码和任务授权不得写入队列文件或登录operation回执。
+28. 自管服务器必须只有一个`resident_single_owner`浏览器；两个上传请求按FIFO顺序进入同一context，默认相邻提交至少间隔60秒。context内允许一个专用上传页和一个只读任务中心页，但只允许上传页执行写操作；首批绑定唯一任务ID后即可提交下一批，无需等待完成。浏览器保持`resident_ready`，后续任务不得新建浏览器。凭据、验证码和任务授权不得写入队列文件或登录operation回执。
 
 ## 实机验收记录
 

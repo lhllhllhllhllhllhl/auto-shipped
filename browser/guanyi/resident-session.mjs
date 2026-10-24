@@ -96,3 +96,47 @@ export function createResidentCommandQueue() {
     },
   };
 }
+
+
+export function createResidentSubmissionCadence({
+  minimumIntervalMs = 60_000,
+  now = () => Date.now(),
+  wait = async (milliseconds) =>
+    await new Promise((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
+  if (!Number.isFinite(minimumIntervalMs) || minimumIntervalMs < 0) {
+    throw new ResidentSessionError(
+      "RESIDENT_SUBMISSION_INTERVAL_INVALID",
+      "常驻浏览器的批次提交间隔配置无效。",
+    );
+  }
+  let lastSubmissionAt = null;
+
+  return {
+    async waitForNextAttempt() {
+      if (lastSubmissionAt === null) {
+        return { waitedMs: 0, previousSubmissionAt: null };
+      }
+      const elapsedMs = Math.max(0, now() - lastSubmissionAt);
+      const waitedMs = Math.max(0, minimumIntervalMs - elapsedMs);
+      if (waitedMs > 0) {
+        await wait(waitedMs);
+      }
+      return { waitedMs, previousSubmissionAt: lastSubmissionAt };
+    },
+
+    markAttemptStarted() {
+      lastSubmissionAt = now();
+      return lastSubmissionAt;
+    },
+
+    markSubmissionObserved() {
+      lastSubmissionAt = now();
+      return lastSubmissionAt;
+    },
+
+    get lastSubmissionAt() {
+      return lastSubmissionAt;
+    },
+  };
+}

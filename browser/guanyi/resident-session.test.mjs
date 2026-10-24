@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createResidentCommandQueue,
+  createResidentSubmissionCadence,
   ResidentCommand,
   ResidentSessionError,
   validateResidentCommand,
@@ -88,4 +89,29 @@ test("resident no-task resolution requires its own exact authorization", () => {
       authorization: NO_TASK_RESOLUTION_AUTHORIZATION,
     },
   );
+});
+
+
+test("resident submissions keep a minimum cadence without delaying the first batch", async () => {
+  let current = 1_000;
+  const waits = [];
+  const cadence = createResidentSubmissionCadence({
+    minimumIntervalMs: 60_000,
+    now: () => current,
+    wait: async (milliseconds) => {
+      waits.push(milliseconds);
+      current += milliseconds;
+    },
+  });
+
+  assert.deepEqual(await cadence.waitForNextAttempt(), {
+    waitedMs: 0,
+    previousSubmissionAt: null,
+  });
+  cadence.markAttemptStarted();
+  current += 45_000;
+  cadence.markSubmissionObserved();
+  current += 20_000;
+  assert.equal((await cadence.waitForNextAttempt()).waitedMs, 40_000);
+  assert.deepEqual(waits, [40_000]);
 });

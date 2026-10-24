@@ -7,6 +7,7 @@ import { CHROME_EXECUTABLE } from "./config.mjs";
 import {
   findTaskCenterFrame,
   parseImportResultSummary,
+  refreshVisibleTaskGrid,
   readCompletedImportTaskResultFromFrame,
   readImportTaskSnapshot,
   readCompletedImportTasks,
@@ -14,6 +15,36 @@ import {
   sanitizeImportFailure,
   TaskCenterError,
 } from "./task-center.mjs";
+
+
+test("uses one visible task-center refresh control before reading", async () => {
+  const browser = await chromium.launch({
+    executablePath: CHROME_EXECUTABLE,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent("<iframe></iframe>");
+    const frame = page.frames().find((candidate) => candidate !== page.mainFrame());
+    assert.ok(frame);
+    await frame.setContent(`
+      <button title="刷新" id="refresh">刷新</button>
+      <table><tbody><tr><td>任务</td></tr></tbody></table>
+      <script>
+        globalThis.refreshCount = 0;
+        document.querySelector('#refresh').onclick = () => { globalThis.refreshCount += 1; };
+      </script>
+    `);
+    const result = await refreshVisibleTaskGrid(frame);
+    assert.deepEqual(result, {
+      status: "task_center_refreshed",
+      evidence: "visible_refresh_control",
+    });
+    assert.equal(await frame.evaluate(() => globalThis.refreshCount), 1);
+  } finally {
+    await browser.close();
+  }
+});
 
 
 test("reads task-center structure across an iframe without task contents", async () => {

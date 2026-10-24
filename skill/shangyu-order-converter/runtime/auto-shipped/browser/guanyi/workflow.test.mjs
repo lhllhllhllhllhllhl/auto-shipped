@@ -137,6 +137,57 @@ test("runs one authorized batch through one browser page", async () => {
 });
 
 
+test("keeps upload and task-center work on separate pages when an observer is supplied", async () => {
+  const uploadPage = fakePage();
+  const taskCenterPage = fakePage();
+  const observedPages = [];
+  const dependencies = {
+    async openApp(candidate) {
+      assert.equal(candidate, uploadPage);
+    },
+    async detectState() {
+      return { state: "dashboard" };
+    },
+    async prepareCustomImportForm(candidate) {
+      assert.equal(candidate, uploadPage);
+      return { orderStatus: "待审核", importOptions: {} };
+    },
+    async probeImportTaskSnapshot(candidate) {
+      observedPages.push(candidate);
+      return { taskIdStatus: "verified_empty_list", tasks: [] };
+    },
+    async recordTaskBaseline() {
+      return { record: { taskBaseline: { taskIds: [], capturedAt: "now" } } };
+    },
+    async submitPreparedImport(candidate) {
+      assert.equal(candidate, uploadPage);
+      return { status: "submit_maybe_sent" };
+    },
+    async reconcileOperationTask() {
+      return {
+        status: "reconciling",
+        reason: "no_new_task",
+        record: { state: "reconciling" },
+      };
+    },
+  };
+
+  const result = await executeAuthorizedImportInSingleSession(
+    uploadPage,
+    "operation-observer",
+    "CONFIRM_GUANYI_IMPORT_SUBMISSION",
+    {
+      taskCenterPage,
+      reconciliationTimeoutMs: 0,
+      dependencies,
+    },
+  );
+
+  assert.equal(result.status, "reconciling");
+  assert.deepEqual(observedPages, [taskCenterPage, taskCenterPage]);
+});
+
+
 test("stops the single-session workflow before the form when login is required", async () => {
   const page = fakePage();
   let formPrepared = false;

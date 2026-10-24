@@ -30,6 +30,11 @@ const IMPORT_RESULT_CLOSE_SELECTORS = [
   '[data-qtip="关闭"]',
 ].join(", ");
 const IMPORT_RESULT_CLOSE_TIMEOUT_MS = 3_000;
+const TASK_REFRESH_SELECTORS = [
+  '[data-qtip="刷新"]',
+  '[title="刷新"]',
+  '[aria-label="刷新"]',
+].join(", ");
 
 
 export class TaskCenterError extends Error {
@@ -373,6 +378,109 @@ async function waitForTaskTable(frame, timeoutMs = 10_000) {
 }
 
 
+export async function refreshVisibleTaskGrid(frame) {
+  const refreshControls = frame.locator(TASK_REFRESH_SELECTORS);
+  const visibleControls = [];
+  for (let index = 0; index < (await refreshControls.count()); index += 1) {
+    const control = refreshControls.nth(index);
+    if (await control.isVisible().catch(() => false)) {
+      visibleControls.push(control);
+    }
+  }
+  const exactTextRefresh = await visibleExact(frame, "刷新").catch(() => null);
+  if (exactTextRefresh && visibleControls.length === 0) {
+    visibleControls.push(exactTextRefresh);
+  }
+  if (visibleControls.length > 1) {
+    throw new TaskCenterError(
+      "TASK_REFRESH_CONTROL_AMBIGUOUS",
+      "任务中心同时出现多个可见刷新入口，已停止自动刷新。",
+      { matchCount: visibleControls.length },
+    );
+  }
+  if (visibleControls.length === 1) {
+    await visibleControls[0].click();
+    await waitForTaskTable(frame);
+    return {
+      status: "task_center_refreshed",
+      evidence: "visible_refresh_control",
+    };
+  }
+
+  const storeReload = await frame
+    .evaluate(async () => {
+      const Ext = globalThis.Ext;
+      if (!Ext?.ComponentQuery?.query) {
+        return "unavailable";
+      }
+      const visibleGrids = Ext.ComponentQuery.query("grid").filter((grid) => {
+        const element = grid?.getEl?.()?.dom;
+        const store = grid?.getStore?.();
+        if (!element || !store?.reload || grid?.isVisible?.() === false) {
+          return false;
+        }
+        const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        const visible =
+          style?.display !== "none" &&
+          style?.visibility !== "hidden" &&
+          rect.width > 0 &&
+          rect.height > 0;
+        const text = element.innerText || element.textContent || "";
+        return visible && text.includes("任务名称") && /状态|当前进度/.test(text);
+      });
+      if (visibleGrids.length !== 1) {
+        return visibleGrids.length > 1 ? "ambiguous" : "unavailable";
+      }
+      const store = visibleGrids[0].getStore();
+      return await new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        const timer = setTimeout(() => finish("timeout"), 8_000);
+        try {
+          store.reload({
+            callback: () => {
+              clearTimeout(timer);
+              finish("reloaded");
+            },
+          });
+        } catch {
+          clearTimeout(timer);
+          finish("unavailable");
+        }
+      });
+    })
+    .catch(() => "unavailable");
+  if (storeReload === "ambiguous") {
+    throw new TaskCenterError(
+      "TASK_REFRESH_STORE_AMBIGUOUS",
+      "任务中心存在多个可见数据表，无法唯一刷新只读任务列表。",
+    );
+  }
+  if (storeReload === "timeout") {
+    throw new TaskCenterError(
+      "TASK_REFRESH_TIMEOUT",
+      "任务中心只读刷新没有在限定时间内完成。",
+    );
+  }
+  if (storeReload === "reloaded") {
+    await waitForTaskTable(frame);
+    return {
+      status: "task_center_refreshed",
+      evidence: "ext_store_reload",
+    };
+  }
+  return {
+    status: "task_center_refresh_unavailable",
+    evidence: "tab_reselected_only",
+  };
+}
+
+
 function normalizedText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -424,7 +532,7 @@ async function readTaskRecordIdentity(row) {
 
 export async function readCompletedImportTasks(
   frame,
-  { limit = MAX_COMPLETED_IMPORT_SUMMARIES } = {},
+  { limit = MAX_COMPLETED_IMPORT_SUMMARIES, refresh = true } = {},
 ) {
   const completedTab = await visibleExact(frame, "已完成");
   if (!completedTab) {
@@ -434,13 +542,17 @@ export async function readCompletedImportTasks(
     );
   }
   await completedTab.click();
+  const refreshResult = refresh
+    ? await refreshVisibleTaskGrid(frame)
+    : { status: "task_center_refresh_skipped", evidence: "caller_skipped" };
   await waitForTaskTable(frame);
 
-  return await readVisibleImportTasks(frame, {
+  const result = await readVisibleImportTasks(frame, {
     limit,
     phase: "completed",
     status: "completed_import_tasks_ready",
   });
+  return { ...result, refresh: refreshResult };
 }
 
 
@@ -569,6 +681,7 @@ export async function readCompletedImportTaskResultFromFrame(
     );
   }
   await completedTab.click();
+  await refreshVisibleTaskGrid(frame);
   await waitForTaskTable(frame);
   if (await findVisibleImportResultSurface(page)) {
     throw new TaskCenterError(
@@ -744,12 +857,13 @@ export async function readImportTaskSnapshot(frame) {
     );
   }
   await executingTab.click();
+  const executingRefresh = await refreshVisibleTaskGrid(frame);
   await waitForTaskTable(frame);
   const executing = await readVisibleImportTasks(frame, {
     phase: "executing",
     status: "executing_import_tasks_ready",
   });
-  const completed = await readCompletedImportTasks(frame);
+  const completed = await readCompletedImportTasks(frame, { refresh: true });
   const observedTasks = [...executing.tasks, ...completed.tasks];
   const allIdsVerified =
     observedTasks.length > 0 &&
@@ -781,6 +895,10 @@ export async function readImportTaskSnapshot(frame) {
     phases: {
       executing: executing.tasks.length,
       completed: completed.tasks.length,
+    },
+    refresh: {
+      executing: executingRefresh,
+      completed: completed.refresh,
     },
     safety:
       "Executing and completed task IDs were read without opening a task row.",

@@ -123,7 +123,9 @@ printf '%s\n' '{"username":"<账号>","password":"<密码>"}' | \
 ```
 
 常驻状态为`resident_ready`后，`probe`、`execute`、`reconcile`和`resolve-no-task`都进入同一个浏览器
-队列；不得另启普通`probe`或第二个登录进程。
+队列；不得另启普通`probe`或第二个登录进程。常驻owner在同一context内维护一个专用上传页和一个
+只读任务中心页：前者只做表单与两段提交，后者只做基线、刷新、任务ID绑定和结果回读。它们不是
+两个浏览器，任务中心页也没有写入权限。
 
 `resident-start`在创建常驻worker前执行与正式提交相同的`upload`规则审计，并把
 当次审计通过标记传入worker。这样后续队列中的提交仍由同一Node写入门禁复核，
@@ -144,7 +146,9 @@ python3 <skill-dir>/scripts/guanyi_remote.py execute \
 ```
 
 `execute` 仍由现有状态机依次完成待审核表单、任务基线、文件选择、两次确定、
-字段映射核对和任务中心回读。返回 `reconciling`、连接中断、超时或任何可能已
+字段映射核对和任务中心回读。相邻批次默认至少间隔60秒；上一批一旦绑定唯一任务ID，
+即使任务仍在执行，也返回`task_id_observed`并允许后续不同批次继续进入FIFO写入队列。
+返回未绑定任务ID的 `reconciling`、连接中断、超时或任何可能已
 写入的异常后，禁止再次执行 `execute`，只能运行：
 
 ```bash
@@ -173,9 +177,14 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 该批放到本轮队尾并继续下一批，不自动第三次重试。队尾批次只向用户报告或等待
 新的明确授权。
 
-若返回`queueDisposition=block_upload_queue`，表示未满5分钟的最终提交仍没有唯一可信
-闭环，或存在多条新增任务、任务ID证据不足等歧义；此时必须停止全部后续上传，
+若返回`queueDisposition=block_upload_queue`，表示最终提交仍没有绑定唯一可信任务ID，
+或存在多条新增任务、任务ID证据不足等歧义；此时必须停止全部后续上传，
 继续只读核验或交人工确认，不能借“放到队尾”绕过。
+
+若返回`queueDisposition=continue_other_batches`且状态为`task_observed`，表示当前批次已经
+绑定唯一任务ID但结果尚未完成；只读任务中心页继续核验该ID，上传页可在60秒节流后处理
+下一批。任务失败、部分成功或平台不提供详细失败原因时，只要唯一任务ID仍然成立，就不会
+串批，也不会阻塞后续不同批次；当前批次仍须如实报告为失败或待人工处理，不能当作成功。
 
 最终请求记录发出后满5分钟仍无唯一新增任务时，状态变为`quarantined`并返回
 `queueDisposition=continue_other_batches`。该状态不会关闭原操作，也绝不允许重传原批次；
@@ -202,12 +211,12 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
 - 账号密码只从root私有加密存储经只读helper进入当前常驻进程；未配置helper时才
   经SSH stdin临时输入。验证码只经SSH stdin进入当前进程。三者都不写入job state、
   日志、环境变量或命令参数。
-- 常驻协调器是唯一浏览器owner，任务FIFO串行；服务器重启或worker失效后不复用
+- 常驻协调器是唯一浏览器owner，任务FIFO串行；同一context内只允许一个写入页和一个只读任务中心页，相邻提交默认至少间隔60秒；服务器重启或worker失效后不复用
   陈旧控制通道，重新登录前先确认没有可能已写入但未核验的operation。
 - `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
 - `resolve-no-task`不能关闭`write.requestSent=true`的尝试；没有新增任务不等于最终提交未发生。
 - 安全失败最多重试2次；`deferred`只允许队列继续，不代表该批成功或可以无限重试。
-- `quarantined`只在最终请求发出后连续5分钟无唯一任务时释放后续不同批次；原批次仍禁止重传并保留只读续查。
+- `task_observed`在唯一任务ID绑定后立即释放后续不同批次，最终结果仍由只读页续查；`quarantined`只在最终请求发出后连续5分钟无唯一任务时释放后续不同批次，原批次仍禁止重传并保留只读续查。
 - 日志和响应不返回 Excel 内容、收件人、手机号或详细地址。
 
 ## 服务器迁移
