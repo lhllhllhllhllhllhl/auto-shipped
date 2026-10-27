@@ -61,6 +61,7 @@ class GuanyiBuildResult:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    rule_execution_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -787,9 +788,10 @@ def build_custom_import_lines(
         int, list[tuple[Any, ProductResolution, dict[str, str]]]
     ] = {}
     official_mapping_clarification_added = False
-    for order in orders:
+    for order_index, order in enumerate(orders, start=1):
         order_lines: list[ResolvedLineItem] = []
-        for item in order.items:
+        for item_index, item in enumerate(order.items, start=1):
+            item_scope_key = f"order:{order_index}/item:{item_index}"
             expansion = expand_source_item(
                 item,
                 catalog,
@@ -840,7 +842,32 @@ def build_custom_import_lines(
                 continue
             if expansion.applied:
                 order_lines.extend(expansion.lines)
+                result.rule_execution_events.extend(
+                    [
+                        {
+                            "rule_id": "GY-ITEM-EXPANSION",
+                            "scope_key": item_scope_key,
+                            "status": "completed",
+                            "outcome": "applied",
+                        },
+                        {
+                            "rule_id": "GY-PRODUCT-MAPPING",
+                            "scope_key": item_scope_key,
+                            "status": "completed",
+                            "outcome": "resolved_by_confirmed_expansion",
+                        },
+                    ]
+                )
                 continue
+
+            result.rule_execution_events.append(
+                {
+                    "rule_id": "GY-ITEM-EXPANSION",
+                    "scope_key": item_scope_key,
+                    "status": "not_applicable",
+                    "outcome": "not_applicable",
+                }
+            )
 
             if not official_mapping_ready:
                 if not official_mapping_clarification_added:
@@ -1181,6 +1208,14 @@ def build_custom_import_lines(
                         quantity=target_quantity,
                     )
                 )
+                result.rule_execution_events.append(
+                    {
+                        "rule_id": "GY-PRODUCT-MAPPING",
+                        "scope_key": item_scope_key,
+                        "status": "completed",
+                        "outcome": "resolved",
+                    }
+                )
         resolved_lines_by_order[id(order)] = order_lines
 
     result.clarifications = deduplicate_clarifications(result.clarifications)
@@ -1269,7 +1304,8 @@ def build_custom_import_lines(
         rules, "recipient_region", "source_components"
     )
     seen_platform_numbers: dict[str, str] = {}
-    for order in orders:
+    for order_index, order in enumerate(orders, start=1):
+        order_scope_key = f"order:{order_index}"
         platform_no = _platform_order_no(order, rules, platform_profile)
         result.package_semantics_notices.extend(
             _package_semantics_notice_record(
@@ -1481,6 +1517,102 @@ def build_custom_import_lines(
             raise GuanyiCustomImportError(
                 f"未知省/市/区输出策略: {recipient_region_strategy}"
             )
+        result.rule_execution_events.extend(
+            [
+                {
+                    "rule_id": "GY-PLATFORM-ORDER-NUMBER",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "resolved",
+                },
+                {
+                    "rule_id": "GY-STORE-ASSIGNMENT",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "resolved",
+                },
+                {
+                    "rule_id": "GY-BUYER-MEMBER",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "resolved",
+                },
+                {
+                    "rule_id": "GY-PAYMENT-VALUES",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-WAREHOUSE-ASSIGNMENT",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-PAYMENT-METHOD",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-ORDER-TYPE",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-ORDER-FLAGS",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-RECIPIENT-COMPLETENESS",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "validated",
+                },
+                {
+                    "rule_id": "GY-JD-ZTO-CONTACT-SUFFIX",
+                    "scope_key": order_scope_key,
+                    "status": (
+                        "completed"
+                        if rules.get("contact_suffix_policy")
+                        else "incomplete"
+                    ),
+                    "outcome": (
+                        "applied" if resolved_contacts.appended_suffix else "not_applicable"
+                    ),
+                },
+                {
+                    "rule_id": "GY-LOGISTICS-SELECTION",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "selected",
+                },
+                {
+                    "rule_id": "GY-SELLER-REMARK-POLICY",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": "applied",
+                },
+                {
+                    "rule_id": "GY-DELIVERY-INSTRUCTION-ADDRESS",
+                    "scope_key": order_scope_key,
+                    "status": "completed",
+                    "outcome": (
+                        "applied" if routed_notes.courier_instructions else "not_applicable"
+                    ),
+                },
+                {
+                    "rule_id": "GY-DAILY-GOODS-WHITE-LABEL",
+                    "scope_key": order_scope_key,
+                    "status": "completed" if white_label_library else "incomplete",
+                    "outcome": "applied" if system_notes else "not_matched",
+                },
+            ]
+        )
         for line_item in resolved_line_items:
             item = line_item.source_item
             product = line_item.product

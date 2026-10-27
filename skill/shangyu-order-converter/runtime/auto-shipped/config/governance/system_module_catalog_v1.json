@@ -119,9 +119,9 @@
     {
       "module_id": "conversion_delivery",
       "title": "管易Excel、manifest与摘要交付",
-      "responsibility": "合并生成管易导入Excel、上传预检manifest和脱敏/决策摘要。",
-      "boundary": "生成文件不代表获得上传授权；不读取浏览器页面状态。",
-      "authority_paths": ["src/auto_shipped/services/convert.py", "src/auto_shipped/services/batch_convert.py", "src/auto_shipped/platforms/guanyi/preflight.py", "contracts/upload_batch.schema.json"],
+      "responsibility": "按规则目录强制完成本批适用判断，回读核对确定性业务结果，再合并生成管易导入Excel、上传预检manifest和脱敏/决策摘要。",
+      "boundary": "运行校验只证明既有权威规则已执行并正确落表，不复制业务取值、不让Agent手填通过状态；生成文件不代表获得上传授权；不读取浏览器页面状态。",
+      "authority_paths": ["src/auto_shipped/services/convert.py", "src/auto_shipped/services/batch_convert.py", "src/auto_shipped/services/conversion_workflow.py", "src/auto_shipped/platforms/guanyi/preflight.py", "contracts/conversion_workflow_execution.schema.json", "contracts/batch_conversion_result.schema.json", "contracts/upload_batch.schema.json"],
       "dependencies": ["order_business_policies", "order_identity"],
       "implementation_refs": [],
       "policy_module_ids": [],

@@ -25,7 +25,7 @@
 | `store_assignment` | 按固定店铺、来源渠道、SKU关联或共享商品类别兜底分配唯一店铺，并输出不阻断转换的兜底告知证据。 | 店铺优先级固定为固定/渠道、公司或来源SKU、manual_all、商品类别；已映射玉米兜底到光明满元气，非玉米兜底到淘橘子并在结果小节告知；同单跨店停止，更高优先级的SAM及自营天猫京东不受覆盖。 | product_resolution、company_workflow_routing |
 | `order_identity` | 执行订单编号优先、来源单号次之、最后才按已登记前缀和飞书中央日序号生成。 | 不同前缀分别计数；同一来源重跑复用原号段；不得临时猜测前缀。 | company_workflow_routing、feishu_integration |
 | `order_business_policies` | 集中执行买家会员、价格金额、仓库、支付、订单类型、物流、联系方式后缀、白标和备注分流。 | 共享默认值只定义一次；公司差异通过规则包引用或显式覆盖。 | product_resolution、store_assignment |
-| `conversion_delivery` | 合并生成管易导入Excel、上传预检manifest和脱敏/决策摘要。 | 生成文件不代表获得上传授权；不读取浏览器页面状态。 | order_business_policies、order_identity |
+| `conversion_delivery` | 按规则目录强制完成本批适用判断，回读核对确定性业务结果，再合并生成管易导入Excel、上传预检manifest和脱敏/决策摘要。 | 运行校验只证明既有权威规则已执行并正确落表，不复制业务取值、不让Agent手填通过状态；生成文件不代表获得上传授权；不读取浏览器页面状态。 | order_business_policies、order_identity |
 | `feishu_integration` | 统一身份探测、表格读写、映射同步、中央序号、publishing恢复和错误分类。 | 业务模块不得各自拼接不兼容的lark-cli身份探针或直接并发写同一revision表。 | 无 |
 | `browser_upload` | 在用户明确指定批次并授权后选择已确认Excel、填写导入表单并提交。 | 不读取原始订单，不判断公司、商品、店铺或物流；不得把GitHub推送当作上传授权。 | conversion_delivery |
 | `post_upload_reconciliation` | 使用唯一新增任务核验指定批次的管易导入结果。 | 只确认导入结果，不继承上传授权、不执行订单审核、发货、作废或删除。 | browser_upload |
@@ -92,7 +92,7 @@
 
 ### 管易Excel、manifest与摘要交付 (`conversion_delivery`)
 
-权威路径：`src/auto_shipped/services/convert.py`、`src/auto_shipped/services/batch_convert.py`、`src/auto_shipped/platforms/guanyi/preflight.py`、`contracts/upload_batch.schema.json`
+权威路径：`src/auto_shipped/services/convert.py`、`src/auto_shipped/services/batch_convert.py`、`src/auto_shipped/services/conversion_workflow.py`、`src/auto_shipped/platforms/guanyi/preflight.py`、`contracts/conversion_workflow_execution.schema.json`、`contracts/batch_conversion_result.schema.json`、`contracts/upload_batch.schema.json`
 实现引用：无
 历史兼容实现：无
 共享策略：无

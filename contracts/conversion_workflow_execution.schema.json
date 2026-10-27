@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/conversion-workflow-execution-v1.json",
+  "title": "Shangyu Conversion Workflow Execution",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "status",
+    "counts",
+    "business_summary",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {"const": "conversion-workflow/1.0"},
+    "workflow_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "status": {"enum": ["pending_output_verification", "complete"]},
+    "context": {
+      "type": "object",
+      "properties": {
+        "source_profile_id": {"type": "string", "minLength": 1},
+        "company_id": {"type": "string", "minLength": 1},
+        "route_id": {"type": "string", "minLength": 1},
+        "mapping_revision": {"type": ["string", "integer", "null"]},
+        "input_fingerprints": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "counts": {
+      "type": "object",
+      "minProperties": 2,
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "business_summary": {
+      "type": "object",
+      "required": ["stores", "logistics", "products"],
+      "properties": {
+        "stores": {"$ref": "#/$defs/orderValueCounts"},
+        "logistics": {"$ref": "#/$defs/orderValueCounts"},
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["product_code", "spec_code", "quantity"],
+            "properties": {
+              "product_code": {"type": "string", "minLength": 1},
+              "spec_code": {"type": "string"},
+              "quantity": {"type": "number", "exclusiveMinimum": 0}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "required_rule_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "source_workflow_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[0-9a-f]{16}$"}
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["stage_id", "status"],
+        "properties": {
+          "stage_id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pending", "completed"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "orderValueCounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["value", "order_count"],
+        "properties": {
+          "value": {"type": "string"},
+          "order_count": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

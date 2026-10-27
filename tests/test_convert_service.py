@@ -178,7 +178,7 @@ class ConvertServiceTests(unittest.TestCase):
                     "catalog_id": "test_catalog",
                     "scope_id": "test_scope",
                     "rules": {
-                        "TEST-CONVERSION-RULE": {
+                        "GY-PAYMENT-VALUES": {
                             "status": "implemented",
                             "confirmed": True,
                             "implementation_ref": "guanyi.defaults.zero_amounts",
@@ -198,7 +198,7 @@ class ConvertServiceTests(unittest.TestCase):
                         "schema_version": "1.0",
                         "catalog_id": "test_catalog",
                         "rules": {
-                            "TEST-CONVERSION-RULE": {
+                            "GY-PAYMENT-VALUES": {
                                 "title": "测试转换规则",
                                 "module": "test",
                                 "phase": "conversion",
@@ -211,7 +211,7 @@ class ConvertServiceTests(unittest.TestCase):
                         "scopes": {
                             "test_scope": {
                                 "required_rules": {
-                                    "conversion": ["TEST-CONVERSION-RULE"]
+                                    "conversion": ["GY-PAYMENT-VALUES"]
                                 }
                             }
                         },
@@ -310,6 +310,13 @@ class ConvertServiceTests(unittest.TestCase):
             self.assertEqual(result.output_row_count, 1)
             self.assertEqual(len(result.outputs), 2)
             self.assertIsNotNone(result.upload_manifest)
+            self.assertIsNotNone(result.workflow_execution)
+            self.assertEqual(result.workflow_execution["status"], "complete")
+            completed_rules = {
+                item["rule_id"]
+                for item in result.workflow_execution["stages"][2]["rule_checks"]
+            }
+            self.assertEqual(completed_rules, {"GY-PAYMENT-VALUES"})
             manifest = json.loads(Path(result.upload_manifest).read_text(encoding="utf-8"))
             self.assertEqual(manifest["status"], "ready")
             self.assertEqual(manifest["counts"], {"orders": 1, "item_rows": 1})
