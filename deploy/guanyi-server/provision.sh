@@ -86,6 +86,12 @@ fi
 if ! grep -q '^GUANYI_RESIDENT_SUBMISSION_INTERVAL_MS=' "$server_env"; then
   printf '%s\n' 'GUANYI_RESIDENT_SUBMISSION_INTERVAL_MS=60000' >> "$server_env"
 fi
+if ! grep -q '^GUANYI_BROWSER_BROKER_COMMAND=' "$server_env"; then
+  printf '%s\n' 'GUANYI_BROWSER_BROKER_COMMAND=/usr/local/bin/auto-shipped-browser-operation-broker' >> "$server_env"
+fi
+if ! grep -q '^GUANYI_BROWSER_BROKER_TIMEOUT_MS=' "$server_env"; then
+  printf '%s\n' 'GUANYI_BROWSER_BROKER_TIMEOUT_MS=1800000' >> "$server_env"
+fi
 chown root:"$RUNNER_USER" "$server_env"
 chmod 0640 "$server_env"
 

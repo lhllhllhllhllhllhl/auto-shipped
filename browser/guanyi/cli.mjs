@@ -47,6 +47,10 @@ import {
   ResidentSessionError,
 } from "./resident-session.mjs";
 import {
+  acquireBrowserOperationLease,
+  withBrowserOperationLease,
+} from "./browser-operation-broker.mjs";
+import {
   createPreparedOperation,
   NO_TASK_RESOLUTION_AUTHORIZATION,
   OperationStateError,
@@ -404,20 +408,26 @@ async function serveResidentCommands(
   session,
   authenticatedPage,
   residentQueue,
+  startupLease = null,
 ) {
   const page = authenticatedPage;
-  let taskObserverPage = await createResidentTaskObserver(session, page);
+  let taskObserverPage;
   const submissionCadence = createResidentSubmissionCadence({
     minimumIntervalMs: RESIDENT_SUBMISSION_INTERVAL_MS,
   });
-  await transitionLoginOperation(
-    operationId,
-    LoginOperationState.RESIDENT_READY,
-    {
-      reason: "resident_browser_authenticated",
-      expiresInMs: RESIDENT_SESSION_TTL_MS,
-    },
-  );
+  try {
+    taskObserverPage = await createResidentTaskObserver(session, page);
+    await transitionLoginOperation(
+      operationId,
+      LoginOperationState.RESIDENT_READY,
+      {
+        reason: "resident_browser_authenticated",
+        expiresInMs: RESIDENT_SESSION_TTL_MS,
+      },
+    );
+  } finally {
+    await startupLease?.release();
+  }
   while (true) {
     const item = await residentQueue.take();
     await transitionLoginOperation(
@@ -429,72 +439,83 @@ async function serveResidentCommands(
       },
     );
     try {
-      let result;
-      if (item.command === ResidentCommand.PROBE) {
-        result = await probeInResidentSession(page);
-        if (["needs_login", "needs_verification"].includes(result.state)) {
-          throw new SessionError(
-            "RESIDENT_SESSION_LOGIN_EXPIRED",
-            "常驻管易浏览器的登录状态已失效；请重新建立会话。",
-          );
-        }
-      } else if (item.command === ResidentCommand.EXECUTE_IMPORT) {
-        const observed = await probeInResidentSession(page);
-        if (["needs_login", "needs_verification"].includes(observed.state)) {
-          throw new SessionError(
-            "RESIDENT_SESSION_LOGIN_EXPIRED",
-            "常驻管易浏览器的登录状态已失效；本批尚未选择文件，请重新登录后再执行。",
-          );
-        }
-        if (!taskObserverPage || taskObserverPage.isClosed()) {
-          taskObserverPage = await createResidentTaskObserver(session, page);
-        }
-        const cadence = await submissionCadence.waitForNextAttempt();
-        submissionCadence.markAttemptStarted();
-        result = await executeAuthorizedImportInSingleSession(
-          page,
-          item.browserOperationId,
-          item.authorization,
-          {
-            taskCenterPage: taskObserverPage,
-            onProgress: async (event) => {
-              if (
-                ["submit_maybe_sent", "file_selection_write_detected"].includes(
-                  event?.status,
-                )
-              ) {
-                submissionCadence.markSubmissionObserved();
-              }
-            },
-          },
-        );
-        result = {
-          ...result,
-          queuePolicy: {
-            writerPage: "dedicated_upload_page",
-            taskObserverPage: "same_context_read_only_page",
-            minimumSubmissionIntervalMs: RESIDENT_SUBMISSION_INTERVAL_MS,
-            cadenceWaitedMs: cadence.waitedMs,
-          },
-        };
-      } else if (item.command === ResidentCommand.RESOLVE_NO_TASK) {
-        if (!taskObserverPage || taskObserverPage.isClosed()) {
-          taskObserverPage = await createResidentTaskObserver(session, page);
-        }
-        result = await resolveNoTaskInCurrentSession(
-          taskObserverPage,
-          item.browserOperationId,
-          item.authorization,
-        );
-      } else {
-        if (!taskObserverPage || taskObserverPage.isClosed()) {
-          taskObserverPage = await createResidentTaskObserver(session, page);
-        }
-        result = await reconcileImportInCurrentSession(
-          taskObserverPage,
-          item.browserOperationId,
-        );
-      }
+      const brokerOperationId =
+        item.browserOperationId || `${operationId}.${item.command}`;
+      const result = await withBrowserOperationLease(
+        brokerOperationId,
+        async () => {
+          let commandResult;
+          if (item.command === ResidentCommand.PROBE) {
+            commandResult = await probeInResidentSession(page);
+            if (
+              ["needs_login", "needs_verification"].includes(commandResult.state)
+            ) {
+              throw new SessionError(
+                "RESIDENT_SESSION_LOGIN_EXPIRED",
+                "常驻管易浏览器的登录状态已失效；请重新建立会话。",
+              );
+            }
+          } else if (item.command === ResidentCommand.EXECUTE_IMPORT) {
+            const observed = await probeInResidentSession(page);
+            if (["needs_login", "needs_verification"].includes(observed.state)) {
+              throw new SessionError(
+                "RESIDENT_SESSION_LOGIN_EXPIRED",
+                "常驻管易浏览器的登录状态已失效；本批尚未选择文件，请重新登录后再执行。",
+              );
+            }
+            if (!taskObserverPage || taskObserverPage.isClosed()) {
+              taskObserverPage = await createResidentTaskObserver(session, page);
+            }
+            const cadence = await submissionCadence.waitForNextAttempt();
+            submissionCadence.markAttemptStarted();
+            commandResult = await executeAuthorizedImportInSingleSession(
+              page,
+              item.browserOperationId,
+              item.authorization,
+              {
+                taskCenterPage: taskObserverPage,
+                onProgress: async (event) => {
+                  if (
+                    ["submit_maybe_sent", "file_selection_write_detected"].includes(
+                      event?.status,
+                    )
+                  ) {
+                    submissionCadence.markSubmissionObserved();
+                  }
+                },
+              },
+            );
+            commandResult = {
+              ...commandResult,
+              queuePolicy: {
+                writerPage: "dedicated_upload_page",
+                taskObserverPage: "same_context_read_only_page",
+                minimumSubmissionIntervalMs: RESIDENT_SUBMISSION_INTERVAL_MS,
+                cadenceWaitedMs: cadence.waitedMs,
+                crossServiceBroker: "server_capacity_1",
+              },
+            };
+          } else if (item.command === ResidentCommand.RESOLVE_NO_TASK) {
+            if (!taskObserverPage || taskObserverPage.isClosed()) {
+              taskObserverPage = await createResidentTaskObserver(session, page);
+            }
+            commandResult = await resolveNoTaskInCurrentSession(
+              taskObserverPage,
+              item.browserOperationId,
+              item.authorization,
+            );
+          } else {
+            if (!taskObserverPage || taskObserverPage.isClosed()) {
+              taskObserverPage = await createResidentTaskObserver(session, page);
+            }
+            commandResult = await reconcileImportInCurrentSession(
+              taskObserverPage,
+              item.browserOperationId,
+            );
+          }
+          return commandResult;
+        },
+      );
       item.resolve(result);
     } catch (error) {
       item.reject(error);
@@ -539,6 +560,7 @@ async function runLoginAutoWorker(
   let server;
   let session;
   let pendingCommand = null;
+  let startupLease = null;
   try {
     server = await createLoginControlServer(
       operationId,
@@ -553,6 +575,7 @@ async function runLoginAutoWorker(
       LoginOperationState.AUTHENTICATING,
       { reason: "login_worker_started" },
     );
+    startupLease = await acquireBrowserOperationLease(`${operationId}.login`);
     session = await launchSession();
     await openApp(session.page);
     if (!isLoginUrl(session.page.url())) {
@@ -562,6 +585,7 @@ async function runLoginAutoWorker(
           session,
           session.page,
           residentQueue,
+          startupLease,
         );
       }
       await transitionLoginOperation(operationId, LoginOperationState.AUTHENTICATED, {
@@ -742,6 +766,7 @@ async function runLoginAutoWorker(
         session,
         authenticatedPage,
         residentQueue,
+        startupLease,
       );
     }
     await transitionLoginOperation(
@@ -785,6 +810,7 @@ async function runLoginAutoWorker(
     }
     return 1;
   } finally {
+    await startupLease?.release();
     await new Promise((resolve) => server?.close(resolve) || resolve());
     await session?.close?.().catch(() => null);
   }
