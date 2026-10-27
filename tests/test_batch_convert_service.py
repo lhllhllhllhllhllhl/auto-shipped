@@ -121,6 +121,16 @@ class BatchConvertServiceTests(unittest.TestCase):
             self.assertEqual(result.target_platform, "guanyi")
             self.assertEqual(result.target_profile_id, "guanyi_order_import_v1")
             self.assertTrue(result.upload_manifest)
+            self.assertIsNotNone(result.workflow_execution)
+            self.assertEqual(result.workflow_execution["status"], "complete")
+            self.assertEqual(
+                result.workflow_execution["counts"],
+                {"sources": 2, "output_rows": 4},
+            )
+            self.assertEqual(
+                result.workflow_execution["business_summary"]["logistics"],
+                [{"value": "中通快递（重货）", "order_count": 2}],
+            )
             self.assertEqual(len(result.outputs), 2)
 
             workbook = load_workbook(result.outputs[0], data_only=False)

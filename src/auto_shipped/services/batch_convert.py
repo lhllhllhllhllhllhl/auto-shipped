@@ -24,6 +24,12 @@ from auto_shipped.platforms.guanyi import (
     render_custom_import,
 )
 from auto_shipped.services.convert import PROJECT_ROOT, convert_order_file
+from auto_shipped.services.conversion_workflow import (
+    ConversionWorkflowError,
+    build_batch_workflow,
+    complete_conversion_workflow,
+    verify_rendered_output,
+)
 
 
 @dataclass(slots=True)
@@ -44,6 +50,7 @@ class BatchSourceSummary:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    workflow_execution: dict[str, Any] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -64,6 +71,7 @@ class BatchSourceSummary:
             "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
+            "workflow_execution": self.workflow_execution,
             "errors": self.errors,
         }
 
@@ -86,6 +94,7 @@ class BatchConversionResult:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    workflow_execution: dict[str, Any] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -110,6 +119,7 @@ class BatchConversionResult:
             "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
+            "workflow_execution": self.workflow_execution,
             "errors": self.errors,
         }
 
@@ -174,6 +184,7 @@ def _summarize_conversion(
         mapping_identity_notices=list(result.mapping_identity_notices),
         store_assignment_notices=list(result.store_assignment_notices),
         package_semantics_notices=list(result.package_semantics_notices),
+        workflow_execution=result.workflow_execution,
         errors=list(result.errors),
         schema_warnings=warnings,
     )
@@ -568,25 +579,51 @@ def convert_order_batch(
             if is_preview
             else f"{output_stem}_处理报告.json"
         )
+        source_workflows = [
+            summary.workflow_execution or {}
+            for summary in result.sources
+        ]
         try:
+            batch_workflow = build_batch_workflow(
+                source_workflows=source_workflows,
+                expected_lines=merged_lines,
+            )
             rendered = render_custom_import(
                 guanyi_template_path,
                 output_path,
                 merged_lines,
                 platform_profile,
             )
+            readback = verify_rendered_output(
+                rendered,
+                expected_lines=merged_lines,
+                platform_profile=platform_profile,
+            )
             preflight = preflight_custom_import(rendered, platform_profile)
             if preflight.status != "ready":
                 rendered.unlink(missing_ok=True)
                 result.errors.extend(issue.to_dict() for issue in preflight.issues)
                 return result
+            batch_workflow = complete_conversion_workflow(
+                batch_workflow,
+                readback=readback,
+                preflight_checks=preflight.checks,
+            )
             if not is_preview:
                 preflight.write_manifest(manifest_path)
-        except (GuanyiCustomImportError, OSError, KeyError, ValueError) as exc:
+        except (
+            ConversionWorkflowError,
+            GuanyiCustomImportError,
+            OSError,
+            KeyError,
+            ValueError,
+        ) as exc:
             output_path.unlink(missing_ok=True)
             manifest_path.unlink(missing_ok=True)
             result.errors.append(
-                {
+                exc.to_dict()
+                if isinstance(exc, ConversionWorkflowError)
+                else {
                     "code": "BATCH_RENDER_FAILED",
                     "message": str(exc),
                 }
@@ -597,6 +634,7 @@ def convert_order_batch(
         result.order_count = preflight.order_count
         result.item_row_count = preflight.item_row_count
         result.upload_manifest = None if is_preview else str(manifest_path)
+        result.workflow_execution = batch_workflow
         result.outputs = [str(rendered)]
         report_path.write_text(
             json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2) + "\n",

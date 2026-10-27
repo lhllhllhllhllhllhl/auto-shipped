@@ -44,6 +44,12 @@ from auto_shipped.platforms.guanyi import (
 )
 from auto_shipped.routing import RouteDecision, load_routing, resolve_route
 from auto_shipped.rules import audit_rule_coverage, load_rule_catalog
+from auto_shipped.services.conversion_workflow import (
+    ConversionWorkflowError,
+    build_conversion_workflow,
+    complete_conversion_workflow,
+    verify_rendered_output,
+)
 from auto_shipped.source_adapters import (
     AdaptiveExcelParsedAdapter,
     AdaptiveExcelPlanError,
@@ -102,6 +108,7 @@ class ConversionResult:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    workflow_execution: dict[str, Any] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -125,6 +132,7 @@ class ConversionResult:
             "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
+            "workflow_execution": self.workflow_execution,
             "errors": self.errors,
         }
 
@@ -1118,6 +1126,28 @@ def convert_order_file(
         )
     built.decisions = list(decision_state.decisions)
 
+    try:
+        workflow_execution = build_conversion_workflow(
+            orders=parsed.orders,
+            required_rule_ids=coverage.required_rule_ids,
+            rule_events=built.rule_execution_events,
+            lines=built.lines,
+            source_profile_id=detection.source_profile_id,
+            company_id=detection.company_id,
+            route_id=route.route_id,
+            mapping_revision=catalog.mapping_revision,
+        )
+    except ConversionWorkflowError as exc:
+        return ConversionResult(
+            status="blocked",
+            source_file=source_file,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+            output_row_count=len(built.lines),
+            errors=[exc.to_dict()],
+        )
+
     output_root = Path(output_dir)
     output_name = (
         f"{_safe_stem(source.stem)}_待确认预览.xlsx"
@@ -1143,8 +1173,30 @@ def convert_order_file(
         )
 
     output_root.mkdir(parents=True, exist_ok=True)
+    try:
+        readback = verify_rendered_output(
+            rendered,
+            expected_lines=built.lines,
+            platform_profile=platform_profile,
+        )
+    except (ConversionWorkflowError, OSError, KeyError, ValueError) as exc:
+        rendered.unlink(missing_ok=True)
+        error = exc.to_dict() if isinstance(exc, ConversionWorkflowError) else {
+            "code": "CONVERSION_WORKFLOW_RENDERED_READBACK_FAILED",
+            "message": str(exc),
+        }
+        return ConversionResult(
+            status="blocked",
+            source_file=source_file,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+            output_row_count=len(built.lines),
+            errors=[error],
+        )
     preflight = preflight_custom_import(rendered, platform_profile)
     if preflight.status != "ready":
+        rendered.unlink(missing_ok=True)
         return ConversionResult(
             status="blocked",
             source_file=source_file,
@@ -1153,6 +1205,23 @@ def convert_order_file(
             parsed_order_count=len(parsed.orders),
             output_row_count=len(built.lines),
             errors=[issue.to_dict() for issue in preflight.issues],
+        )
+    try:
+        workflow_execution = complete_conversion_workflow(
+            workflow_execution,
+            readback=readback,
+            preflight_checks=preflight.checks,
+        )
+    except ConversionWorkflowError as exc:
+        rendered.unlink(missing_ok=True)
+        return ConversionResult(
+            status="blocked",
+            source_file=source_file,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+            output_row_count=len(built.lines),
+            errors=[exc.to_dict()],
         )
 
     if built.decisions:
@@ -1171,6 +1240,7 @@ def convert_order_file(
             mapping_identity_notices=built.mapping_identity_notices,
             store_assignment_notices=built.store_assignment_notices,
             package_semantics_notices=built.package_semantics_notices,
+            workflow_execution=workflow_execution,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
         report_path.write_text(
@@ -1196,6 +1266,7 @@ def convert_order_file(
         mapping_identity_notices=built.mapping_identity_notices,
         store_assignment_notices=built.store_assignment_notices,
         package_semantics_notices=built.package_semantics_notices,
+        workflow_execution=workflow_execution,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"
     report_path.write_text(

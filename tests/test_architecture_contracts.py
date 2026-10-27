@@ -239,6 +239,15 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("mapping_identity_notices", schema["required"])
         self.assertIn("store_assignment_notices", schema["required"])
         self.assertIn("package_semantics_notices", schema["required"])
+        self.assertIn("workflow_execution", schema["required"])
+        workflow_schema = load_json(
+            "contracts/conversion_workflow_execution.schema.json"
+        )
+        self.assertEqual(
+            workflow_schema["properties"]["schema_version"]["const"],
+            "conversion-workflow/1.0",
+        )
+        self.assertIn("business_summary", workflow_schema["required"])
         notice = schema["$defs"]["storeAssignmentNotice"]["properties"]
         self.assertEqual(
             notice["code"]["const"],
