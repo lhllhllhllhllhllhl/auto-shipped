@@ -7,6 +7,7 @@ from .adaptive_excel import (
     propose_field_mapping,
 )
 from .configured_excel import ConfiguredExcelParsedAdapter
+from .bailihui_dropship import BailihuiDropshipParsedAdapter
 from .labeled_table import LabeledTableOrderParsedAdapter
 from .ndd_gift import NddGiftOrderParsedAdapter
 from .tiantian_warehouse import TiantianWarehouseAdapter
@@ -17,6 +18,7 @@ __all__ = [
     "AdaptiveExcelParsedAdapter",
     "AdaptiveExcelPlanError",
     "ConfiguredExcelParsedAdapter",
+    "BailihuiDropshipParsedAdapter",
     "LabeledTableOrderParsedAdapter",
     "NddGiftOrderParsedAdapter",
     "ParseResult",

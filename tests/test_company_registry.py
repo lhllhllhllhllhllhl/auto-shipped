@@ -109,8 +109,8 @@ class CompanyRegistryTests(unittest.TestCase):
             mappings_path=PROJECT_ROOT / "config/catalog/external_sku_mappings.json",
         )
         self.assertEqual(result["status"], "ready", result["issues"])
-        self.assertEqual(result["company_count"], 8)
-        self.assertEqual(result["workflow_count"], 10)
+        self.assertEqual(result["company_count"], 9)
+        self.assertEqual(result["workflow_count"], 11)
         self.assertEqual(result["fallback_company_count"], 3)
 
     def test_kld_generic_fallback_matches_shared_route(self) -> None:

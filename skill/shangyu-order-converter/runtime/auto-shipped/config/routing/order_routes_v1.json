@@ -191,14 +191,15 @@
       "route_id": "bailihui_backend_to_guanyi_v1",
       "source_profile_id": "bailihui_dropship_v1",
       "source_label": "百礼汇供应商后台代发订单",
-      "source_kind": "web_backend",
+      "source_kind": "excel",
       "order_type": "dropship_order",
       "target_platform": "guanyi",
       "target_profile_id": "guanyi_order_import_v1",
-      "platform_rules_profile_id": null,
+      "platform_rules_profile_id": "guanyi_bailihui_dropship_v1",
+      "business_rule_scope_id": "bailihui_to_guanyi_v1",
       "post_fulfillment_profile_id": "bailihui_shipping_backfill_v1",
-      "evidence_status": "business_flow_confirmed_sample_pending",
-      "approval_status": "route_confirmed_implementation_pending"
+      "evidence_status": "business_flow_pdf_and_real_export_sample",
+      "approval_status": "approved_for_conversion_test"
     }
   ],
   "unrouted_sources": [],

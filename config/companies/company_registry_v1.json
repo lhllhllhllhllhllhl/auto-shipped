@@ -350,6 +350,55 @@
       "abbreviation": "RZD"
     },
     {
+      "company_id": "bailihui",
+      "display_name": "百礼汇",
+      "aliases": [
+        "百礼汇供应商后台",
+        "百礼汇代发订单"
+      ],
+      "status": "active",
+      "enabled": true,
+      "source_profiles": [
+        {
+          "source_profile_id": "bailihui_dropship_v1",
+          "source_kind": "excel",
+          "status": "active",
+          "enabled": true
+        }
+      ],
+      "workflows": [
+        {
+          "workflow_id": "bailihui_dropship_guanyi_v1",
+          "source_profile_id": "bailihui_dropship_v1",
+          "route_id": "bailihui_backend_to_guanyi_v1",
+          "target_platform": "guanyi",
+          "target_profile_id": "guanyi_order_import_v1",
+          "platform_rules_profile_id": "guanyi_bailihui_dropship_v1",
+          "product_mapping_scope_id": "bailihui_dropship_v1",
+          "runtime_enabled": true
+        }
+      ],
+      "capabilities": {
+        "source_recognition": {
+          "status": "ready_from_backend_export_template"
+        },
+        "order_conversion": {
+          "status": "ready_for_employee_acceptance",
+          "runtime_enabled": true
+        },
+        "automatic_upload": {
+          "status": "not_enabled",
+          "runtime_enabled": false,
+          "reason": "本模块只生成管易Excel和上传预检；上传仍需当前对话明确授权指定批次。"
+        }
+      },
+      "source_refs": [
+        "尚舆发货流程.pdf p.3, p.12",
+        "百礼汇供应商后台真实代发订单导出样本：代发订单数据(2).xlsx（2026-10-30）"
+      ],
+      "last_verified_on": "2026-10-30"
+    },
+    {
       "company_id": "fuze",
       "display_name": "上海孚泽经贸有限公司",
       "legal_name": "上海孚泽经贸有限公司",
