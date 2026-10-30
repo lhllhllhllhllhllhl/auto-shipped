@@ -44,6 +44,20 @@ def _quantity(value: Any) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
+def _clean_source_note(value: Any, policy: dict[str, Any]) -> str:
+    text = _text(value)
+    if not policy:
+        return text
+    strategy = str(policy.get("strategy") or "").strip()
+    if strategy != "remove_exact_phrases_preserve_remainder":
+        raise ValueError(f"不支持的来源备注清洗策略：{strategy or '空'}")
+    for raw_phrase in policy.get("remove_exact_phrases") or []:
+        phrase = _text(raw_phrase)
+        if phrase:
+            text = text.replace(phrase, "")
+    return text.strip(" \t\r\n;；,，/|")
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -125,6 +139,18 @@ class ConfiguredExcelParsedAdapter:
 
         def source_field(logical_name: str) -> str:
             return str(fields.get(logical_name) or "").strip()
+
+        source_note_field = source_field("source_note")
+        source_note_cleanup = profile.get("source_note_cleanup") or {}
+        if source_note_field and source_note_cleanup:
+            cleaned_rows: list[tuple[int, dict[str, Any]]] = []
+            for row_no, row in rows:
+                cleaned_row = dict(row)
+                cleaned_row[source_note_field] = _clean_source_note(
+                    row.get(source_note_field), source_note_cleanup
+                )
+                cleaned_rows.append((row_no, cleaned_row))
+            rows = cleaned_rows
 
         order_no_field = source_field("order_no")
         source_order_no_field = source_field("source_order_no")

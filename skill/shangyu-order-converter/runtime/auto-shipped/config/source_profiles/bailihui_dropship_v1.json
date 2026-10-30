@@ -4,7 +4,7 @@
   "source_label": "百礼汇供应商后台代发订单",
   "order_type": "dropship_order",
   "adapter": "bailihui_dropship_parsed",
-  "version": 1,
+  "version": 2,
   "enabled": true,
   "detection": {
     "sheet_name": "代发订单信息",
@@ -83,5 +83,13 @@
     "allowed_purchase_types": ["代发采购"],
     "status_field": "采购状态",
     "allowed_statuses": ["待发货"]
+  },
+  "source_note_cleanup": {
+    "strategy": "remove_exact_phrases_preserve_remainder",
+    "remove_exact_phrases": [
+      "【请在24小时内使用快递发货，发货时请保证货品清洁，邮寄时请用邮购箱发货。】"
+    ],
+    "confirmed": true,
+    "source": "用户于2026-10-30确认该句为百礼汇每单固定模板提示；删除固定句，保留同一备注单元格中的其他内容。"
   }
 }

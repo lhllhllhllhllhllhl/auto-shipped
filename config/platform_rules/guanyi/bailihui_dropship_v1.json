@@ -44,7 +44,7 @@
       "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "百礼汇SKU作为管易商品代码、69码作为规格代码；必须在有效商品目录唯一一致。"},
       "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "百礼汇解析器阻断缺失收件人、电话或地址。"},
       "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.corn_packaging_policy", "evidence": "来源物流优先，未提供时沿用共享玉米包装物流规则。"},
-      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "备注使用共享分流与组合规则。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "来源适配器先删除百礼汇固定模板提示并保留其余备注，再使用共享分流与组合规则。"},
       "GY-DAILY-GOODS-WHITE-LABEL": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.white_label_sku_library", "evidence": "商品完成精确匹配后读取白标SKU库。"},
       "GY-DELIVERY-INSTRUCTION-ADDRESS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.note_routing.courier_instruction_to_address", "evidence": "配送指令使用共享地址追加规则。"}
     }
