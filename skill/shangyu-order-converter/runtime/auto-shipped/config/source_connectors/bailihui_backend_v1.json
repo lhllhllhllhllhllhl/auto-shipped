@@ -5,8 +5,9 @@
   "connector_kind": "web_backend",
   "order_type": "dropship_order",
   "adapter": "bailihui_backend_connector",
+  "conversion_adapter": "bailihui_dropship_parsed",
   "version": 1,
-  "status": "pending_sample_and_access_method",
+  "status": "backend_excel_export_sample_confirmed",
   "workflow_confirmed": true,
   "output_contract": "ParsedOrder@1.0",
   "route_id": "bailihui_backend_to_guanyi_v1",
@@ -16,7 +17,7 @@
     "official_api",
     "authorized_browser_read"
   ],
-  "access_method": null,
+  "access_method": "backend_excel_export",
   "minimum_order_facts": [
     "source_order_no",
     "recipient_name",
@@ -27,7 +28,6 @@
   ],
   "credential_policy": "never_store_in_skill_or_config",
   "blocking_questions": [
-    "百礼汇后台能否直接导出订单Excel？如果可以，请提供一个脱敏样本。",
-    "如果不能导出，是否有官方API；否则需在用户已登录且明确授权的会话中读取网页。"
+    "物流回填自动化需要另行确认写入授权、查重和失败恢复。"
   ]
 }

@@ -500,6 +500,7 @@
         "conversion": [
           "GY-STORE-ASSIGNMENT",
           "GY-PLATFORM-ORDER-NUMBER",
+          "GY-BUYER-MEMBER",
           "GY-PAYMENT-VALUES",
           "GY-WAREHOUSE-ASSIGNMENT",
           "GY-PAYMENT-METHOD",
@@ -507,6 +508,7 @@
           "GY-ORDER-FLAGS",
           "GY-PRODUCT-MAPPING",
           "GY-RECIPIENT-COMPLETENESS",
+          "GY-LOGISTICS-SELECTION",
           "GY-SELLER-REMARK-POLICY",
           "GY-DAILY-GOODS-WHITE-LABEL",
           "GY-DELIVERY-INSTRUCTION-ADDRESS"

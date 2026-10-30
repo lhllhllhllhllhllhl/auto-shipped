@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "guanyi_bailihui_dropship_v1",
+  "source_profile_id": "bailihui_dropship_v1",
+  "target_profile_id": "guanyi_order_import_v1",
+  "version": 1,
+  "store_assignment_policy": {
+    "strategy": "fixed",
+    "store": "百礼汇",
+    "confirmed": true,
+    "source": "尚舆发货流程.pdf第3、12页确认百礼汇订单进入百礼汇店铺。"
+  },
+  "policy_module_refs": {
+    "buyer_member_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "buyer.normal_zhang.v1"},
+    "defaults": {"registry_id": "guanyi_policy_modules_v1", "module_id": "defaults.standard_sales.v1"},
+    "logistics_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "logistics.source_override_then_corn_packaging.v1"},
+    "note_routing_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "note.courier_instruction_to_address.v1"},
+    "seller_remark_policy": {"registry_id": "guanyi_policy_modules_v1", "module_id": "remark.source_then_system.v1"}
+  },
+  "platform_order_number": {
+    "strategy": "preferred_order_identity",
+    "confirmed": true,
+    "source": "尚舆发货流程.pdf第12页确认复制百礼汇采购单号作为管易平台单号。"
+  },
+  "field_output_policy": {
+    "product_name": {"strategy": "catalog_product_name", "confirmed": true, "source": "有效商品目录"},
+    "spec_name": {"strategy": "catalog_spec_name", "confirmed": true, "source": "有效商品目录"},
+    "order_created_at": {"strategy": "source_ordered_at", "confirmed": true, "source": "百礼汇下单日期"},
+    "contact_columns": {"strategy": "mobile_to_both_phone_preserved", "confirmed": true, "source": "百礼汇收货电话"},
+    "recipient_region": {"strategy": "source_components", "confirmed": true, "source": "百礼汇当前只提供完整收货地址；省市区不猜测拆分"}
+  },
+  "business_rule_coverage": {
+    "catalog_id": "shangyu_shipping_sop_v1",
+    "scope_id": "bailihui_to_guanyi_v1",
+    "rules": {
+      "GY-STORE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.store_assignment.fixed", "evidence": "PDF第3、12页确认店铺为百礼汇。"},
+      "GY-PLATFORM-ORDER-NUMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.platform_order.preferred_order_identity", "evidence": "PDF第12页确认采购单号直接作为平台单号。"},
+      "GY-BUYER-MEMBER": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.buyer_member.policy", "evidence": "普通订单统一使用共享买家会员规则。"},
+      "GY-PAYMENT-VALUES": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.zero_amounts", "evidence": "普通销售订单金额规则。"},
+      "GY-WAREHOUSE-ASSIGNMENT": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.warehouse_name", "evidence": "SOP统一仓库。"},
+      "GY-PAYMENT-METHOD": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.payment_method", "evidence": "共享支付方式规则。"},
+      "GY-ORDER-TYPE": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_type", "evidence": "PDF第12页确认销售订单。"},
+      "GY-ORDER-FLAGS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.defaults.order_flags", "evidence": "管易导入标记统一规则。"},
+      "GY-PRODUCT-MAPPING": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.product_catalog.confirmed_exact", "evidence": "百礼汇SKU作为管易商品代码、69码作为规格代码；必须在有效商品目录唯一一致。"},
+      "GY-RECIPIENT-COMPLETENESS": {"status": "implemented", "confirmed": true, "implementation_ref": "source.recipient.required_fields", "evidence": "百礼汇解析器阻断缺失收件人、电话或地址。"},
+      "GY-LOGISTICS-SELECTION": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.logistics.corn_packaging_policy", "evidence": "来源物流优先，未提供时沿用共享玉米包装物流规则。"},
+      "GY-SELLER-REMARK-POLICY": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.rule_composition", "evidence": "备注使用共享分流与组合规则。"},
+      "GY-DAILY-GOODS-WHITE-LABEL": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.seller_remark.white_label_sku_library", "evidence": "商品完成精确匹配后读取白标SKU库。"},
+      "GY-DELIVERY-INSTRUCTION-ADDRESS": {"status": "implemented", "confirmed": true, "implementation_ref": "guanyi.note_routing.courier_instruction_to_address", "evidence": "配送指令使用共享地址追加规则。"}
+    }
+  }
+}

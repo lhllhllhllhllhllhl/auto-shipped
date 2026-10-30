@@ -3,15 +3,21 @@
   "system": "bailihui",
   "role": "source_system",
   "version": 1,
-  "status": "workflow_confirmed_connector_pending",
+  "status": "backend_excel_conversion_ready",
   "enabled": true,
   "enabled_as_order_import_target": false,
   "capabilities": {
     "order_fetch": {
-      "status": "confirmed_business_flow_pending_connector",
+      "status": "backend_excel_export_sample_confirmed",
       "connector_profile_id": "bailihui_backend_v1",
-      "description": "订单必须先从百礼汇专用后台取得，再转换为管易自定义订单导入文件。",
+      "description": "订单从百礼汇专用后台导出固定Excel，再交给统一转换入口。后台筛选下载由独立获取模块负责。",
       "target_profile_id": "guanyi_order_import_v1"
+    },
+    "order_conversion": {
+      "status": "ready_for_employee_acceptance",
+      "source_profile_id": "bailihui_dropship_v1",
+      "platform_rules_profile_id": "guanyi_bailihui_dropship_v1",
+      "description": "固定识别代发采购/待发货，按采购单号、SKU和69码生成管易Excel与预检manifest。"
     },
     "order_excel_import": {
       "status": "not_applicable",
@@ -25,12 +31,10 @@
     }
   },
   "implementation_gate": [
-    "确认百礼汇后台取单方式是Excel导出、API还是网页读取",
-    "提供至少一个脱敏订单样本或只读后台页面结构",
-    "确认百礼汇商品标识到管易商品/规格编码的映射",
-    "实现并测试百礼汇后台来源连接器"
+    "员工核对首份百礼汇管易Excel",
+    "物流回填另行设计写入授权、查重和失败恢复"
   ],
   "credential_policy": "账号、密码和会话信息不得写入Skill、配置或处理报告；连接器只使用运行时授权会话。",
   "entry_policy": "仍由同一个shangyu-order-converter Skill入口调度，不创建第二个员工入口。",
-  "stop_condition": "取单方式、订单样本或商品映射未确认时返回结构化追问，不生成标记为可上传的管易Excel。"
+  "stop_condition": "文件不是代发采购/待发货、必要收件字段缺失，或SKU与69码不能在有效商品目录中唯一一致时停止并结构化追问。"
 }

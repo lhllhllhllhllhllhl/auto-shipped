@@ -53,6 +53,7 @@ from auto_shipped.services.conversion_workflow import (
 from auto_shipped.source_adapters import (
     AdaptiveExcelParsedAdapter,
     AdaptiveExcelPlanError,
+    BailihuiDropshipParsedAdapter,
     ConfiguredExcelParsedAdapter,
     LabeledTableOrderParsedAdapter,
     NddGiftOrderParsedAdapter,
@@ -802,6 +803,7 @@ def convert_order_file(
     else:
         adapter_id = source_profile.get("adapter")
         adapter_types = {
+            BailihuiDropshipParsedAdapter.adapter_id: BailihuiDropshipParsedAdapter,
             TiantianWarehouseParsedAdapter.adapter_id: TiantianWarehouseParsedAdapter,
             ConfiguredExcelParsedAdapter.adapter_id: ConfiguredExcelParsedAdapter,
             LabeledTableOrderParsedAdapter.adapter_id: LabeledTableOrderParsedAdapter,

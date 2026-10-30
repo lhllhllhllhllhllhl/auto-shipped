@@ -216,6 +216,8 @@ python3 <skill-dir>/scripts/guanyi_remote.py prepare-retry <remote-operation-id>
   日志、环境变量或命令参数。
 - 常驻协调器是唯一浏览器owner，任务FIFO串行；同一context内只允许一个写入页和一个只读任务中心页，相邻提交默认至少间隔60秒；服务器重启或worker失效后不复用
   陈旧控制通道，重新登录前先确认没有可能已写入但未核验的operation。
+- 配置 `GUANYI_BROWSER_BROKER_COMMAND` 后，常驻 worker 在登录、探针、上传、核验和关闭无任务操作前取得服务器级浏览器租约。该租约与百礼汇导出共用，容量为1；等待租约期间不操作页面。管易自己的FIFO、60秒间隔和上传状态机继续生效。
+- 共享 broker 只记录服务名、操作 ID、进程和时间，不读取管易文件、凭据、Cookie 或订单内容。broker 不可用时远端 worker 失败关闭，不绕过租约继续上传。
 - `execute` 在调用浏览器前先落盘 `submit_maybe_sent`；结果不明确时结构性阻止重提。
 - `resolve-no-task`不能关闭`write.requestSent=true`的尝试；没有新增任务不等于最终提交未发生。
 - 安全失败最多重试2次；`deferred`只允许队列继续，不代表该批成功或可以无限重试。

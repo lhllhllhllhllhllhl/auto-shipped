@@ -1,0 +1,87 @@
+{
+  "profile_id": "bailihui_dropship_v1",
+  "company_id": "bailihui",
+  "source_label": "百礼汇供应商后台代发订单",
+  "order_type": "dropship_order",
+  "adapter": "bailihui_dropship_parsed",
+  "version": 1,
+  "enabled": true,
+  "detection": {
+    "sheet_name": "代发订单信息",
+    "header_row": 1,
+    "header_order": "any",
+    "required_headers": [
+      "采购单号",
+      "采购类型",
+      "采购状态",
+      "产品名称",
+      "SKU码",
+      "SKU",
+      "69码",
+      "数量",
+      "收货人",
+      "收货电话",
+      "收货地址",
+      "下单日期"
+    ],
+    "known_headers": [
+      "采购单号",
+      "采购类型",
+      "采购状态",
+      "产品名称",
+      "SKU码",
+      "SKU",
+      "69码",
+      "数量",
+      "单价",
+      "商品金额",
+      "标准运费",
+      "收货人",
+      "收货电话",
+      "收货地址",
+      "下单日期",
+      "备注",
+      "物流公司",
+      "物流单号",
+      "实际运费"
+    ],
+    "unknown_header_policy": "warn",
+    "company_identity": {
+      "required": false,
+      "evidence": "百礼汇供应商后台固定工作表名与采购、SKU、69码字段组合可唯一识别该来源。"
+    }
+  },
+  "fields": {
+    "order_no": "采购单号",
+    "recipient_name": "收货人",
+    "contact": "收货电话",
+    "address": "收货地址",
+    "product_code": "SKU",
+    "product_name": "产品名称",
+    "source_spec": "69码",
+    "quantity": "数量",
+    "carrier": "物流公司",
+    "tracking_no": "物流单号",
+    "source_note": "备注",
+    "ordered_at": "下单日期"
+  },
+  "consistency_fields": [
+    "recipient_name",
+    "contact",
+    "address",
+    "source_note",
+    "ordered_at",
+    "carrier",
+    "tracking_no"
+  ],
+  "grouping": {
+    "order_key": "采购单号",
+    "one_row_per": "source_order_item"
+  },
+  "order_row_policy": {
+    "purchase_type_field": "采购类型",
+    "allowed_purchase_types": ["代发采购"],
+    "status_field": "采购状态",
+    "allowed_statuses": ["待发货"]
+  }
+}
