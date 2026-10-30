@@ -14,6 +14,10 @@ from auto_shipped.source_adapters import BailihuiDropshipParsedAdapter
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BAILIHUI_BOILERPLATE_NOTE = (
+    "【请在24小时内使用快递发货，发货时请保证货品清洁，"
+    "邮寄时请用邮购箱发货。】"
+)
 PROFILE = json.loads(
     (PROJECT_ROOT / "config/source_profiles/bailihui_dropship_v1.json").read_text(
         encoding="utf-8"
@@ -52,6 +56,7 @@ def source_row(
     product_code: str = "SWSH8072",
     spec_code: str = "4901792038072",
     product_name: str = "SHOWA尚和 丝滑中厚型手套/珍珠粉(S) SWSH8072",
+    note: str = "",
 ) -> list[object]:
     return [
         order_no,
@@ -69,7 +74,7 @@ def source_row(
         "13800138000",
         "上海市测试区测试路1号",
         "2026-10-30 09:30:00",
-        "",
+        note,
         "",
         "",
         0,
@@ -143,6 +148,25 @@ class BailihuiAdapterTests(unittest.TestCase):
             self.assertIn("BAILIHUI_ORDER_STATUS_NOT_PENDING_SHIPMENT", codes)
             self.assertEqual(parsed.orders, [])
 
+    def test_boilerplate_note_is_removed_and_other_note_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "source.xlsx"
+            write_source(
+                path,
+                [
+                    source_row(note=BAILIHUI_BOILERPLATE_NOTE),
+                    source_row(
+                        order_no="AP-TEST-002",
+                        note=f"{BAILIHUI_BOILERPLATE_NOTE}；请周末发货。",
+                    ),
+                ],
+            )
+
+            parsed = BailihuiDropshipParsedAdapter().parse(path, PROFILE)
+            self.assertEqual(parsed.status, "parsed")
+            self.assertEqual(parsed.orders[0].source_note, None)
+            self.assertEqual(parsed.orders[1].source_note, "请周末发货。")
+
     def test_project_pipeline_generates_guanyi_excel_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -151,7 +175,7 @@ class BailihuiAdapterTests(unittest.TestCase):
             write_source(
                 source,
                 [
-                    source_row(),
+                    source_row(note=BAILIHUI_BOILERPLATE_NOTE),
                     source_row(
                         order_no="AP-TEST-002",
                         product_code="SWJH7662",
@@ -159,6 +183,7 @@ class BailihuiAdapterTests(unittest.TestCase):
                         product_name=(
                             "SHOWA尚和 植绒加厚款手套/宝石粉(S) SWJH7662"
                         ),
+                        note=f"请周末发货；{BAILIHUI_BOILERPLATE_NOTE}",
                     ),
                 ],
             )
@@ -201,6 +226,11 @@ class BailihuiAdapterTests(unittest.TestCase):
                 ["韵达快递", "韵达快递"],
             )
             self.assertTrue(all("白标商品" in row["卖家备注"] for row in rendered))
+            self.assertTrue(
+                all(BAILIHUI_BOILERPLATE_NOTE not in row["卖家备注"] for row in rendered)
+            )
+            self.assertNotIn("请周末发货", rendered[0]["卖家备注"])
+            self.assertIn("请周末发货", rendered[1]["卖家备注"])
             self.assertTrue(all(row["订单类型"] == "销售订单" for row in rendered))
 
 
