@@ -120,6 +120,27 @@ class GuanyiPreflightTests(unittest.TestCase):
                 {issue.code for issue in result.issues},
             )
 
+    def test_missing_warehouse_blocks_upload_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self.render(Path(tmp))
+            workbook = load_workbook(output)
+            sheet = workbook["Sheet1"]
+            headers = {
+                sheet.cell(1, column).value: column
+                for column in range(1, sheet.max_column + 1)
+            }
+            sheet.cell(2, headers["仓库名称"]).value = ""
+            workbook.save(output)
+            workbook.close()
+
+            result = preflight_custom_import(output, profile())
+
+        self.assertEqual(result.status, "blocked")
+        self.assertIn(
+            "REQUIRED_VALUE_MISSING",
+            {issue.code for issue in result.issues},
+        )
+
     def test_formula_blocks_upload_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output = self.render(Path(tmp))

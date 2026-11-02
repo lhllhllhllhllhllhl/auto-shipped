@@ -131,7 +131,8 @@ class BatchConvertServiceTests(unittest.TestCase):
                 result.workflow_execution["business_summary"]["logistics"],
                 [{"value": "中通快递（重货）", "order_count": 2}],
             )
-            self.assertEqual(len(result.outputs), 2)
+            self.assertEqual(len(result.outputs), 3)
+            self.assertIsNotNone(result.delivery_receipt)
 
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:

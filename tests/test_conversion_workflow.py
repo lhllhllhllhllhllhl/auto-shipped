@@ -125,6 +125,70 @@ class ConversionWorkflowTests(unittest.TestCase):
             ["物流公司"],
         )
 
+    def test_white_label_applied_event_requires_remark_token(self) -> None:
+        events = [
+            {
+                "rule_id": "GY-DAILY-GOODS-WHITE-LABEL",
+                "scope_key": f"order:{index}",
+                "status": "completed",
+                "outcome": "applied" if index == 1 else "not_matched",
+                "platform_order_no": platform_order_no,
+                "expected_remark_token": "白标商品",
+            }
+            for index, platform_order_no in enumerate(("A", "B"), start=1)
+        ]
+
+        with self.assertRaises(ConversionWorkflowError) as raised:
+            build_conversion_workflow(
+                orders=_orders(),
+                required_rule_ids=["GY-DAILY-GOODS-WHITE-LABEL"],
+                rule_events=events,
+                lines=[
+                    {"平台单号": "A", "卖家备注": "", "数量": 1},
+                    {"平台单号": "B", "卖家备注": "", "数量": 1},
+                ],
+                source_profile_id="test",
+                company_id="test",
+                route_id="test",
+            )
+
+        self.assertEqual(
+            raised.exception.code,
+            "CONVERSION_WORKFLOW_WHITE_LABEL_REMARK_MISSING",
+        )
+
+    def test_exact_rule_value_evidence_must_match_output(self) -> None:
+        events = [
+            {
+                "rule_id": "GY-LOGISTICS-SELECTION",
+                "scope_key": f"order:{index}",
+                "status": "completed",
+                "outcome": "selected",
+                "platform_order_no": platform_order_no,
+                "expected_value": "韵达快递",
+            }
+            for index, platform_order_no in enumerate(("A", "B"), start=1)
+        ]
+
+        with self.assertRaises(ConversionWorkflowError) as raised:
+            build_conversion_workflow(
+                orders=_orders(),
+                required_rule_ids=["GY-LOGISTICS-SELECTION"],
+                rule_events=events,
+                lines=[
+                    {"平台单号": "A", "物流公司": "韵达", "数量": 1},
+                    {"平台单号": "B", "物流公司": "韵达快递", "数量": 1},
+                ],
+                source_profile_id="test",
+                company_id="test",
+                route_id="test",
+            )
+
+        self.assertEqual(
+            raised.exception.code,
+            "CONVERSION_WORKFLOW_RULE_VALUE_MISMATCH",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

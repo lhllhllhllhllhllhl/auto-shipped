@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/conversion-delivery-receipt-v1.json",
+  "title": "Shangyu Conversion Delivery Receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "delivery_status",
+    "converter",
+    "workflow",
+    "artifacts",
+    "checks",
+    "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": "conversion-delivery-receipt/1.0"},
+    "status": {"const": "verified"},
+    "delivery_status": {"enum": ["ready", "preview_ready"]},
+    "converter": {
+      "type": "object",
+      "required": [
+        "package",
+        "package_version",
+        "workflow_schema_version",
+        "runtime_manifest_sha256"
+      ],
+      "properties": {
+        "package": {"const": "auto-shipped"},
+        "package_version": {"type": "string", "minLength": 1},
+        "workflow_schema_version": {"const": "conversion-workflow/1.0"},
+        "runtime_manifest_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["workflow_id", "status", "output_sha256"],
+      "properties": {
+        "workflow_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "status": {"const": "complete"},
+        "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["workbook", "processing_report", "upload_manifest"],
+      "properties": {
+        "workbook": {"$ref": "#/$defs/artifact"},
+        "processing_report": {"$ref": "#/$defs/artifact"},
+        "upload_manifest": {
+          "anyOf": [{"$ref": "#/$defs/artifact"}, {"type": "null"}]
+        }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "workflow_complete",
+        "workbook_matches_readback",
+        "report_matches_workflow",
+        "manifest_matches_workbook",
+        "preview_has_no_manifest"
+      ],
+      "additionalProperties": {"type": "boolean"}
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "receipt_contains_recipient_pii",
+        "workbook_contains_recipient_pii",
+        "upload_authorized"
+      ],
+      "properties": {
+        "receipt_contains_recipient_pii": {"const": false},
+        "workbook_contains_recipient_pii": {"const": true},
+        "upload_authorized": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": ["path", "file_name", "sha256", "size_bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "file_name": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size_bytes": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

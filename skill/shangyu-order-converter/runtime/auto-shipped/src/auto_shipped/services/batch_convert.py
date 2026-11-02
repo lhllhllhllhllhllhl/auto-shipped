@@ -24,6 +24,10 @@ from auto_shipped.platforms.guanyi import (
     render_custom_import,
 )
 from auto_shipped.services.convert import PROJECT_ROOT, convert_order_file
+from auto_shipped.services.delivery_receipt import (
+    DeliveryReceiptError,
+    write_delivery_receipt,
+)
 from auto_shipped.services.conversion_workflow import (
     ConversionWorkflowError,
     build_batch_workflow,
@@ -87,6 +91,7 @@ class BatchConversionResult:
     sources: list[BatchSourceSummary] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     upload_manifest: str | None = None
+    delivery_receipt: str | None = None
     clarifications: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
@@ -108,6 +113,7 @@ class BatchConversionResult:
             "sources": [item.to_public_dict() for item in self.sources],
             "outputs": self.outputs,
             "upload_manifest": self.upload_manifest,
+            "delivery_receipt": self.delivery_receipt,
             "clarifications": self.clarifications,
             "decision_bundle": DecisionBundle(self.decisions).to_dict(),
             "mapping_reuse_bundle": MappingReuseBundle(
@@ -579,6 +585,11 @@ def convert_order_batch(
             if is_preview
             else f"{output_stem}_处理报告.json"
         )
+        receipt_path = output_root / (
+            f"{output_stem}_待确认交付凭证.json"
+            if is_preview
+            else f"{output_stem}_交付凭证.json"
+        )
         source_workflows = [
             summary.workflow_execution or {}
             for summary in result.sources
@@ -634,6 +645,7 @@ def convert_order_batch(
         result.order_count = preflight.order_count
         result.item_row_count = preflight.item_row_count
         result.upload_manifest = None if is_preview else str(manifest_path)
+        result.delivery_receipt = str(receipt_path)
         result.workflow_execution = batch_workflow
         result.outputs = [str(rendered)]
         report_path.write_text(
@@ -641,4 +653,25 @@ def convert_order_batch(
             encoding="utf-8",
         )
         result.outputs.append(str(report_path))
+        try:
+            write_delivery_receipt(
+                receipt_path,
+                delivery_status=result.status,
+                workbook_path=rendered,
+                report_path=report_path,
+                upload_manifest_path=None if is_preview else manifest_path,
+                workflow_execution=batch_workflow,
+            )
+        except DeliveryReceiptError as exc:
+            rendered.unlink(missing_ok=True)
+            manifest_path.unlink(missing_ok=True)
+            report_path.unlink(missing_ok=True)
+            receipt_path.unlink(missing_ok=True)
+            result.status = "blocked"
+            result.outputs = []
+            result.upload_manifest = None
+            result.delivery_receipt = None
+            result.errors.append(exc.to_dict())
+            return result
+        result.outputs.append(str(receipt_path))
         return result
