@@ -18,12 +18,32 @@ from convert_order import (
     _resolve_catalog,
     _resolve_preferred_catalogs,
 )
-from runtime_common import BUNDLE_MANIFEST, STATE_ROOT, resolve_project_root
+from runtime_common import (
+    BUNDLE_MANIFEST,
+    STATE_ROOT,
+    resolve_project_root,
+    runtime_release_identity,
+)
+
+
+class StageTimeoutError(RuntimeError):
+    def __init__(self, stage: str, timeout_seconds: float) -> None:
+        super().__init__(stage)
+        self.stage = stage
+        self.timeout_seconds = timeout_seconds
 
 
 def _safe_stem(value: str) -> str:
     cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff._-]+", "_", value).strip("._")
     return cleaned or "orders"
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _parse_hints(values: list[str]) -> dict[str, str]:
@@ -94,6 +114,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SOURCE=PLAN_JSON",
         help="按文件提供已经补充确认的自适应来源计划；可重复提供",
     )
+    parser.add_argument(
+        "--text-intake-receipt",
+        action="append",
+        default=[],
+        metavar="SOURCE=RECEIPT_JSON",
+        help="文字/截图订单准备入口签发的路由凭证；TextOrders来源必须提供",
+    )
     parser.add_argument("--project-root", default=None, help="auto-shipped项目目录")
     parser.add_argument("--mappings", help="可选的商品映射JSON")
     parser.add_argument(
@@ -113,7 +140,89 @@ def build_parser() -> argparse.ArgumentParser:
         help="Agent原生飞书能力已经读取并校验生成的正式映射快照；提供后不再调用lark-cli同步",
     )
     parser.add_argument("--template", help="可选的管易自定义订单导入模板")
+    parser.add_argument(
+        "--stage-timeout-seconds",
+        type=float,
+        default=120.0,
+        help="飞书同步或单次转换的最长等待时间",
+    )
     return parser
+
+
+def _source_profile_sha256(project_root: Path, profile_id: str) -> str:
+    for path in sorted((project_root / "config" / "source_profiles").rglob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("profile_id") == profile_id:
+            return _sha256(path)
+    return ""
+
+
+def _verify_text_intake_receipts(
+    *,
+    project_root: Path,
+    sources: list[Path],
+    company_hints: dict[str, str],
+    adaptive_plan_hints: dict[str, str],
+    receipt_hints: dict[str, str],
+) -> str | None:
+    for source in sources:
+        plan_value = _hint_for_source(source, adaptive_plan_hints)
+        if not plan_value:
+            continue
+        plan_path = Path(plan_value).expanduser().resolve()
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if plan.get("sheet_name") != "TextOrders":
+            continue
+        receipt_value = _hint_for_source(source, receipt_hints)
+        if not receipt_value:
+            return f"TEXT_ORDER_INTAKE_RECEIPT_REQUIRED：{source.name}缺少程序签发的文字订单路由凭证。"
+        receipt_path = Path(receipt_value).expanduser().resolve()
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_INVALID：{source.name}的路由凭证无法读取。"
+        if (
+            receipt.get("schema_version") != "text-intake-receipt/1.0"
+            or receipt.get("source_kind") != "TextOrders"
+            or receipt.get("privacy") != "no_recipient_pii"
+        ):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_INVALID：{source.name}的路由凭证合同不正确。"
+        receipt_source = receipt.get("source") or {}
+        receipt_plan = receipt.get("adaptive_plan") or {}
+        route = receipt.get("route") or {}
+        if (
+            receipt_source.get("file_name") != source.name
+            or receipt_source.get("sha256") != _sha256(source)
+        ):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_SOURCE_MISMATCH：{source.name}与路由凭证哈希不一致。"
+        if (
+            receipt_plan.get("file_name") != plan_path.name
+            or receipt_plan.get("sha256") != _sha256(plan_path)
+        ):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_PLAN_MISMATCH：{source.name}的字段计划与路由凭证不一致。"
+        company_hint = _hint_for_source(source, company_hints)
+        if company_hint and company_hint != route.get("company_id"):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_ROUTE_MISMATCH：{source.name}的公司提示被改写。"
+        if (
+            plan.get("company_id") != route.get("company_id")
+            or plan.get("rule_source_profile_id")
+            != route.get("rule_source_profile_id")
+        ):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_ROUTE_MISMATCH：{source.name}的来源路由被改写。"
+        profile_id = str(route.get("rule_source_profile_id") or "")
+        if (
+            not profile_id
+            or route.get("source_profile_sha256")
+            != _source_profile_sha256(project_root, profile_id)
+        ):
+            return f"TEXT_ORDER_INTAKE_RECEIPT_PROFILE_MISMATCH：{source.name}的来源配置版本已变化。"
+    return None
 
 
 def _common_cli_args(
@@ -197,13 +306,19 @@ def _prepare_official_mapping(
         command.extend(
             ["--mappings", str(Path(args.mappings).expanduser().resolve())]
         )
-    completed = subprocess.run(
-        command,
-        env=_environment(project_root),
-        check=False,
-        text=True,
-        capture_output=True,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            env=_environment(project_root),
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=min(args.stage_timeout_seconds, 60.0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise StageTimeoutError(
+            "official_mapping_sync", min(args.stage_timeout_seconds, 60.0)
+        ) from exc
     if completed.returncode == 0 and snapshot.is_file():
         return snapshot, ""
     message = completed.stderr.strip()
@@ -229,6 +344,9 @@ def _environment(project_root: Path) -> dict[str, str]:
         environment["SHANGYU_SKILL_RUNTIME_MANIFEST_SHA256"] = hashlib.sha256(
             BUNDLE_MANIFEST.read_bytes()
         ).hexdigest()
+    environment["SHANGYU_RELEASE_ID"] = str(
+        runtime_release_identity(project_root)["release_id"]
+    )
     return environment
 
 
@@ -244,6 +362,7 @@ def _run_single(
     common_args: list[str],
     *,
     capture: bool,
+    timeout_seconds: float,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         runtime,
@@ -266,13 +385,17 @@ def _run_single(
         command.extend(
             ["--adaptive-plan", str(Path(adaptive_plan).expanduser().resolve())]
         )
-    return subprocess.run(
-        command,
-        env=_environment(project_root),
-        check=False,
-        text=True,
-        capture_output=capture,
-    )
+    try:
+        return subprocess.run(
+            command,
+            env=_environment(project_root),
+            check=False,
+            text=True,
+            capture_output=capture,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise StageTimeoutError("conversion", timeout_seconds) from exc
 
 
 def main() -> int:
@@ -311,18 +434,48 @@ def main() -> int:
         hints = _parse_hints(args.source_profile_hint)
         company_hints = _parse_hints(args.company_hint)
         adaptive_plan_hints = _parse_hints(args.adaptive_plan_hint)
+        receipt_hints = _parse_hints(args.text_intake_receipt)
     except ValueError as exc:
         _json_error(str(exc))
         return 1
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    official_mapping_snapshot, official_mapping_error = _prepare_official_mapping(
-        args,
-        runtime,
-        project_root,
-        catalog,
-        preferred_catalogs,
+    receipt_error = _verify_text_intake_receipts(
+        project_root=project_root,
+        sources=sources,
+        company_hints=company_hints,
+        adaptive_plan_hints=adaptive_plan_hints,
+        receipt_hints=receipt_hints,
     )
+    if receipt_error:
+        _json_error(receipt_error)
+        return 1
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    release = runtime_release_identity(project_root)
+    try:
+        official_mapping_snapshot, official_mapping_error = _prepare_official_mapping(
+            args,
+            runtime,
+            project_root,
+            catalog,
+            preferred_catalogs,
+        )
+    except StageTimeoutError as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "code": "TEXT_ORDER_STAGE_TIMEOUT",
+                    "stage": exc.stage,
+                    "timeout_seconds": exc.timeout_seconds,
+                    "release_id": release["release_id"],
+                    "message": "正式映射同步超时，已停止转换且未更换来源规则。",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
     common_args = _common_cli_args(
         args,
         official_mapping_snapshot,
@@ -330,18 +483,36 @@ def main() -> int:
         preferred_catalogs,
     )
     if len(sources) == 1:
-        completed = _run_single(
-            runtime,
-            project_root,
-            sources[0],
-            catalog,
-            output_dir,
-            _hint_for_source(sources[0], hints),
-            _hint_for_source(sources[0], company_hints),
-            _hint_for_source(sources[0], adaptive_plan_hints),
-            common_args,
-            capture=False,
-        )
+        try:
+            completed = _run_single(
+                runtime,
+                project_root,
+                sources[0],
+                catalog,
+                output_dir,
+                _hint_for_source(sources[0], hints),
+                _hint_for_source(sources[0], company_hints),
+                _hint_for_source(sources[0], adaptive_plan_hints),
+                common_args,
+                capture=False,
+                timeout_seconds=args.stage_timeout_seconds,
+            )
+        except StageTimeoutError as exc:
+            print(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "code": "TEXT_ORDER_STAGE_TIMEOUT",
+                        "stage": exc.stage,
+                        "timeout_seconds": exc.timeout_seconds,
+                        "release_id": release["release_id"],
+                        "message": "统一转换超时，已停止且未更换来源规则。",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 1
         return completed.returncode
 
     if not args.separate:
@@ -366,11 +537,29 @@ def main() -> int:
             command.extend(["--company-hint", value])
         for value in args.adaptive_plan_hint:
             command.extend(["--adaptive-plan-hint", value])
-        completed = subprocess.run(
-            command,
-            env=_environment(project_root),
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                env=_environment(project_root),
+                check=False,
+                timeout=args.stage_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                json.dumps(
+                    {
+                        "status": "failed",
+                        "code": "TEXT_ORDER_STAGE_TIMEOUT",
+                        "stage": "batch_conversion",
+                        "timeout_seconds": args.stage_timeout_seconds,
+                        "release_id": release["release_id"],
+                        "message": "批量统一转换超时，已停止且未更换来源规则。",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 1
         return completed.returncode
 
     separate_results: list[dict[str, Any]] = []
@@ -378,18 +567,36 @@ def main() -> int:
     for index, source in enumerate(sources, start=1):
         source_output = output_dir / f"{index:03d}_{_safe_stem(source.stem)}"
         source_output.mkdir(parents=True, exist_ok=True)
-        completed = _run_single(
-            runtime,
-            project_root,
-            source,
-            catalog,
-            source_output,
-            _hint_for_source(source, hints),
-            _hint_for_source(source, company_hints),
-            _hint_for_source(source, adaptive_plan_hints),
-            common_args,
-            capture=True,
-        )
+        try:
+            completed = _run_single(
+                runtime,
+                project_root,
+                source,
+                catalog,
+                source_output,
+                _hint_for_source(source, hints),
+                _hint_for_source(source, company_hints),
+                _hint_for_source(source, adaptive_plan_hints),
+                common_args,
+                capture=True,
+                timeout_seconds=args.stage_timeout_seconds,
+            )
+        except StageTimeoutError as exc:
+            separate_results.append(
+                {
+                    "status": "failed",
+                    "source_file": source.name,
+                    "errors": [
+                        {
+                            "code": "TEXT_ORDER_STAGE_TIMEOUT",
+                            "stage": exc.stage,
+                            "message": "单文件转换超时。",
+                        }
+                    ],
+                }
+            )
+            exit_codes.append(1)
+            continue
         exit_codes.append(completed.returncode)
         try:
             payload = json.loads(completed.stdout)

@@ -36,6 +36,10 @@ TEXT_DRAFT_SCHEMA_VERSION = "1.0"
 TEXT_DRAFT_TYPE = "agent_text_order_draft"
 TEXT_DRAFT_CONFIRMATION = "CONFIRM_TEXT_ORDER_DRAFT"
 TEXT_ORDER_NUMBER_CONFIRMATION = "CONFIRM_TEXT_ORDER_NUMBER_GENERATION"
+ROUTING_MODE_REGISTERED = "registered_manual_channels"
+ROUTING_MODE_SINGLE = "single_profile"
+ROUTING_AUTHORITY_DETERMINISTIC = "deterministic_router"
+ROUTING_AUTHORITY_USER = "user_explicit"
 PROVENANCE_VALUES = {"explicit", "user_confirmed", "inferred", "missing"}
 CRITICAL_PROVENANCE_FIELDS = (
     "source_channel",
@@ -165,6 +169,14 @@ def _logical_order_source_sha256(materialized: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _load_draft(path: str | Path) -> tuple[Path, dict[str, Any]]:
     draft_path = Path(path).expanduser().resolve()
     try:
@@ -207,6 +219,83 @@ def _positive_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) and number > 0 else None
+
+
+_SIZE_QUANTITY_UNIT_PATTERN = re.compile(
+    r"^(?P<name>.+?)\s+"
+    r"(?P<spec>(?:[xX]{0,3}[sSmMlL]|\d{1,3})(?:号|码)?)\s*"
+    r"(?P<quantity>\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>双|条|件|个|套|盒|袋|份|根|瓶|支|包)$"
+)
+
+
+def _normalize_extracted_item(raw_item: dict[str, Any]) -> dict[str, Any]:
+    """Apply only narrow, high-confidence structure parsing to an item phrase."""
+
+    normalized = {
+        "source_product_code": _text(raw_item.get("source_product_code")),
+        "source_item_text": _text(raw_item.get("source_item_text")),
+        "source_brand": _text(raw_item.get("source_brand")),
+        "source_product_name": _text(raw_item.get("source_product_name")),
+        "source_spec": _text(raw_item.get("source_spec")),
+        "quantity": _positive_number(raw_item.get("quantity")),
+        "unit": _text(raw_item.get("unit")),
+    }
+    match = _SIZE_QUANTITY_UNIT_PATTERN.fullmatch(
+        normalized["source_item_text"].strip()
+    )
+    if match is None:
+        return normalized
+    normalized["source_product_name"] = match.group("name").strip()
+    normalized["source_spec"] = re.sub(
+        r"(?:号|码)$", "", match.group("spec"), flags=re.IGNORECASE
+    ).upper()
+    normalized["quantity"] = float(match.group("quantity"))
+    normalized["unit"] = match.group("unit")
+    return normalized
+
+
+def _controlled_uncertainty_request(
+    uncertainty: dict[str, Any],
+    *,
+    order_ref: str,
+    structurally_complete_items: bool,
+) -> ClarificationRequest | None:
+    """Generate safe questions from controlled codes, never Agent prose."""
+
+    code = _text(uncertainty.get("code")).upper()
+    field = _text(uncertainty.get("field")) or None
+    if code == "MISSING_PRODUCT_MAPPING":
+        # The official mapping layer owns this question after its one-time sync.
+        return None
+    if not code and structurally_complete_items and field and (
+        field.startswith("items") or "product" in field.casefold()
+    ):
+        # Legacy Agent-authored product questions are not a business authority.
+        return None
+    questions = {
+        "AMBIGUOUS_CONTACT": f"订单{order_ref}的联系方式有多种读法，请确认完整号码。",
+        "AMBIGUOUS_ADDRESS": f"订单{order_ref}的地址无法唯一分段，请确认完整地址。",
+        "AMBIGUOUS_SOURCE_CHANNEL": f"订单{order_ref}的来源渠道不明确，请确认原文中的平台或业务来源。",
+        "AMBIGUOUS_ITEM_STRUCTURE": (
+            f"订单{order_ref}的商品短语无法唯一拆成商品、规格、数量和单位，请确认准确拆分。"
+        ),
+    }
+    return ClarificationRequest(
+        code="TEXT_ORDER_UNCERTAINTY_REQUIRES_CONFIRMATION",
+        scope="field",
+        source_ref=order_ref,
+        field=field,
+        question=questions.get(
+            code,
+            f"订单{order_ref}的{field or '信息'}存在提取歧义，请确认原文中的准确值。",
+        ),
+        reason=(
+            f"uncertainty_code={code or 'LEGACY_UNCONTROLLED'}；"
+            + (_text(uncertainty.get("reason")) or "提取结果未达到确定性门禁。")
+        ),
+        answer_type="text",
+    )
 
 
 def _today_in_timezone(timezone_name: str) -> date | None:
@@ -351,6 +440,113 @@ def _load_source_profile(
         if payload.get("profile_id") == profile_id:
             return payload
     return {}
+
+
+def _source_profile_file_sha256(
+    company_registry_path: str | Path,
+    profile_id: str | None,
+) -> str:
+    if not profile_id:
+        return ""
+    source_profiles_dir = Path(company_registry_path).resolve().parents[1] / "source_profiles"
+    for path in sorted(source_profiles_dir.rglob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if payload.get("profile_id") == profile_id:
+            return _file_sha256(path)
+    return ""
+
+
+def _source_profile_channel_markers(source_profile: dict[str, Any]) -> tuple[str, ...]:
+    text_intake = source_profile.get("text_intake") or {}
+    if not isinstance(text_intake, dict):
+        return ()
+    return tuple(
+        sorted(
+            {
+                _text(marker)
+                for key in ("allowed_source_channels", "source_channel_markers")
+                for marker in text_intake.get(key, [])
+                if _text(marker)
+            }
+        )
+    )
+
+
+def _requested_routing_mode(payload: dict[str, Any]) -> str:
+    """Treat Agent-supplied company/profile fields as untrusted routing hints.
+
+    A single-profile route is accepted only when the draft explicitly records that
+    the user selected it.  Ordinary text/image drafts always go through the
+    deterministic registered-channel router, even if an Agent prefilled company or
+    profile fields.
+    """
+
+    mode = _text(payload.get("routing_mode"))
+    authority = _text(payload.get("routing_authority"))
+    if mode == ROUTING_MODE_REGISTERED:
+        return ROUTING_MODE_REGISTERED
+    if mode == ROUTING_MODE_SINGLE and authority == ROUTING_AUTHORITY_USER:
+        return ROUTING_MODE_SINGLE
+    return ROUTING_MODE_REGISTERED
+
+
+def _profile_channel_mismatches(
+    payload: dict[str, Any],
+    source_profile: dict[str, Any],
+) -> list[tuple[str, str]]:
+    markers = _source_profile_channel_markers(source_profile)
+    if not markers:
+        return []
+    mismatches: list[tuple[str, str]] = []
+    orders = payload.get("orders")
+    if not isinstance(orders, list):
+        return mismatches
+    for index, raw_order in enumerate(orders):
+        if not isinstance(raw_order, dict):
+            continue
+        order_ref = _text(raw_order.get("order_ref")) or f"order-{index + 1}"
+        channel = _text(raw_order.get("source_channel"))
+        if channel and not any(
+            _manual_route_matches(channel, marker) for marker in markers
+        ):
+            mismatches.append((order_ref, channel))
+    return mismatches
+
+
+def _routing_evidence(
+    *,
+    source_profile: dict[str, Any],
+    orders: list[dict[str, Any]],
+    authority: str,
+) -> dict[str, Any]:
+    markers = _source_profile_channel_markers(source_profile)
+    matched: list[dict[str, str]] = []
+    for raw_order in orders:
+        if not isinstance(raw_order, dict):
+            continue
+        channel = _text(raw_order.get("source_channel"))
+        marker = next(
+            (
+                candidate
+                for candidate in markers
+                if _manual_route_matches(channel, candidate)
+            ),
+            "",
+        )
+        matched.append(
+            {
+                "order_ref": _text(raw_order.get("order_ref")),
+                "source_channel": channel,
+                "matched_marker": marker,
+            }
+        )
+    return {
+        "authority": authority,
+        "matches": matched,
+    }
 
 
 def _target_automation_suffix(
@@ -831,6 +1027,46 @@ def _validate_single_text_order_draft(
         raise TextOrderDraftError(f"无法读取公司库：{exc}") from exc
     company_id, rule_profile = _resolve_profile(payload, registry, requests)
     source_profile = _load_source_profile(company_registry_path, rule_profile)
+    channel_mismatches = _profile_channel_mismatches(payload, source_profile)
+    if channel_mismatches:
+        suggested_groups, _ = _route_registered_manual_orders(
+            payload,
+            registry,
+            company_registry_path,
+        )
+        suggested_profiles = tuple(sorted({key[1] for key in suggested_groups}))
+        mismatch_summary = "、".join(
+            f"{order_ref}={channel}" for order_ref, channel in channel_mismatches
+        )
+        clarification = ClarificationRequest(
+            code="TEXT_ORDER_PROFILE_CHANNEL_MISMATCH",
+            scope="batch",
+            field="rule_source_profile_id/source_channel",
+            question=(
+                "用户指定的业务规则与订单渠道不一致，请只确认这批订单的来源规则。"
+            ),
+            reason=(
+                f"规则{rule_profile or '未填写'}不接受渠道：{mismatch_summary}。"
+                + (
+                    "按已登记渠道可候选：" + "、".join(suggested_profiles) + "。"
+                    if suggested_profiles
+                    else ""
+                )
+            ),
+            answer_type="single_choice" if suggested_profiles else "text",
+            choices=suggested_profiles,
+        )
+        return (
+            TextOrderIntakeResult(
+                status="needs_input",
+                draft_file=path.name,
+                order_count=len(payload.get("orders") or []),
+                company_id=company_id,
+                rule_source_profile_id=rule_profile,
+                clarifications=[clarification],
+            ),
+            None,
+        )
     if company_id and source_profile:
         identity_resolution = resolve_company_by_identity(registry, company_id)
         if (
@@ -1055,13 +1291,14 @@ def _validate_single_text_order_draft(
         for item_index, raw_item in enumerate(raw_items, start=1):
             if not isinstance(raw_item, dict):
                 continue
-            code = _text(raw_item.get("source_product_code"))
-            source_item_text = _text(raw_item.get("source_item_text"))
-            source_brand = _text(raw_item.get("source_brand"))
-            name = _text(raw_item.get("source_product_name"))
-            quantity = _positive_number(raw_item.get("quantity"))
-            unit = _text(raw_item.get("unit"))
-            source_spec = _text(raw_item.get("source_spec"))
+            normalized_item = _normalize_extracted_item(raw_item)
+            code = normalized_item["source_product_code"]
+            source_item_text = normalized_item["source_item_text"]
+            source_brand = normalized_item["source_brand"]
+            name = normalized_item["source_product_name"]
+            quantity = normalized_item["quantity"]
+            unit = normalized_item["unit"]
+            source_spec = normalized_item["source_spec"]
             if not source_spec and unit in {"根", "袋", "裸棒", "彩袋"}:
                 source_spec = unit
             if not code and not name:
@@ -1103,21 +1340,22 @@ def _validate_single_text_order_draft(
         uncertainties = raw_order.get("uncertainties") or []
         if not isinstance(uncertainties, list):
             uncertainties = []
+        structurally_complete_items = bool(valid_items) and all(
+            (item["source_product_code"] or item["source_product_name"])
+            and item["quantity"] > 0
+            and item["unit"]
+            for item in valid_items
+        )
         for uncertainty in uncertainties:
             if not isinstance(uncertainty, dict):
                 continue
-            requests.append(
-                ClarificationRequest(
-                    code="TEXT_ORDER_UNCERTAINTY_REQUIRES_CONFIRMATION",
-                    scope="field",
-                    source_ref=order_ref,
-                    field=_text(uncertainty.get("field")) or None,
-                    question=_text(uncertainty.get("question"))
-                    or f"订单{order_ref}存在待确认信息。",
-                    reason=_text(uncertainty.get("reason")) or "Agent标记为不确定。",
-                    answer_type="text",
-                )
+            request = _controlled_uncertainty_request(
+                uncertainty,
+                order_ref=order_ref,
+                structurally_complete_items=structurally_complete_items,
             )
+            if request is not None:
+                requests.append(request)
 
         extensions = raw_order.get("source_extensions") or {}
         if not isinstance(extensions, dict):
@@ -1163,6 +1401,7 @@ def _validate_single_text_order_draft(
                 },
                 "items": [
                     {
+                        "source_item_text": item["source_item_text"],
                         "product": item["source_product_name"]
                         or item["source_product_code"],
                         "spec": item["source_spec"],
@@ -1228,16 +1467,52 @@ def _validate_single_text_order_draft(
         rule_source_profile_id=rule_profile,
         masked_preview=masked_preview,
         clarifications=requests,
+        routed_groups=(
+            [
+                {
+                    "company_id": company_id,
+                    "rule_source_profile_id": rule_profile,
+                    "order_count": len(orders),
+                    "routing_evidence": _routing_evidence(
+                        source_profile=source_profile,
+                        orders=[item for item in orders if isinstance(item, dict)],
+                        authority=(
+                            ROUTING_AUTHORITY_USER
+                            if _text(payload.get("routing_authority"))
+                            == ROUTING_AUTHORITY_USER
+                            else ROUTING_AUTHORITY_DETERMINISTIC
+                        ),
+                    ),
+                }
+            ]
+            if company_id and rule_profile
+            else []
+        ),
     )
     if requests:
         return result, None
     return result, {
+        "routing_mode": ROUTING_MODE_SINGLE,
+        "routing_authority": (
+            ROUTING_AUTHORITY_USER
+            if _text(payload.get("routing_authority")) == ROUTING_AUTHORITY_USER
+            else ROUTING_AUTHORITY_DETERMINISTIC
+        ),
         "draft_id": _text(payload.get("draft_id")),
         "company_id": company_id,
         "rule_source_profile_id": rule_profile,
         "source": source,
         "order_number_policy": order_number_policy,
         "masked_preview": masked_preview,
+        "routing_evidence": (
+            result.routed_groups[0]["routing_evidence"]
+            if result.routed_groups
+            else {}
+        ),
+        "source_profile_sha256": _source_profile_file_sha256(
+            company_registry_path,
+            rule_profile,
+        ),
         "orders": materialized_orders,
     }
 
@@ -1249,14 +1524,8 @@ def validate_text_order_draft(
     require_confirmation: bool = True,
 ) -> tuple[TextOrderIntakeResult, dict[str, Any] | None]:
     path, payload = _load_draft(draft_path)
-    explicit_routing_mode = _text(payload.get("routing_mode"))
-    routing_mode = explicit_routing_mode or (
-        "single_profile"
-        if _text(payload.get("company_id"))
-        or _text(payload.get("rule_source_profile_id"))
-        else "registered_manual_channels"
-    )
-    if routing_mode != "registered_manual_channels":
+    routing_mode = _requested_routing_mode(payload)
+    if routing_mode != ROUTING_MODE_REGISTERED:
         return _validate_single_text_order_draft(
             path,
             company_registry_path=company_registry_path,
@@ -1293,6 +1562,7 @@ def validate_text_order_draft(
         ):
             grouped_payload = dict(payload)
             grouped_payload.pop("routing_mode", None)
+            grouped_payload["routing_authority"] = ROUTING_AUTHORITY_DETERMINISTIC
             grouped_payload.pop("order_number_policy", None)
             grouped_payload["draft_id"] = (
                 f"{_text(payload.get('draft_id'))}-{profile_id}-{group_index}"
@@ -1324,6 +1594,11 @@ def validate_text_order_draft(
                     "company_id": company_id,
                     "rule_source_profile_id": profile_id,
                     "order_count": len(group_orders),
+                    "routing_evidence": (
+                        materialized.get("routing_evidence", {})
+                        if materialized is not None
+                        else {}
+                    ),
                 }
             )
             if materialized is not None:
@@ -1335,7 +1610,8 @@ def validate_text_order_draft(
         return aggregate, None
     aggregate.status = "ready"
     return aggregate, {
-        "routing_mode": "registered_manual_channels",
+        "routing_mode": ROUTING_MODE_REGISTERED,
+        "routing_authority": ROUTING_AUTHORITY_DETERMINISTIC,
         "draft_id": _text(payload.get("draft_id")),
         "source": payload.get("source") or {},
         "groups": materialized_groups,
@@ -1442,6 +1718,7 @@ def _prepare_single_text_order_materialized(
     safe_id = safe_id or "text-orders"
     workbook_path = output_root / f"{safe_id}_文字订单标准化.xlsx"
     plan_path = output_root / f"{safe_id}_文字订单自适应计划.json"
+    receipt_path = output_root / f"{safe_id}_文字订单路由凭证.json"
 
     extension_keys = sorted(
         {
@@ -1593,6 +1870,48 @@ def _prepare_single_text_order_materialized(
         json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    receipt = {
+        "schema_version": "text-intake-receipt/1.0",
+        "receipt_id": "tir-"
+        + hashlib.sha256(
+            (
+                structure["source_sha256"]
+                + _file_sha256(plan_path)
+                + materialized["rule_source_profile_id"]
+            ).encode("utf-8")
+        ).hexdigest()[:24],
+        "source_kind": "TextOrders",
+        "source": {
+            "file_name": workbook_path.name,
+            "sha256": structure["source_sha256"],
+            "order_source_sha256": order_source_sha256,
+        },
+        "adaptive_plan": {
+            "file_name": plan_path.name,
+            "sha256": _file_sha256(plan_path),
+        },
+        "route": {
+            "company_id": materialized["company_id"],
+            "rule_source_profile_id": materialized["rule_source_profile_id"],
+            "routing_authority": materialized.get(
+                "routing_authority", ROUTING_AUTHORITY_DETERMINISTIC
+            ),
+            "routing_evidence": materialized.get("routing_evidence", {}),
+            "source_profile_sha256": materialized.get(
+                "source_profile_sha256", ""
+            ),
+        },
+        "order_number_policy": {
+            "strategy": _text(order_number_policy.get("strategy")),
+            "prefix": _text(order_number_policy.get("prefix")),
+            "sequence_scope": _text(order_number_policy.get("sequence_scope")),
+        },
+        "privacy": "no_recipient_pii",
+    }
+    receipt_path.write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     result.outputs = [str(workbook_path), str(plan_path)]
     result.conversion_inputs = [
         {
@@ -1600,6 +1919,7 @@ def _prepare_single_text_order_materialized(
             "rule_source_profile_id": materialized["rule_source_profile_id"],
             "source": str(workbook_path),
             "adaptive_plan": str(plan_path),
+            "text_intake_receipt": str(receipt_path),
         }
     ]
     result.routed_groups = [
@@ -1607,6 +1927,7 @@ def _prepare_single_text_order_materialized(
             "company_id": materialized["company_id"],
             "rule_source_profile_id": materialized["rule_source_profile_id"],
             "order_count": len(materialized["orders"]),
+            "routing_evidence": materialized.get("routing_evidence", {}),
         }
     ]
     result.confirmation_deferred = confirmation_deferred
@@ -1629,7 +1950,7 @@ def prepare_text_order_draft(
     )
     if materialized is None:
         return result
-    if materialized.get("routing_mode") != "registered_manual_channels":
+    if materialized.get("routing_mode") != ROUTING_MODE_REGISTERED:
         prepared = _prepare_single_text_order_materialized(
             result,
             materialized,

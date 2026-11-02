@@ -15,6 +15,38 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_PROJECT_ROOT = SKILL_ROOT / "runtime" / "auto-shipped"
 BUNDLE_MANIFEST = SKILL_ROOT / "runtime-manifest.json"
+
+
+def runtime_release_identity(project_root: Path) -> dict[str, str | None]:
+    manifest_sha256 = (
+        hashlib.sha256(BUNDLE_MANIFEST.read_bytes()).hexdigest()
+        if BUNDLE_MANIFEST.is_file()
+        else None
+    )
+    git_commit: str | None = None
+    if (project_root / ".git").exists():
+        completed = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            git_commit = completed.stdout.strip() or None
+    release_id = (
+        f"git-{git_commit[:12]}"
+        if git_commit
+        else f"bundle-{manifest_sha256[:12]}"
+        if manifest_sha256
+        else "development-unknown"
+    )
+    return {
+        "release_id": release_id,
+        "git_commit": git_commit,
+        "runtime_manifest_sha256": manifest_sha256,
+    }
+
+
 def _path_can_hold_runtime(path: Path) -> bool:
     candidate = path.expanduser()
     existing = candidate

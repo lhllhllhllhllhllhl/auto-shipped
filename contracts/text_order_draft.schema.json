@@ -10,6 +10,9 @@
     "draft_id",
     "source",
     "company_id",
+    "rule_source_profile_id",
+    "routing_mode",
+    "routing_authority",
     "orders",
     "confirmation"
   ],
@@ -31,6 +34,9 @@
     "rule_source_profile_id": {"type": ["string", "null"]},
     "routing_mode": {
       "enum": ["single_profile", "registered_manual_channels"]
+    },
+    "routing_authority": {
+      "enum": ["deterministic_router", "user_explicit"]
     },
     "order_number_policy": {
       "oneOf": [
@@ -78,10 +84,35 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {"routing_mode": {"const": "registered_manual_channels"}},
+        "required": ["routing_mode"]
+      },
+      "then": {
+        "properties": {
+          "company_id": {"const": null},
+          "rule_source_profile_id": {"const": null},
+          "routing_authority": {"const": "deterministic_router"}
+        },
+        "not": {"required": ["order_number_policy"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"routing_mode": {"const": "single_profile"}},
+        "required": ["routing_mode"]
+      },
+      "then": {
+        "properties": {"routing_authority": {"const": "user_explicit"}}
+      }
+    }
+  ],
   "$defs": {
     "item": {
       "type": "object",
-      "required": ["source_product_code", "source_product_name", "source_spec", "quantity", "unit"],
+      "required": ["source_product_code", "source_item_text", "source_product_name", "source_spec", "quantity", "unit"],
       "properties": {
         "source_product_code": {"type": "string"},
         "source_item_text": {"type": "string"},
@@ -95,11 +126,20 @@
     },
     "uncertainty": {
       "type": "object",
-      "required": ["field", "reason", "question"],
+      "required": ["code", "field", "reason"],
       "properties": {
+        "code": {
+          "enum": [
+            "AMBIGUOUS_CONTACT",
+            "AMBIGUOUS_ADDRESS",
+            "AMBIGUOUS_SOURCE_CHANNEL",
+            "AMBIGUOUS_ITEM_STRUCTURE",
+            "MISSING_PRODUCT_MAPPING",
+            "OTHER_BUSINESS_FACT"
+          ]
+        },
         "field": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1},
-        "question": {"type": "string", "minLength": 1}
+        "reason": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     },

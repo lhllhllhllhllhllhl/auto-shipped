@@ -766,6 +766,40 @@ class GuanyiCustomImportTests(unittest.TestCase):
             )
         )
 
+    def test_missing_mapping_question_uses_structured_product_identity(self) -> None:
+        catalog = ProductCatalog(
+            [ProductRecord("P1", "其他商品", "S1", "其他规格", 100, "上海仓")]
+        )
+        order = parsed_order()
+        order.items = [
+            ParsedItem(
+                source_product_code="",
+                source_item_text="滑溜 m号3双",
+                source_product_name="滑溜",
+                source_spec="M",
+                quantity=3,
+                unit="双",
+                source_line_no=2,
+            )
+        ]
+
+        result = build_custom_import_lines(
+            [order],
+            catalog,
+            confirmed_rules(),
+            self.profile,
+        )
+
+        request = next(
+            item
+            for item in result.clarifications
+            if item.code == "PROVIDE_GUANYI_PRODUCT_MAPPING"
+        )
+        self.assertIn("来源商品“滑溜 / M”", request.question)
+        self.assertNotIn("滑溜 m号3双 / M", request.question)
+        self.assertIn("仅本次使用", request.question)
+        self.assertIn("以后都沿用", request.question)
+
     def test_current_batch_mapping_emits_nonblocking_reuse_candidate(self) -> None:
         order = parsed_order()
         catalog = ProductCatalog(

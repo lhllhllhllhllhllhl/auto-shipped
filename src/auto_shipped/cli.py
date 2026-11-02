@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -83,6 +86,29 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FEISHU_MAPPING_CONFIG = (
     PROJECT_ROOT / "config/integrations/feishu_mapping_governance_v1.json"
 )
+
+
+def _text_order_observability(
+    payload: dict[str, Any],
+    *,
+    draft: str | Path,
+    phase: str,
+    started_at: float,
+) -> dict[str, Any]:
+    draft_path = Path(draft).expanduser().resolve()
+    try:
+        trace_digest = hashlib.sha256(draft_path.read_bytes()).hexdigest()[:16]
+    except OSError:
+        trace_digest = hashlib.sha256(str(draft_path).encode("utf-8")).hexdigest()[:16]
+    return {
+        **payload,
+        "trace_id": f"text-{trace_digest}",
+        "release_id": str(os.environ.get("SHANGYU_RELEASE_ID") or "").strip()
+        or None,
+        "phase_durations_ms": {
+            phase: round((time.perf_counter() - started_at) * 1000, 3)
+        },
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1111,6 +1137,7 @@ def run_propose_adaptive_plan(args: argparse.Namespace) -> int:
 
 
 def run_validate_text_order_draft(args: argparse.Namespace) -> int:
+    started_at = time.perf_counter()
     try:
         result, _ = validate_text_order_draft(
             args.draft,
@@ -1130,11 +1157,23 @@ def run_validate_text_order_draft(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            _text_order_observability(
+                result.to_public_dict(),
+                draft=args.draft,
+                phase="validation",
+                started_at=started_at,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0 if result.status == "ready" else 2
 
 
 def run_prepare_text_order_draft(args: argparse.Namespace) -> int:
+    started_at = time.perf_counter()
     try:
         result = prepare_text_order_draft(
             args.draft,
@@ -1156,7 +1195,18 @@ def run_prepare_text_order_draft(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            _text_order_observability(
+                result.to_public_dict(),
+                draft=args.draft,
+                phase="preparation",
+                started_at=started_at,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0 if result.status == "ready" else 2
 
 

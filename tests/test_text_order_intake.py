@@ -14,9 +14,12 @@ from auto_shipped.integrations.feishu.daily_sequence_ledger import (
     DailySequenceLedgerRecord,
 )
 from auto_shipped.services.text_intake import (
+    _manual_text_routes,
+    _normalized_channel,
     prepare_text_order_draft,
     validate_text_order_draft,
 )
+from auto_shipped.companies import load_company_registry
 from auto_shipped.services.batch_convert import convert_order_batch
 from auto_shipped.services.convert import convert_order_file
 from auto_shipped.source_adapters import AdaptiveExcelParsedAdapter, load_adaptive_plan
@@ -38,6 +41,12 @@ def _draft(*, company_id: str | None = "tiantian") -> dict:
         },
         "company_id": company_id,
         "rule_source_profile_id": None,
+        "routing_mode": (
+            "single_profile" if company_id is not None else "registered_manual_channels"
+        ),
+        "routing_authority": (
+            "user_explicit" if company_id is not None else "deterministic_router"
+        ),
         "order_number_policy": {"strategy": "source"},
         "orders": [
             {
@@ -55,6 +64,7 @@ def _draft(*, company_id: str | None = "tiantian") -> dict:
                 "items": [
                     {
                         "source_product_code": "",
+                        "source_item_text": "测试商品甲 黄色 2根",
                         "source_product_name": "测试商品甲",
                         "source_spec": "黄色",
                         "quantity": 2,
@@ -62,6 +72,7 @@ def _draft(*, company_id: str | None = "tiantian") -> dict:
                     },
                     {
                         "source_product_code": "",
+                        "source_item_text": "测试商品乙 袋装 1袋",
                         "source_product_name": "测试商品乙",
                         "source_spec": "袋装",
                         "quantity": 1,
@@ -115,6 +126,21 @@ class TextOrderIntakeTests(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def test_registered_manual_channel_markers_are_unique_per_profile(self) -> None:
+        routes = _manual_text_routes(REGISTRY, load_company_registry(REGISTRY))
+        owners: dict[str, set[str]] = {}
+        for route in routes:
+            for marker in route["markers"]:
+                owners.setdefault(_normalized_channel(marker), set()).add(
+                    route["rule_source_profile_id"]
+                )
+        conflicts = {
+            marker: sorted(profile_ids)
+            for marker, profile_ids in owners.items()
+            if len(profile_ids) > 1
+        }
+        self.assertEqual(conflicts, {})
 
     def test_jzdz_and_drjy_are_peer_manual_sources_with_separate_numbers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -202,15 +228,21 @@ class TextOrderIntakeTests(unittest.TestCase):
                 )
 
             self.assertEqual(intake.status, "ready", intake.to_public_dict())
+            self.assertEqual(len(intake.routed_groups), 1)
             self.assertEqual(
-                intake.routed_groups,
-                [
-                    {
-                        "company_id": "shanghai_shimao_plaza",
-                        "rule_source_profile_id": "generic_company_manual_v1",
-                        "order_count": 1,
-                    }
-                ],
+                {
+                    key: intake.routed_groups[0][key]
+                    for key in (
+                        "company_id",
+                        "rule_source_profile_id",
+                        "order_count",
+                    )
+                },
+                {
+                    "company_id": "shanghai_shimao_plaza",
+                    "rule_source_profile_id": "generic_company_manual_v1",
+                    "order_count": 1,
+                },
             )
             workbook = load_workbook(intake.conversion_inputs[0]["source"])
             try:
@@ -413,6 +445,123 @@ class TextOrderIntakeTests(unittest.TestCase):
                 "self_operated_text_v1",
             )
 
+    def test_agent_prefilled_wrong_profile_is_ignored_by_deterministic_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id="self_operated")
+            payload["rule_source_profile_id"] = "self_operated_text_v1"
+            payload["routing_mode"] = "single_profile"
+            payload["routing_authority"] = "deterministic_router"
+            payload.pop("order_number_policy")
+            order = payload["orders"][0]
+            order["source_channel"] = "淘宝"
+            order["source_order_no"] = None
+            order["field_provenance"]["source_order_no"] = "missing"
+            _write(path, payload)
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 11, 2, 17, 0, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                result, materialized = validate_text_order_draft(
+                    path,
+                    company_registry_path=REGISTRY,
+                )
+
+            self.assertEqual(result.status, "ready", result.to_public_dict())
+            self.assertIsNotNone(materialized)
+            self.assertEqual(
+                materialized["groups"][0]["rule_source_profile_id"],
+                "taojuzi_taobao_text_v1",
+            )
+            self.assertNotIn(
+                "TEXT_ORDER_NUMBER_REQUIRED",
+                {item.code for item in result.clarifications},
+            )
+            evidence = result.routed_groups[0]["routing_evidence"]
+            self.assertEqual(evidence["authority"], "deterministic_router")
+            self.assertEqual(evidence["matches"][0]["matched_marker"], "淘宝")
+
+    def test_user_explicit_profile_channel_conflict_returns_one_route_question(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id="self_operated")
+            payload["rule_source_profile_id"] = "self_operated_text_v1"
+            payload["routing_mode"] = "single_profile"
+            payload["routing_authority"] = "user_explicit"
+            payload["orders"][0]["source_channel"] = "淘宝"
+            _write(path, payload)
+
+            result, materialized = validate_text_order_draft(
+                path,
+                company_registry_path=REGISTRY,
+            )
+
+            self.assertIsNone(materialized)
+            self.assertEqual(len(result.clarifications), 1)
+            request = result.clarifications[0]
+            self.assertEqual(request.code, "TEXT_ORDER_PROFILE_CHANNEL_MISMATCH")
+            self.assertEqual(request.choices, ("taojuzi_taobao_text_v1",))
+            self.assertNotIn("品牌", request.question)
+            self.assertNotIn("平台单号", request.question)
+
+    def test_size_quantity_unit_tail_is_parsed_without_agent_product_question(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "draft.json"
+            payload = _draft(company_id=None)
+            payload.pop("order_number_policy")
+            order = payload["orders"][0]
+            order["source_channel"] = "Taobao"
+            order["source_order_no"] = None
+            order["field_provenance"]["source_order_no"] = "missing"
+            order["items"] = [
+                {
+                    "source_product_code": "",
+                    "source_item_text": "滑溜 m号3双",
+                    "source_product_name": "滑溜 m号3双",
+                    "source_spec": "",
+                    "quantity": 1,
+                    "unit": "",
+                }
+            ]
+            order["uncertainties"] = [
+                {
+                    "field": "items[1]",
+                    "reason": "Agent不知道品牌和型号",
+                    "question": "请确认品牌、型号和是否在售。",
+                },
+                {
+                    "code": "MISSING_PRODUCT_MAPPING",
+                    "field": "items[1]",
+                    "reason": "尚未查询正式映射",
+                },
+            ]
+            _write(path, payload)
+
+            with patch(
+                "auto_shipped.services.text_intake._now_in_timezone",
+                return_value=datetime(
+                    2026, 11, 2, 17, 0, tzinfo=ZoneInfo("Asia/Shanghai")
+                ),
+            ):
+                result, materialized = validate_text_order_draft(
+                    path,
+                    company_registry_path=REGISTRY,
+                )
+
+            self.assertEqual(result.status, "ready", result.to_public_dict())
+            self.assertIsNotNone(materialized)
+            parsed = materialized["groups"][0]["orders"][0]["items"][0]
+            self.assertEqual(parsed["source_product_name"], "滑溜")
+            self.assertEqual(parsed["source_spec"], "M")
+            self.assertEqual(parsed["quantity"], 3)
+            self.assertEqual(parsed["unit"], "双")
+            public = json.dumps(result.to_public_dict(), ensure_ascii=False)
+            self.assertNotIn("品牌", public)
+            self.assertNotIn("是否在售", public)
+
     def test_confirmation_preview_explains_registered_missing_number_rule(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "draft.json"
@@ -589,6 +738,7 @@ class TextOrderIntakeTests(unittest.TestCase):
             path = Path(temporary) / "draft.json"
             payload = _draft(company_id=None)
             payload["routing_mode"] = "single_profile"
+            payload["routing_authority"] = "user_explicit"
             _write(path, payload)
 
             result, materialized = validate_text_order_draft(
@@ -658,6 +808,20 @@ class TextOrderIntakeTests(unittest.TestCase):
             self.assertEqual(len(result.outputs), 2)
             workbook_path = Path(result.outputs[0])
             plan_path = Path(result.outputs[1])
+            receipt_path = Path(result.conversion_inputs[0]["text_intake_receipt"])
+            self.assertTrue(receipt_path.is_file())
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertEqual(receipt["schema_version"], "text-intake-receipt/1.0")
+            self.assertEqual(receipt["privacy"], "no_recipient_pii")
+            self.assertEqual(receipt["route"]["company_id"], "tiantian")
+            self.assertEqual(
+                receipt["route"]["rule_source_profile_id"],
+                "tiantian_warehouse_v2",
+            )
+            serialized_receipt = json.dumps(receipt, ensure_ascii=False)
+            self.assertNotIn("测试收件人", serialized_receipt)
+            self.assertNotIn("13800138000", serialized_receipt)
+            self.assertNotIn("测试路1号", serialized_receipt)
             workbook = load_workbook(workbook_path, data_only=False)
             try:
                 sheet = workbook["TextOrders"]

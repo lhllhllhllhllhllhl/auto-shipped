@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/text-intake-receipt-v1.json",
+  "title": "Shangyu Text Intake Receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "source_kind",
+    "source",
+    "adaptive_plan",
+    "route",
+    "order_number_policy",
+    "privacy"
+  ],
+  "properties": {
+    "schema_version": {"const": "text-intake-receipt/1.0"},
+    "receipt_id": {"type": "string", "pattern": "^tir-[0-9a-f]{24}$"},
+    "source_kind": {"const": "TextOrders"},
+    "source": {
+      "type": "object",
+      "required": ["file_name", "sha256", "order_source_sha256"],
+      "properties": {
+        "file_name": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "order_source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "adaptive_plan": {
+      "type": "object",
+      "required": ["file_name", "sha256"],
+      "properties": {
+        "file_name": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "company_id",
+        "rule_source_profile_id",
+        "routing_authority",
+        "routing_evidence",
+        "source_profile_sha256"
+      ],
+      "properties": {
+        "company_id": {"type": "string", "minLength": 1},
+        "rule_source_profile_id": {"type": "string", "minLength": 1},
+        "routing_authority": {"enum": ["deterministic_router", "user_explicit"]},
+        "routing_evidence": {"type": "object"},
+        "source_profile_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "order_number_policy": {
+      "type": "object",
+      "required": ["strategy", "prefix", "sequence_scope"],
+      "properties": {
+        "strategy": {"type": "string"},
+        "prefix": {"type": "string"},
+        "sequence_scope": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "privacy": {"const": "no_recipient_pii"}
+  },
+  "additionalProperties": false
+}
