@@ -1548,6 +1548,8 @@ def build_custom_import_lines(
                     "scope_key": order_scope_key,
                     "status": "completed",
                     "outcome": "applied",
+                    "platform_order_no": platform_no,
+                    "expected_value": _rule_value(rules, "warehouse_name"),
                 },
                 {
                     "rule_id": "GY-PAYMENT-METHOD",
@@ -1590,6 +1592,8 @@ def build_custom_import_lines(
                     "scope_key": order_scope_key,
                     "status": "completed",
                     "outcome": "selected",
+                    "platform_order_no": platform_no,
+                    "expected_value": carrier_name,
                 },
                 {
                     "rule_id": "GY-SELLER-REMARK-POLICY",
@@ -1610,6 +1614,12 @@ def build_custom_import_lines(
                     "scope_key": order_scope_key,
                     "status": "completed" if white_label_library else "incomplete",
                     "outcome": "applied" if system_notes else "not_matched",
+                    "platform_order_no": platform_no,
+                    "expected_remark_token": (
+                        white_label_library.remark_token
+                        if white_label_library
+                        else ""
+                    ),
                 },
             ]
         )

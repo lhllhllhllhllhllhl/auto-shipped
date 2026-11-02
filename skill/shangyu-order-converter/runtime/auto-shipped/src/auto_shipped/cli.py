@@ -50,6 +50,10 @@ from auto_shipped.integrations.feishu import (
 )
 from auto_shipped.services.convert import convert_order_file
 from auto_shipped.services.batch_convert import convert_order_batch
+from auto_shipped.services.delivery_receipt import (
+    DeliveryReceiptError,
+    verify_delivery_receipt,
+)
 from auto_shipped.services.adaptive import (
     propose_adaptive_excel_plan,
     write_adaptive_plan,
@@ -157,6 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SOURCE=PLAN_JSON",
         help="按文件路径或文件名提供自适应来源计划；可重复提供",
     )
+
+    verify_delivery = subparsers.add_parser(
+        "verify-conversion-delivery",
+        help="校验统一转换入口签发的Excel、报告、manifest与交付凭证",
+    )
+    verify_delivery.add_argument("--receipt", required=True)
     convert_batch.add_argument(
         "--mappings",
         default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
@@ -1027,6 +1037,22 @@ def run_convert_batch(args: argparse.Namespace) -> int:
     if result.status == "needs_input":
         return 2
     return 1
+
+
+def run_verify_conversion_delivery(args: argparse.Namespace) -> int:
+    try:
+        payload = verify_delivery_receipt(args.receipt)
+    except DeliveryReceiptError as exc:
+        print(
+            json.dumps(
+                {"status": "failed", "errors": [exc.to_dict()]},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 def run_inspect_source_structure(args: argparse.Namespace) -> int:
@@ -2440,6 +2466,8 @@ def main() -> int:
         return run_convert(args)
     if args.command == "convert-batch":
         return run_convert_batch(args)
+    if args.command == "verify-conversion-delivery":
+        return run_verify_conversion_delivery(args)
     if args.command == "inspect-source-structure":
         return run_inspect_source_structure(args)
     if args.command == "propose-adaptive-plan":

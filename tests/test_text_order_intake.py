@@ -1110,6 +1110,10 @@ class TextOrderIntakeTests(unittest.TestCase):
                         self.assertTrue(sheet.cell(2, 18).value.endswith(f"（{note}）"))
                     self.assertEqual(sheet.cell(2, 27).value, "韵达快递")
                     self.assertEqual(sheet.cell(2, 28).value or "", "白标商品")
+                    self.assertEqual(
+                        sheet.cell(2, 43).value,
+                        "上海尚舆商贸有限公司",
+                    )
                 finally:
                     workbook.close()
 

@@ -189,6 +189,110 @@ def _validate_output_postconditions(
     return checks
 
 
+def _validate_rule_event_values(
+    required_rule_ids: list[str],
+    rule_events: list[dict[str, Any]],
+    lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Tie rule outcomes to their concrete Excel values, not merely field presence."""
+
+    lines_by_order: dict[str, list[dict[str, Any]]] = {}
+    for line in lines:
+        platform_order_no = str(line.get("平台单号") or "").strip()
+        if platform_order_no:
+            lines_by_order.setdefault(platform_order_no, []).append(line)
+
+    checks: list[dict[str, Any]] = []
+    exact_value_rules = {
+        "GY-WAREHOUSE-ASSIGNMENT": "仓库名称",
+        "GY-LOGISTICS-SELECTION": "物流公司",
+    }
+    for rule_id, output_field in exact_value_rules.items():
+        if rule_id not in required_rule_ids:
+            continue
+        checked_orders = 0
+        for event in (item for item in rule_events if item.get("rule_id") == rule_id):
+            platform_order_no = str(event.get("platform_order_no") or "").strip()
+            expected_value = event.get("expected_value")
+            order_lines = lines_by_order.get(platform_order_no, [])
+            if not platform_order_no or _is_blank(expected_value) or not order_lines:
+                raise ConversionWorkflowError(
+                    "CONVERSION_WORKFLOW_RULE_EVIDENCE_MISSING",
+                    f"规则 {rule_id} 缺少可核对的确定性落表证据。",
+                    details={
+                        "rule_id": rule_id,
+                        "scope_key": event.get("scope_key"),
+                    },
+                )
+            if any(line.get(output_field) != expected_value for line in order_lines):
+                raise ConversionWorkflowError(
+                    "CONVERSION_WORKFLOW_RULE_VALUE_MISMATCH",
+                    f"规则 {rule_id} 的实际落表值与规则执行结果不一致。",
+                    details={
+                        "rule_id": rule_id,
+                        "platform_order_no": platform_order_no,
+                        "output_field": output_field,
+                        "expected_value": expected_value,
+                    },
+                )
+            checked_orders += 1
+        checks.append(
+            {
+                "rule_id": rule_id,
+                "status": "completed",
+                "semantic_check": "exact_rule_value",
+                "checked_orders": checked_orders,
+                "checked_fields": [output_field],
+            }
+        )
+
+    white_label_rule = "GY-DAILY-GOODS-WHITE-LABEL"
+    if white_label_rule in required_rule_ids:
+        applied_orders = 0
+        checked_orders = 0
+        for event in (
+            item for item in rule_events if item.get("rule_id") == white_label_rule
+        ):
+            platform_order_no = str(event.get("platform_order_no") or "").strip()
+            expected_token = str(event.get("expected_remark_token") or "").strip()
+            order_lines = lines_by_order.get(platform_order_no, [])
+            if not platform_order_no or not expected_token or not order_lines:
+                raise ConversionWorkflowError(
+                    "CONVERSION_WORKFLOW_RULE_EVIDENCE_MISSING",
+                    "白标规则缺少可核对的备注标记或订单证据。",
+                    details={"scope_key": event.get("scope_key")},
+                )
+            if event.get("outcome") == "applied":
+                missing_rows = [
+                    index
+                    for index, line in enumerate(order_lines, start=1)
+                    if expected_token not in str(line.get("卖家备注") or "")
+                ]
+                if missing_rows:
+                    raise ConversionWorkflowError(
+                        "CONVERSION_WORKFLOW_WHITE_LABEL_REMARK_MISSING",
+                        "商品已命中白标库，但成品卖家备注没有写入白标标记。",
+                        details={
+                            "platform_order_no": platform_order_no,
+                            "expected_remark_token": expected_token,
+                            "order_row_numbers": missing_rows,
+                        },
+                    )
+                applied_orders += 1
+            checked_orders += 1
+        checks.append(
+            {
+                "rule_id": white_label_rule,
+                "status": "completed",
+                "semantic_check": "applied_outcome_requires_remark_token",
+                "checked_orders": checked_orders,
+                "applied_orders": applied_orders,
+                "checked_fields": ["卖家备注"],
+            }
+        )
+    return checks
+
+
 def _business_summary(lines: list[dict[str, Any]]) -> dict[str, Any]:
     orders: dict[str, dict[str, str]] = {}
     products: dict[tuple[str, str], float] = {}
@@ -295,6 +399,9 @@ def build_conversion_workflow(
         required_rule_ids,
         lines,
         expected_order_count=len(orders),
+    )
+    output_checks.extend(
+        _validate_rule_event_values(required_rule_ids, rule_events, lines)
     )
     workflow_identity = "|".join(
         [source_profile_id, company_id, route_id, *required_rule_ids]

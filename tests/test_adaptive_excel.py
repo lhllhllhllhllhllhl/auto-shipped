@@ -340,7 +340,8 @@ class AdaptiveExcelTests(unittest.TestCase):
             self.assertEqual(result.status, "ready")
             self.assertEqual(result.order_count, 4)
             self.assertEqual(result.item_row_count, 8)
-            self.assertEqual(len(result.outputs), 2)
+            self.assertEqual(len(result.outputs), 3)
+            self.assertIsNotNone(result.delivery_receipt)
 
 
 if __name__ == "__main__":

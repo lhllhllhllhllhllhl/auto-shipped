@@ -65,6 +65,10 @@ from auto_shipped.services.adaptive import (
     write_adaptive_plan,
 )
 from auto_shipped.services.decision_orchestrator import converge_decisions
+from auto_shipped.services.delivery_receipt import (
+    DeliveryReceiptError,
+    write_delivery_receipt,
+)
 from auto_shipped.services.order_number_allocations import (
     DailySequenceLedgerGateway,
     OrderNumberAllocationError,
@@ -102,6 +106,7 @@ class ConversionResult:
     output_row_count: int = 0
     outputs: list[str] = field(default_factory=list)
     upload_manifest: str | None = None
+    delivery_receipt: str | None = None
     clarifications: list[ClarificationRequest] = field(default_factory=list)
     decisions: list[DecisionItem] = field(default_factory=list)
     mapping_reuse_candidates: list[MappingReuseCandidate] = field(default_factory=list)
@@ -122,6 +127,7 @@ class ConversionResult:
             "output_row_count": self.output_row_count,
             "outputs": self.outputs,
             "upload_manifest": self.upload_manifest,
+            "delivery_receipt": self.delivery_receipt,
             "clarifications": [item.to_dict() for item in self.clarifications],
             "decision_bundle": DecisionBundle(self.decisions).to_dict(),
             "mapping_reuse_bundle": MappingReuseBundle(
@@ -1227,6 +1233,7 @@ def convert_order_file(
         )
 
     if built.decisions:
+        receipt_path = output_root / f"{_safe_stem(source.stem)}_待确认交付凭证.json"
         result = ConversionResult(
             status="preview_ready",
             source_file=source_file,
@@ -1236,6 +1243,7 @@ def convert_order_file(
             output_row_count=len(built.lines),
             outputs=[str(rendered)],
             upload_manifest=None,
+            delivery_receipt=str(receipt_path),
             decisions=built.decisions,
             mapping_reuse_candidates=built.mapping_reuse_candidates,
             mapping_evidence=built.mapping_evidence,
@@ -1250,10 +1258,34 @@ def convert_order_file(
             encoding="utf-8",
         )
         result.outputs.append(str(report_path))
+        try:
+            write_delivery_receipt(
+                receipt_path,
+                delivery_status=result.status,
+                workbook_path=rendered,
+                report_path=report_path,
+                upload_manifest_path=None,
+                workflow_execution=workflow_execution,
+            )
+        except DeliveryReceiptError as exc:
+            rendered.unlink(missing_ok=True)
+            report_path.unlink(missing_ok=True)
+            receipt_path.unlink(missing_ok=True)
+            return ConversionResult(
+                status="blocked",
+                source_file=source_file,
+                detection=detection,
+                route=route,
+                parsed_order_count=len(parsed.orders),
+                output_row_count=len(built.lines),
+                errors=[exc.to_dict()],
+            )
+        result.outputs.append(str(receipt_path))
         return result
 
     manifest_path = output_root / f"{_safe_stem(source.stem)}_上传预检.json"
     preflight.write_manifest(manifest_path)
+    receipt_path = output_root / f"{_safe_stem(source.stem)}_交付凭证.json"
     result = ConversionResult(
         status="ready",
         source_file=source_file,
@@ -1263,6 +1295,7 @@ def convert_order_file(
         output_row_count=len(built.lines),
         outputs=[str(rendered)],
         upload_manifest=str(manifest_path),
+        delivery_receipt=str(receipt_path),
         mapping_reuse_candidates=built.mapping_reuse_candidates,
         mapping_evidence=built.mapping_evidence,
         mapping_identity_notices=built.mapping_identity_notices,
@@ -1276,4 +1309,28 @@ def convert_order_file(
         encoding="utf-8",
     )
     result.outputs.append(str(report_path))
+    try:
+        write_delivery_receipt(
+            receipt_path,
+            delivery_status=result.status,
+            workbook_path=rendered,
+            report_path=report_path,
+            upload_manifest_path=manifest_path,
+            workflow_execution=workflow_execution,
+        )
+    except DeliveryReceiptError as exc:
+        rendered.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
+        report_path.unlink(missing_ok=True)
+        receipt_path.unlink(missing_ok=True)
+        return ConversionResult(
+            status="blocked",
+            source_file=source_file,
+            detection=detection,
+            route=route,
+            parsed_order_count=len(parsed.orders),
+            output_row_count=len(built.lines),
+            errors=[exc.to_dict()],
+        )
+    result.outputs.append(str(receipt_path))
     return result

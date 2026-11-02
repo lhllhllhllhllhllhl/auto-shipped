@@ -236,8 +236,9 @@ class NddAdapterTests(unittest.TestCase):
             self.assertEqual(result.status, "ready")
             self.assertEqual(result.parsed_order_count, 1)
             self.assertEqual(result.output_row_count, 2)
-            self.assertEqual(len(result.outputs), 2)
+            self.assertEqual(len(result.outputs), 3)
             self.assertTrue(result.upload_manifest)
+            self.assertTrue(result.delivery_receipt)
 
             workbook = load_workbook(result.outputs[0], data_only=False)
             try:

@@ -234,6 +234,7 @@ class ArchitectureContractTests(unittest.TestCase):
         )
         self.assertIn("sources", schema["required"])
         self.assertIn("upload_manifest", schema["required"])
+        self.assertIn("delivery_receipt", schema["required"])
         self.assertIn("decision_bundle", schema["required"])
         self.assertIn("mapping_reuse_bundle", schema["required"])
         self.assertIn("mapping_identity_notices", schema["required"])
@@ -248,6 +249,18 @@ class ArchitectureContractTests(unittest.TestCase):
             "conversion-workflow/1.0",
         )
         self.assertIn("business_summary", workflow_schema["required"])
+        receipt_schema = load_json(
+            "contracts/conversion_delivery_receipt.schema.json"
+        )
+        self.assertEqual(
+            receipt_schema["properties"]["schema_version"]["const"],
+            "conversion-delivery-receipt/1.0",
+        )
+        self.assertFalse(
+            receipt_schema["properties"]["safety"]["properties"][
+                "upload_authorized"
+            ]["const"]
+        )
         notice = schema["$defs"]["storeAssignmentNotice"]["properties"]
         self.assertEqual(
             notice["code"]["const"],

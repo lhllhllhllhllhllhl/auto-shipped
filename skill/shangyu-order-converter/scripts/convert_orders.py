@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -17,7 +18,7 @@ from convert_order import (
     _resolve_catalog,
     _resolve_preferred_catalogs,
 )
-from runtime_common import STATE_ROOT, resolve_project_root
+from runtime_common import BUNDLE_MANIFEST, STATE_ROOT, resolve_project_root
 
 
 def _safe_stem(value: str) -> str:
@@ -224,6 +225,10 @@ def _environment(project_root: Path) -> dict[str, str]:
         if not existing_pythonpath
         else os.pathsep.join([source_root, existing_pythonpath])
     )
+    if BUNDLE_MANIFEST.is_file():
+        environment["SHANGYU_SKILL_RUNTIME_MANIFEST_SHA256"] = hashlib.sha256(
+            BUNDLE_MANIFEST.read_bytes()
+        ).hexdigest()
     return environment
 
 

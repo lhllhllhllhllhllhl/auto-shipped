@@ -308,8 +308,9 @@ class ConvertServiceTests(unittest.TestCase):
             self.assertEqual(result.status, "ready")
             self.assertEqual(result.parsed_order_count, 1)
             self.assertEqual(result.output_row_count, 1)
-            self.assertEqual(len(result.outputs), 2)
+            self.assertEqual(len(result.outputs), 3)
             self.assertIsNotNone(result.upload_manifest)
+            self.assertIsNotNone(result.delivery_receipt)
             self.assertIsNotNone(result.workflow_execution)
             self.assertEqual(result.workflow_execution["status"], "complete")
             completed_rules = {
