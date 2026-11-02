@@ -90,6 +90,8 @@ def _release_identity() -> dict[str, Any]:
         "package": "auto-shipped",
         "package_version": __version__,
         "workflow_schema_version": WORKFLOW_SCHEMA_VERSION,
+        "release_id": str(os.environ.get("SHANGYU_RELEASE_ID") or "").strip()
+        or None,
         "runtime_manifest_sha256": bundle_sha256 or None,
     }
 

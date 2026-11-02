@@ -500,8 +500,8 @@ def _product_resolution_key(
 def _product_source_label(item: Any) -> str:
     base = str(
         item.source_product_code
-        or item.source_item_text
         or item.source_product_name
+        or item.source_item_text
         or "未提供商品标识"
     )
     source_spec = str(item.source_spec or "").strip()

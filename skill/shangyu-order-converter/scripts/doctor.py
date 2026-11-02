@@ -17,6 +17,7 @@ from runtime_common import (
     STATE_ROOT,
     resolve_project_root,
     runtime_trust_status,
+    runtime_release_identity,
     state_root_status,
     state_python_candidates,
 )
@@ -277,7 +278,17 @@ def main() -> int:
         and not (key == "chrome" and value.get("required") is False)
     }
     ready = all(value.get("ready") for value in required_checks.values())
-    print(json.dumps({"status": "ready" if ready else "needs_setup", "checks": checks}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "ready" if ready else "needs_setup",
+                **runtime_release_identity(project_root),
+                "checks": checks,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0 if ready else 2
 
 

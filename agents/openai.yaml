@@ -1,4 +1,4 @@
 interface:
   display_name: "尚舆订单转换"
   short_description: "脚本识别已知订单模板，并自适应处理已确认公司的未知Excel"
-  default_prompt: "使用 $shangyu-order-converter 识别这份公司订单；已知模板走脚本，未知模板先按我确认的公司自适应映射，再生成经过校验的管易导入文件。"
+  default_prompt: "使用 $shangyu-order-converter 处理这份订单。文字或截图订单若用户未明确指定公司/规则包，草稿必须使用 registered_manual_channels + deterministic_router，company/profile 置空且不得自填单号策略；保留 source_item_text，并且日常只调用一次 text_order.py process。你只能转述程序返回的 clarifications，不得自行追问品牌、型号、是否在售、店铺或补平台单号。已知Excel模板走脚本，未知模板按用户已确认的公司进入自适应映射。"
