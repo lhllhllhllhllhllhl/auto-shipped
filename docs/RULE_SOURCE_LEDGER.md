@@ -186,6 +186,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `DEC-USER-SELF-OPERATED-BAG-JD-CARRIER-001` | 2026-10-08 | 尚舆自营天猫/京东的`袋`匹配8棒家庭装；文本`京东中通`专指京东旗舰店且物流原样填写 | 自营文字订单商品与物流 | 已确认并实现 |
 | `DEC-USER-PACKAGE-SEMANTICS-002` | 2026-10-09 | 数量单位与商品包装分离：RZD的`根`表示彩袋单棒装并按根数写数量；自营的`袋`表示8棒家庭装；其他公司第一次出现未登记表达时追问，长期确认保存为可回收提案 | 包装语义与商品映射 | 已确认并实现 |
 | `DEC-USER-CORN-EIGHT-PACK-001` | 2026-10-22 | 玉米`1袋/8根装/8根家庭装/8棒`全局统一为1件8棒家庭装；包装内含数不作为订单数量，不拆成8件单棒，执行后在结果小节告知 | 包装语义与数量提取 | 已确认并实现；来源专用规则优先 |
+| `DEC-USER-OFFICIAL-PACKAGE-MAPPING-001` | 2026-11-03 | 飞书正式库中已发布、可长期复用且精确匹配“商品名称+来源规格”的映射唯一指向有效SKU时，该映射本身构成完整包装依据，不再因静态包装语义缺项重复追问 | 包装语义与商品映射 | 由NDD“满元气黄糯玉米/10棒礼盒装230g×10”正式映射真实冒烟发现重复门禁后补强；已登记包装规则和裸棒禁用仍优先，非正式映射不得绕过 |
 | `DEC-USER-FIXED-SOURCE-CONTEXT-ISOLATION-001` | 2026-10-22 | 当前文件唯一高置信固定模板优先于旧对话公司、来源提示和自适应计划；批次级参数不得跨文件复用，运行时故障不得绕过统一入口 | 来源识别与上下文隔离 | 已确认并实现回归门禁 |
 | `DEC-USER-BARE-STICK-DISABLED-001` | 2026-10-09 | 黄糯、花糯、白糯裸棒只用于试吃，不进入普通发货；编码、名称或语义命中裸棒均阻断 | 发货商品门禁 | 已实现独立禁用SKU列表与转换门禁；试吃订单未来需独立订单类型 |
 | `DEC-USER-PACKAGE-PROPOSAL-COLLECTION-001` | 2026-10-09 | 各用户Agent把用户确认“以后沿用”的包装含义保存为本机独立待登记提案；所有者可定期要求导出JSON，审核合并到主系统正式规则后随Skill发布给所有用户 | 多用户规则治理 | 已实现本机独立存储、幂等proposal_id、冲突rule_key和无订单/收件信息导出；待登记提案不自动生效 |
@@ -224,7 +225,7 @@ PDF中的账号和密码不进入规则文档、Skill或普通配置。
 | `GY-PAYMENT-METHOD` | 支付方式 | `SRC-SOP-PDF-001` p.5 | `DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写网银在线；其他来源仍按各自规则包确认 |
 | `GY-ORDER-TYPE` | 订单类型 | `SRC-SOP-PDF-001` p.12 | `DEC-BLH-ROUTE-001`、`DEC-USER-SAM-DEFAULT-TEXT-001` | SAM已确认显式填写销售订单；其他来源仍按各自规则包确认 |
 | `GY-ORDER-FLAGS` | 赠品、手机、货到付款和分销标记 | `SRC-GY-TEMPLATE-001` | 当前模板说明 | 寄样订单是否属于赠品未确认 |
-| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-CORN-EIGHT-PACK-001`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；玉米8根家庭装表达走全局包装语义并在结果告知，其他未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
+| `GY-PRODUCT-MAPPING` | 商品与规格映射 | `SRC-SOP-PDF-001` p.4、p.8、p.10、p.12 | `SRC-GY-CATALOG-001`、`SRC-GY-PREFERRED-CATALOG-001`、各来源样本、`DEC-USER-SKU-TT-001`、`DEC-USER-MAPPING-AUTHORITY-002`、`DEC-USER-FEISHU-OFFICIAL-READ-GATE-001`、`DEC-USER-PACKAGE-SEMANTICS-002`、`DEC-USER-CORN-EIGHT-PACK-001`、`DEC-USER-OFFICIAL-PACKAGE-MAPPING-001`、`DEC-USER-TARGET-CATALOG-LAYERS-001` | 飞书正式库处理来源编码映射；目标代码先在业务优先目录校验，未命中再查管易主档；玉米8根家庭装表达走全局包装语义并在结果告知；已发布的精确名称+规格正式映射可为同一完整包装表达提供依据；其他未登记表达追问；裸棒禁用；其他新增SKU仍需确认 |
 | `GY-ITEM-EXPANSION` | 组合商品展开 | `SRC-SAMPLE-SAM-001`、`SRC-SAMPLE-SAM-MANUAL-001`、`SRC-SAMPLE-SAM-BUNDLE-002` | `DEC-USER-SAM-BUNDLE-001`、`DEC-USER-SAM-BUNDLE-002`、`DEC-USER-ONE-TO-MANY-CONFIRMATION-001` | 当前已确认SAM白糯、花糯、黄糯8+1；其他组合商品只能提出候选，用户确认目标SKU、数量倍数和复用范围后才可登记 |
 | `GY-RECIPIENT-COMPLETENESS` | 收件信息完整性 | `SRC-SOP-PDF-001` p.5、p.8、p.10 | `SRC-SAMPLE-TT-001`、`SRC-SAMPLE-XHS-001`、`SRC-SAMPLE-ADDR-001` | 组合地址解析仍需边界测试 |
 | `GY-JD-ZTO-CONTACT-SUFFIX` | 自营京东中通联系电话尾码 | `SRC-SAMPLE-TEXT-ORDER-001` | `DEC-USER-JD-ZTO-CONTACT-SUFFIX-001` | 已确认并实现；仅对已确认尚舆自营、京东渠道且物流为京东中通的订单生效，冲突时fail-close |

@@ -1685,6 +1685,111 @@ class ProductCatalogTests(unittest.TestCase):
         self.assertEqual(result.product.product_code, "PACK-8")
         self.assertNotEqual(result.product.product_code, "SINGLE-1")
 
+    def test_exact_future_official_mapping_satisfies_unregistered_package_expression(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "6974768564859",
+                    "黄糯玉米10根礼盒装",
+                    "",
+                    "",
+                    2300,
+                    "上海仓",
+                )
+            ],
+            [
+                {
+                    "mapping_id": "mapping-ndd-ten-pack",
+                    "source_profile_id": "*",
+                    "identifier_type": "product_name",
+                    "source_value": "满元气黄糯玉米",
+                    "source_spec": "10棒礼盒装230g×10",
+                    "product_code": "6974768564859",
+                    "spec_code": "",
+                    "confirmed": True,
+                    "reuse_scope": "future",
+                    "mapping_authority": "feishu_official",
+                }
+            ],
+            source_policies={
+                "ndd_order_v1": {"source_identifier_type": "product_name"}
+            },
+            package_semantics_registry={
+                "product_family_rules": [
+                    {
+                        "source_name_contains_any": ["黄糯"],
+                        "target_name_contains_all": ["黄糯", "玉米"],
+                    }
+                ],
+                "tracked_source_units": ["盒", "礼盒"],
+            },
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="ndd_order_v1",
+            source_product_name="满元气黄糯玉米",
+            source_spec="10棒礼盒装230g×10",
+        )
+
+        self.assertEqual(result.status, "confirmed")
+        self.assertEqual(result.match_method, "confirmed_name_alias_name_spec")
+        self.assertEqual(result.mapping_authority, "feishu_official")
+        self.assertEqual(result.reuse_scope, "future")
+        self.assertEqual(result.mapping_ids, ("mapping-ndd-ten-pack",))
+        self.assertIsNotNone(result.product)
+        assert result.product is not None
+        self.assertEqual(result.product.product_code, "6974768564859")
+        self.assertEqual(result.quantity_strategy, "same_as_source")
+
+    def test_unofficial_alias_cannot_bypass_unregistered_package_expression(self) -> None:
+        catalog = ProductCatalog(
+            [
+                ProductRecord(
+                    "6974768564859",
+                    "黄糯玉米10根礼盒装",
+                    "",
+                    "",
+                    2300,
+                    "上海仓",
+                )
+            ],
+            [
+                {
+                    "source_profile_id": "ndd_order_v1",
+                    "identifier_type": "product_name",
+                    "source_value": "满元气黄糯玉米",
+                    "source_spec": "10棒礼盒装230g×10",
+                    "product_code": "6974768564859",
+                    "spec_code": "",
+                    "confirmed": True,
+                }
+            ],
+            source_policies={
+                "ndd_order_v1": {"source_identifier_type": "product_name"}
+            },
+            package_semantics_registry={
+                "product_family_rules": [
+                    {
+                        "source_name_contains_any": ["黄糯"],
+                        "target_name_contains_all": ["黄糯", "玉米"],
+                    }
+                ],
+                "tracked_source_units": ["盒", "礼盒"],
+            },
+        )
+
+        result = catalog.resolve(
+            "",
+            source_profile_id="ndd_order_v1",
+            source_product_name="满元气黄糯玉米",
+            source_spec="10棒礼盒装230g×10",
+        )
+
+        self.assertEqual(result.status, "unconfirmed")
+        self.assertEqual(result.match_method, "package_semantics_unregistered")
+        self.assertIsNone(result.product)
+
     def test_bare_stick_expression_is_forbidden_for_shipping(self) -> None:
         catalog = ProductCatalog.from_files(
             PROJECT_ROOT / "assets/catalog/current_product_catalog.csv",

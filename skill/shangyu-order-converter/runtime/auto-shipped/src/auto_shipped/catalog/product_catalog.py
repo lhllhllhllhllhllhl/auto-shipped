@@ -1594,6 +1594,48 @@ class ProductCatalog:
             source_product_name=source_product_name,
             source_spec=source_spec,
         )
+        if (
+            semantic_resolution is not None
+            and semantic_resolution.match_method == "package_semantics_unregistered"
+        ):
+            # A published Feishu name+spec mapping is already an explicit,
+            # governed decision that this exact package expression maps to one
+            # unique target SKU.  Let that exact future-reusable mapping satisfy
+            # an otherwise missing static package-semantics rule.  Registered
+            # package rules and forbidden expressions still win above, so a
+            # stale alias cannot override an eight-pack rule or allow bare
+            # tasting sticks into normal shipping.
+            exact_name = clean_identifier(source_product_name)
+            if exact_name:
+                exact_alias_mappings = self._mapping_candidates(
+                    source_profile_id,
+                    "product_name",
+                    exact_name,
+                    source_spec,
+                )
+                if exact_alias_mappings:
+                    exact_alias_resolution = self._resolve_mappings(
+                        exact_alias_mappings,
+                        key or exact_name,
+                        "product_name",
+                        f"confirmed_name_alias_{mapping_match_mode('product_name', source_spec)}",
+                        source_fingerprint,
+                        source_profile_id,
+                    )
+                    if (
+                        exact_alias_resolution.status == "confirmed"
+                        and exact_alias_resolution.product is not None
+                        and exact_alias_resolution.mapping_authority
+                        == "feishu_official"
+                        and exact_alias_resolution.reuse_scope == "future"
+                    ):
+                        return replace(
+                            exact_alias_resolution,
+                            reason=(
+                                exact_alias_resolution.reason
+                                or "飞书正式映射已确认该商品名称、包装规格与目标SKU的精确关系"
+                            ),
+                        )
         if semantic_resolution is not None:
             return semantic_resolution
 
