@@ -6,6 +6,7 @@
   "required": [
     "status",
     "source_count",
+    "release_id",
     "order_count",
     "item_row_count",
     "sources",
@@ -19,12 +20,14 @@
     "mapping_identity_notices",
     "store_assignment_notices",
     "package_semantics_notices",
+    "official_mapping",
     "workflow_execution",
     "errors"
   ],
   "properties": {
     "status": { "enum": ["ready", "preview_ready", "needs_input", "blocked"] },
     "source_count": { "type": "integer", "minimum": 0 },
+    "release_id": {"type": ["string", "null"], "minLength": 1},
     "order_count": { "type": "integer", "minimum": 0 },
     "item_row_count": { "type": "integer", "minimum": 0 },
     "target_platform": { "type": ["string", "null"] },
@@ -140,6 +143,9 @@
           }
         ]
       }
+    },
+    "official_mapping": {
+      "$ref": "official_mapping_runtime_info.schema.json"
     },
     "workflow_execution": {
       "anyOf": [

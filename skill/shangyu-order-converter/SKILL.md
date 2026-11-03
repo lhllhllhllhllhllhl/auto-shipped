@@ -26,7 +26,7 @@ python3 <skill-dir>/scripts/doctor.py
 3. 为本次运行新建输出目录，不覆盖原始订单或历史输出。
 4. 标准商品转换前必须完成飞书正式映射读取：
 
-   - Agent有原生飞书电子表格能力时，优先读取治理配置中固定的正式映射Sheet和库信息Sheet，按[飞书映射治理](runtime/auto-shipped/docs/FEISHU_MAPPING_GOVERNANCE.md)生成标准载荷，再运行`feishu_mapping.py sync-native --payload <载荷.json>`。把命令返回的`output`作为统一转换入口的`--official-mapping-snapshot`。
+   - Agent有原生飞书电子表格能力时，优先按“库信息Sheet首次读取 → 全部正式数据Sheet → 库信息Sheet末次读取”的顺序读取；两次库信息必须完全一致。按[飞书映射治理](runtime/auto-shipped/docs/FEISHU_MAPPING_GOVERNANCE.md)生成标准载荷，再运行`feishu_mapping.py sync-native --payload <载荷.json>`。把命令返回的`output`和`sync_receipt`分别作为统一转换入口的`--official-mapping-snapshot`与`--official-mapping-receipt`，二者缺一不可。
    - 没有原生飞书能力时，统一转换入口会自动使用`lark-cli`只读同步正式表；不得要求员工手工导出映射表。
    - 两种读取方式都不可用、无权限或校验失败时，转换必须返回`FEISHU_OFFICIAL_MAPPING_UNAVAILABLE`并停止。不得继续使用空映射，也不得向用户重新询问已经发布的映射。
 
@@ -182,7 +182,7 @@ python3 <skill-dir>/scripts/audit_companies.py
 - 飞书只读健康检查运行`python3 <skill-dir>/scripts/feishu_mapping.py status`；它验证当前用户身份、正式库版本、路由和个人Sheet数量，不写表格。
 - `mapping_revision`是正式库唯一读指针；`publish_operation_id`只锁后续正式写入，不锁订单转换。新增记录先写为下一版本`staged`，版本指针切换前读取器必须忽略，切换后可读取并继续完成状态封口。发现非空写锁或旧版遗留`repository_status=publishing`时，转换仍同步当前已提交版本，不得误报“正式映射不可用”；只暂停新的长期映射写入，并运行`feishu_mapping.py diagnose-recovery`。只有诊断可恢复且当前用户为owner时才可使用固定确认口令运行`recover`，不得手工清锁或改版本。
 - Python侧飞书CLI调用统一通过共享客户端执行和解析；商品映射、中央日序号等业务网关不得各自实现身份探针。共享客户端优先通过`lark-cli auth status --verify`取得用户身份；旧版CLI缺少`auth`子命令时，依次尝试`lark-cli whoami --as user`和用户身份的`/open-apis/authen/v1/user_info`只读接口取得稳定`open_id`。随后业务网关必须对自己的目标工作簿执行真实只读校验。Agent不得临时创建CLI垫片或改写`PATH`绕过身份探针。仅有dry-run中的`identity=user`、但没有稳定`open_id`时仍失败关闭，不能参与正式写入或新占号。
-- 每次开始依赖商品映射的转换前必须完成当次正式库读取。统一入口默认自动运行`python3 <skill-dir>/scripts/feishu_mapping.py sync`；若Agent已使用原生飞书能力读取，则运行`sync-native`并把返回快照显式传给`--official-mapping-snapshot`。读取会校验库状态、版本、哈希、映射键和商品主档并原子更新本机快照；失败时停止转换，不得静默使用旧快照或待确认提案。
+- 每次开始依赖商品映射的转换前必须完成当次正式库读取。统一入口默认自动运行`python3 <skill-dir>/scripts/feishu_mapping.py sync`；若Agent已使用原生飞书能力读取，则运行`sync-native`并把返回快照与同步凭证同时显式传给`--official-mapping-snapshot`和`--official-mapping-receipt`。读取会校验库状态、版本前后双读、哈希、映射键和商品主档，并为当前任务生成短时效、单次使用的凭证；凭证、快照版本、同步时间或字节哈希不一致，凭证过期或已被另一转换任务使用时都停止转换，不得静默使用旧快照或待确认提案。
 - 正式映射表不按公司另建结构，也不另设“规格编码类型”：每行都有来源商品标识与来源规格两栏，至少填写一个；没有规格就把来源规格留空。`product_name`行额外由程序维护`canonical_source_brand / canonical_source_product / canonical_source_spec / canonical_schema_version`，规范商品主体必填，品牌和规格按来源事实可空；代码/条码行以代码为身份，未提供可靠来源名称时四个规范字段允许全空，禁止从管易目标名称反推来源身份。现有15列正式表可继续只读同步并在快照中派生规范字段；19列表迁移必须先运行`plan-canonical`检查冲突，再由所有者明确确认运行`migrate-canonical`。完整组合仍优先于规格单独映射。
 - 每个转换结果的`mapping_evidence`只保存本批不含收件信息的映射证据：商品原文、初始拆分、规范身份、正式映射ID、目标SKU、正式库版本和快照哈希。它不写回规则库或飞书，也不随Skill发布累积。
 - 来源指定物流仍优先，但必须先通过来源规则包的别名表转换为管易标准名称；未登记名称必须追问。不得把任意来源文本直接写入“物流公司”。

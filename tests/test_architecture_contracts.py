@@ -233,6 +233,7 @@ class ArchitectureContractTests(unittest.TestCase):
             {"ready", "preview_ready", "needs_input", "blocked"},
         )
         self.assertIn("sources", schema["required"])
+        self.assertIn("release_id", schema["required"])
         self.assertIn("upload_manifest", schema["required"])
         self.assertIn("delivery_receipt", schema["required"])
         self.assertIn("decision_bundle", schema["required"])
@@ -240,6 +241,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIn("mapping_identity_notices", schema["required"])
         self.assertIn("store_assignment_notices", schema["required"])
         self.assertIn("package_semantics_notices", schema["required"])
+        self.assertIn("official_mapping", schema["required"])
         self.assertIn("workflow_execution", schema["required"])
         workflow_schema = load_json(
             "contracts/conversion_workflow_execution.schema.json"
@@ -256,6 +258,11 @@ class ArchitectureContractTests(unittest.TestCase):
             receipt_schema["properties"]["schema_version"]["const"],
             "conversion-delivery-receipt/1.0",
         )
+        self.assertIn(
+            "release_id",
+            receipt_schema["properties"]["converter"]["properties"],
+        )
+        self.assertIn("official_mapping", receipt_schema["required"])
         self.assertFalse(
             receipt_schema["properties"]["safety"]["properties"][
                 "upload_authorized"

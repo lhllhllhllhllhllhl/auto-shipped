@@ -8,7 +8,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +140,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--official-mapping-snapshot",
-        help="Agent原生飞书能力已经读取并校验生成的正式映射快照；提供后不再调用lark-cli同步",
+        help="Agent原生飞书能力为当前任务读取并校验生成的正式映射快照；必须同时提供同步凭证",
+    )
+    parser.add_argument(
+        "--official-mapping-receipt",
+        help="sync-native返回的当前任务正式映射同步凭证",
     )
     parser.add_argument("--template", help="可选的管易自定义订单导入模板")
     parser.add_argument(
@@ -228,6 +235,7 @@ def _verify_text_intake_receipts(
 def _common_cli_args(
     args: argparse.Namespace,
     official_mapping_snapshot: Path | None,
+    official_mapping_receipt: Path | None,
     official_mapping_error: str,
     preferred_catalogs: tuple[Path, ...],
 ) -> list[str]:
@@ -260,7 +268,14 @@ def _common_cli_args(
         seen_replacements.add(key)
         values.extend(["--mapping-replacement", key])
     if official_mapping_snapshot is not None:
-        values.extend(["--official-mapping-status", "auto"])
+        values.extend(
+            [
+                "--official-mapping-status",
+                "auto",
+                "--official-mapping-receipt",
+                str(official_mapping_receipt),
+            ]
+        )
     else:
         values.extend(
             [
@@ -282,14 +297,89 @@ def _prepare_official_mapping(
     project_root: Path,
     catalog: Path,
     preferred_catalogs: tuple[Path, ...],
-) -> tuple[Path | None, str]:
+) -> tuple[Path | None, Path | None, str]:
+    operation_root = (
+        STATE_ROOT
+        / "operations"
+        / "official-mapping-sync"
+        / uuid.uuid4().hex
+    )
+    operation_root.mkdir(parents=True, exist_ok=False, mode=0o700)
     if args.official_mapping_snapshot:
         snapshot = Path(args.official_mapping_snapshot).expanduser().resolve()
-        if snapshot.is_file():
-            return snapshot, ""
-        return None, f"Agent原生飞书正式映射快照不存在：{snapshot}"
+        receipt_value = str(args.official_mapping_receipt or "").strip()
+        receipt = (
+            Path(receipt_value).expanduser().resolve()
+            if receipt_value
+            else None
+        )
+        if not snapshot.is_file():
+            return None, None, f"Agent原生飞书正式映射快照不存在：{snapshot}"
+        if receipt is None or not receipt.is_file():
+            return (
+                None,
+                None,
+                "Agent原生飞书快照缺少当前任务同步凭证；请重新运行sync-native，"
+                "并同时传入返回的sync_receipt。",
+            )
+        try:
+            receipt_payload = json.loads(receipt.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return None, None, f"Agent原生飞书同步凭证无法读取：{exc}"
+        if not isinstance(receipt_payload, dict):
+            return None, None, "Agent原生飞书同步凭证根节点不是对象。"
+        receipt_id = str(receipt_payload.get("receipt_id") or "").strip()
+        if len(receipt_id) != 32 or any(
+            character not in "0123456789abcdef" for character in receipt_id
+        ):
+            return None, None, "Agent原生飞书同步凭证ID无效。"
+        claims_root = (
+            STATE_ROOT / "operations" / "official-mapping-sync-receipt-claims"
+        )
+        claims_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        claim_path = claims_root / f"{receipt_id}.json"
+        try:
+            descriptor = os.open(
+                claim_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError:
+            return (
+                None,
+                None,
+                "该正式映射同步凭证已被另一个转换任务使用；"
+                "请为本任务重新读取正式库并运行sync-native。",
+            )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "schema_version": "official-mapping-sync-receipt-claim/1.0",
+                    "receipt_id": receipt_id,
+                    "operation_id": operation_root.name,
+                    "claimed_at": datetime.now(timezone.utc).isoformat(),
+                    "privacy": "no_order_or_recipient_data",
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
+            handle.write("\n")
+        bound_snapshot = operation_root / "official-mappings.json"
+        bound_receipt = operation_root / "official-mappings.sync-receipt.json"
+        shutil.copyfile(snapshot, bound_snapshot)
+        shutil.copyfile(receipt, bound_receipt)
+        return bound_snapshot, bound_receipt, ""
 
-    snapshot = STATE_ROOT / "config" / "feishu-official-product-mappings.json"
+    if args.official_mapping_receipt:
+        return (
+            None,
+            None,
+            "只提供了正式映射同步凭证但没有快照；两个参数必须成对提供。",
+        )
+
+    snapshot = operation_root / "official-mappings.json"
+    receipt = operation_root / "official-mappings.sync-receipt.json"
     command = [
         runtime,
         "-m",
@@ -299,6 +389,8 @@ def _prepare_official_mapping(
         str(catalog),
         "--output",
         str(snapshot),
+        "--receipt-output",
+        str(receipt),
     ]
     for preferred_catalog in preferred_catalogs:
         command.extend(["--preferred-catalog", str(preferred_catalog)])
@@ -319,8 +411,12 @@ def _prepare_official_mapping(
         raise StageTimeoutError(
             "official_mapping_sync", min(args.stage_timeout_seconds, 60.0)
         ) from exc
-    if completed.returncode == 0 and snapshot.is_file():
-        return snapshot, ""
+    if (
+        completed.returncode == 0
+        and snapshot.is_file()
+        and receipt.is_file()
+    ):
+        return snapshot, receipt, ""
     message = completed.stderr.strip()
     try:
         payload = json.loads(completed.stdout)
@@ -328,7 +424,7 @@ def _prepare_official_mapping(
         payload = None
     if isinstance(payload, dict):
         message = str(payload.get("message") or payload.get("code") or message)
-    return None, message or "飞书正式映射同步失败。"
+    return None, None, message or "飞书正式映射同步失败。"
 
 
 def _environment(project_root: Path) -> dict[str, str]:
@@ -453,7 +549,11 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     release = runtime_release_identity(project_root)
     try:
-        official_mapping_snapshot, official_mapping_error = _prepare_official_mapping(
+        (
+            official_mapping_snapshot,
+            official_mapping_receipt,
+            official_mapping_error,
+        ) = _prepare_official_mapping(
             args,
             runtime,
             project_root,
@@ -479,6 +579,7 @@ def main() -> int:
     common_args = _common_cli_args(
         args,
         official_mapping_snapshot,
+        official_mapping_receipt,
         official_mapping_error,
         preferred_catalogs,
     )

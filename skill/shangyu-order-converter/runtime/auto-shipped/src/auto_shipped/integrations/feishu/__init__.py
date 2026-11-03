@@ -55,10 +55,14 @@ from .item_expansion_registry import (
     normalize_item_expansion_rules,
 )
 from .official_mappings import (
+    OFFICIAL_MAPPING_SYNC_RECEIPT_MAX_AGE_SECONDS,
+    OFFICIAL_MAPPING_SYNC_RECEIPT_SCHEMA_VERSION,
     OfficialMappingSyncError,
     build_official_mapping_snapshot,
     load_official_mapping_snapshot,
+    validate_official_mapping_sync_receipt,
     validate_official_mapping_snapshot,
+    write_official_mapping_sync_receipt,
     write_official_mapping_snapshot,
 )
 from .owner_publisher import (
@@ -140,9 +144,13 @@ __all__ = [
     "build_item_expansion_rule_key",
     "normalize_item_expansion_rules",
     "OfficialMappingSyncError",
+    "OFFICIAL_MAPPING_SYNC_RECEIPT_MAX_AGE_SECONDS",
+    "OFFICIAL_MAPPING_SYNC_RECEIPT_SCHEMA_VERSION",
     "build_official_mapping_snapshot",
     "load_official_mapping_snapshot",
+    "validate_official_mapping_sync_receipt",
     "validate_official_mapping_snapshot",
+    "write_official_mapping_sync_receipt",
     "write_official_mapping_snapshot",
     "MappingPublishItem",
     "DIRECT_ADD_CONFIRMATION_TOKEN",

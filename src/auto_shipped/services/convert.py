@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -96,10 +97,43 @@ _COVERAGE_DUPLICATE_CLARIFICATION_CODES = {
 }
 
 
+def official_mapping_result_info(
+    info: dict[str, Any] | None,
+    *,
+    ready: bool,
+    error: str,
+) -> dict[str, Any]:
+    if info:
+        return dict(info)
+    payload: dict[str, Any] = {
+        "status": "unavailable",
+        "provider": None,
+        "mapping_revision": None,
+        "synced_at": None,
+        "snapshot_sha256": None,
+        "receipt_id": None,
+        "receipt_issued_at": None,
+        "read_consistency": None,
+        "read_attempts": 0,
+        "error": error or (
+            "该内部调用未提供当前任务正式映射同步证据。"
+            if ready
+            else "正式映射不可用。"
+        ),
+    }
+    return payload
+
+
 @dataclass(slots=True)
 class ConversionResult:
     status: str
     source_file: str
+    release_id: str | None = field(
+        default_factory=lambda: str(
+            os.environ.get("SHANGYU_RELEASE_ID") or ""
+        ).strip()
+        or None
+    )
     detection: DetectionResult | None = None
     route: RouteDecision | None = None
     parsed_order_count: int = 0
@@ -114,6 +148,7 @@ class ConversionResult:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    official_mapping: dict[str, Any] = field(default_factory=dict)
     workflow_execution: dict[str, Any] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
@@ -121,6 +156,7 @@ class ConversionResult:
         return {
             "status": self.status,
             "source_file": self.source_file,
+            "release_id": self.release_id,
             "detection": self.detection.to_dict() if self.detection else None,
             "route": self.route.to_dict() if self.route else None,
             "parsed_order_count": self.parsed_order_count,
@@ -139,6 +175,7 @@ class ConversionResult:
             "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
+            "official_mapping": self.official_mapping,
             "workflow_execution": self.workflow_execution,
             "errors": self.errors,
         }
@@ -414,6 +451,7 @@ def convert_order_file(
     mapping_replacement_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
+    official_mapping_info: dict[str, Any] | None = None,
     order_number_state_dir: str | Path | None = None,
     order_number_gateway: DailySequenceLedgerGateway | None = None,
 ) -> ConversionResult:
@@ -1250,6 +1288,11 @@ def convert_order_file(
             mapping_identity_notices=built.mapping_identity_notices,
             store_assignment_notices=built.store_assignment_notices,
             package_semantics_notices=built.package_semantics_notices,
+            official_mapping=official_mapping_result_info(
+                official_mapping_info,
+                ready=official_mapping_ready,
+                error=official_mapping_error,
+            ),
             workflow_execution=workflow_execution,
         )
         report_path = output_root / f"{_safe_stem(source.stem)}_待确认决策.json"
@@ -1301,6 +1344,11 @@ def convert_order_file(
         mapping_identity_notices=built.mapping_identity_notices,
         store_assignment_notices=built.store_assignment_notices,
         package_semantics_notices=built.package_semantics_notices,
+        official_mapping=official_mapping_result_info(
+            official_mapping_info,
+            ready=official_mapping_ready,
+            error=official_mapping_error,
+        ),
         workflow_execution=workflow_execution,
     )
     report_path = output_root / f"{_safe_stem(source.stem)}_处理报告.json"

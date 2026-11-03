@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--mapping-overlay", action="append", default=[])
     process.add_argument("--mapping-replacement", action="append", default=[])
     process.add_argument("--official-mapping-snapshot")
+    process.add_argument("--official-mapping-receipt")
     process.add_argument("--template")
     process.add_argument("--batch-name", default="文字订单")
     process.add_argument(
@@ -205,6 +206,7 @@ def _run_process(
         ("--catalog", args.catalog),
         ("--mappings", args.mappings),
         ("--official-mapping-snapshot", args.official_mapping_snapshot),
+        ("--official-mapping-receipt", args.official_mapping_receipt),
         ("--template", args.template),
     ):
         if option_value:

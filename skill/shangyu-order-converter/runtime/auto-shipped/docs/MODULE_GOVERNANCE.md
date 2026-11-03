@@ -64,7 +64,7 @@
 
 ### 正式、待确认与本批临时映射治理 (`mapping_governance`)
 
-权威路径：`src/auto_shipped/integrations/feishu`、`contracts/official_product_mapping.schema.json`、`contracts/current_batch_mapping_replacement.schema.json`
+权威路径：`src/auto_shipped/integrations/feishu`、`contracts/official_product_mapping.schema.json`、`contracts/current_batch_mapping_replacement.schema.json`、`contracts/official_mapping_sync_receipt.schema.json`、`contracts/official_mapping_runtime_info.schema.json`
 实现引用：无
 历史兼容实现：无
 共享策略：无
