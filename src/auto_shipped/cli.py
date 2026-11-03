@@ -38,7 +38,6 @@ from auto_shipped.integrations.feishu import (
     add_confirmed_mapping_direct,
     build_correction_feedback_record,
     build_pending_mapping_proposal,
-    load_official_mapping_snapshot,
     plan_pending_mapping_publish,
     plan_canonical_mapping_migration,
     migrate_canonical_mapping_schema,
@@ -49,6 +48,8 @@ from auto_shipped.integrations.feishu import (
     collect_correction_feedback,
     diagnose_official_repository_recovery,
     recover_official_repository,
+    validate_official_mapping_sync_receipt,
+    write_official_mapping_sync_receipt,
     write_official_mapping_snapshot,
 )
 from auto_shipped.services.convert import convert_order_file
@@ -241,6 +242,10 @@ def build_parser() -> argparse.ArgumentParser:
             default="",
             help="正式映射不可用时供结构化追问展示的诊断信息",
         )
+        conversion_parser.add_argument(
+            "--official-mapping-receipt",
+            help="当前任务正式映射同步凭证；必须与快照字节、版本和同步时间一致",
+        )
     convert.add_argument(
         "--template",
         default=str(PROJECT_ROOT / "assets/templates/guanyi/自定义订单导入模板.xlsx"),
@@ -427,6 +432,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
     )
     sync_official.add_argument("--output", required=True)
+    sync_official.add_argument(
+        "--receipt-output",
+        help="同步凭证输出路径；默认与快照同目录并追加.sync-receipt.json",
+    )
 
     sync_official_native = subparsers.add_parser(
         "sync-feishu-official-mappings-from-payload",
@@ -439,6 +448,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(PROJECT_ROOT / "config/catalog/external_sku_mappings.json"),
     )
     sync_official_native.add_argument("--output", required=True)
+    sync_official_native.add_argument(
+        "--receipt-output",
+        help="同步凭证输出路径；默认与快照同目录并追加.sync-receipt.json",
+    )
 
     provision_pending = subparsers.add_parser(
         "provision-pending-sheet",
@@ -926,12 +939,24 @@ def run_preview(args: argparse.Namespace) -> int:
 
 def _official_mapping_runtime_state(
     args: argparse.Namespace,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, dict[str, Any]]:
+    unavailable_info = {
+        "status": "unavailable",
+        "provider": None,
+        "mapping_revision": None,
+        "synced_at": None,
+        "snapshot_sha256": None,
+        "receipt_id": None,
+        "receipt_issued_at": None,
+        "read_consistency": None,
+        "read_attempts": 0,
+    }
     if args.official_mapping_status == "unavailable":
-        return False, (
+        error = (
             args.official_mapping_error
             or "正式映射提供器未能完成读取与校验。"
         )
+        return False, error, {**unavailable_info, "error": error}
     try:
         catalog = ProductCatalog.from_files(
             args.catalog,
@@ -939,7 +964,8 @@ def _official_mapping_runtime_state(
             preferred_catalog_paths=tuple(args.preferred_catalog),
         )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return False, f"正式映射校验无法加载商品主档：{exc}"
+        error = f"正式映射校验无法加载商品主档：{exc}"
+        return False, error, {**unavailable_info, "error": error}
 
     official_candidates: list[Path] = []
     errors: list[str] = []
@@ -953,24 +979,45 @@ def _official_mapping_runtime_state(
         if isinstance(document, dict) and document.get("source") == "feishu_official_mapping_repository":
             official_candidates.append(path)
 
-    for path in official_candidates:
-        try:
-            load_official_mapping_snapshot(path, catalog)
-        except OfficialMappingSyncError as exc:
-            errors.append(f"{path.name}: {exc}")
-            continue
-        return True, ""
+    if len(official_candidates) > 1:
+        errors.append("一次转换只能绑定一个飞书正式映射快照。")
+    elif len(official_candidates) == 1:
+        path = official_candidates[0]
+        receipt_value = str(
+            getattr(args, "official_mapping_receipt", "") or ""
+        ).strip()
+        if not receipt_value:
+            errors.append(
+                "缺少当前任务的正式映射同步凭证；禁止复用未绑定任务的旧快照。"
+            )
+        else:
+            try:
+                info = validate_official_mapping_sync_receipt(
+                    receipt_value,
+                    path,
+                    catalog,
+                )
+            except OfficialMappingSyncError as exc:
+                errors.append(f"{path.name}: {exc}")
+            else:
+                return True, "", info
 
     if errors:
-        return False, "；".join(errors)
-    return False, (
+        error = "；".join(errors)
+        return False, error, {**unavailable_info, "error": error}
+    error = (
         args.official_mapping_error
         or "没有提供经过验证的飞书正式映射快照。"
     )
+    return False, error, {**unavailable_info, "error": error}
 
 
 def run_convert(args: argparse.Namespace) -> int:
-    official_mapping_ready, official_mapping_error = _official_mapping_runtime_state(args)
+    (
+        official_mapping_ready,
+        official_mapping_error,
+        official_mapping_info,
+    ) = _official_mapping_runtime_state(args)
     result = convert_order_file(
         source_path=args.source,
         catalog_csv=args.catalog,
@@ -985,7 +1032,9 @@ def run_convert(args: argparse.Namespace) -> int:
         mapping_replacement_paths=tuple(args.mapping_replacement),
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
+        official_mapping_info=official_mapping_info,
     )
+    result.official_mapping = official_mapping_info
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
     if result.status in {"ready", "preview_ready"}:
         return 0
@@ -1040,7 +1089,11 @@ def run_convert_batch(args: argparse.Namespace) -> int:
             )
         )
         return 1
-    official_mapping_ready, official_mapping_error = _official_mapping_runtime_state(args)
+    (
+        official_mapping_ready,
+        official_mapping_error,
+        official_mapping_info,
+    ) = _official_mapping_runtime_state(args)
     result = convert_order_batch(
         source_paths=args.source,
         catalog_csv=args.catalog,
@@ -1056,7 +1109,9 @@ def run_convert_batch(args: argparse.Namespace) -> int:
         batch_name=args.batch_name,
         official_mapping_ready=official_mapping_ready,
         official_mapping_error=official_mapping_error,
+        official_mapping_info=official_mapping_info,
     )
+    result.official_mapping = official_mapping_info
     print(json.dumps(result.to_public_dict(), ensure_ascii=False, indent=2))
     if result.status in {"ready", "preview_ready"}:
         return 0
@@ -1326,6 +1381,46 @@ def _lark_gateway(config_path: str) -> LarkCliFeishuSheetGateway:
     return LarkCliFeishuSheetGateway.from_config(config_path)
 
 
+def _sync_receipt_path(args: argparse.Namespace) -> Path:
+    if getattr(args, "receipt_output", None):
+        return Path(args.receipt_output).expanduser().resolve()
+    output = Path(args.output).expanduser().resolve()
+    return output.with_name(f"{output.stem}.sync-receipt.json")
+
+
+def _read_consistent_official_repository(
+    gateway: LarkCliFeishuSheetGateway,
+    *,
+    max_attempts: int = 3,
+) -> tuple[
+    list[dict[str, str]],
+    list[dict[str, str]],
+    list[dict[str, str]],
+    dict[str, str],
+    int,
+]:
+    """Read all governed sheets between two identical metadata snapshots."""
+
+    for attempt in range(1, max_attempts + 1):
+        metadata_before = gateway.get_official_repository_metadata()
+        records = gateway.list_official_mapping_records()
+        manual_store_routes = gateway.list_manual_store_route_records()
+        item_expansion_records = gateway.list_item_expansion_component_records()
+        metadata_after = gateway.get_official_repository_metadata()
+        if metadata_before == metadata_after:
+            return (
+                records,
+                manual_store_routes,
+                item_expansion_records,
+                metadata_after,
+                attempt,
+            )
+    raise OfficialMappingSyncError(
+        f"正式映射库在读取期间连续发生版本或发布状态变化；已重试{max_attempts}次，"
+        "本次转换停止且不会复用旧快照。"
+    )
+
+
 def run_feishu_mapping_status(args: argparse.Namespace) -> int:
     try:
         gateway = _lark_gateway(args.config)
@@ -1377,10 +1472,13 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
             args.mappings,
             preferred_catalog_paths=tuple(args.preferred_catalog),
         )
-        records = gateway.list_official_mapping_records()
-        manual_store_routes = gateway.list_manual_store_route_records()
-        item_expansion_records = gateway.list_item_expansion_component_records()
-        metadata = gateway.get_official_repository_metadata()
+        (
+            records,
+            manual_store_routes,
+            item_expansion_records,
+            metadata,
+            read_attempts,
+        ) = _read_consistent_official_repository(gateway)
         snapshot = build_official_mapping_snapshot(
             records,
             metadata,
@@ -1389,6 +1487,14 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
             item_expansion_records=item_expansion_records,
         )
         output = write_official_mapping_snapshot(args.output, snapshot)
+        receipt = write_official_mapping_sync_receipt(
+            _sync_receipt_path(args),
+            snapshot_path=output,
+            snapshot=snapshot,
+            provider="lark_cli",
+            read_consistency="lark_cli_metadata_double_read",
+            read_attempts=read_attempts,
+        )
     except (
         OSError,
         ValueError,
@@ -1412,13 +1518,17 @@ def run_sync_feishu_official_mappings(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "status": "synced",
+                "provider": "lark_cli",
                 "mapping_revision": snapshot["mapping_revision"],
+                "synced_at": snapshot["synced_at"],
                 "canonical_schema_version": snapshot["canonical_schema_version"],
                 "mapping_count": len(snapshot["mappings"]),
                 "manual_store_route_count": len(snapshot["manual_store_routes"]),
                 "item_expansion_count": len(snapshot["item_expansions"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
+                "read_attempts": read_attempts,
                 "output": str(output),
+                "sync_receipt": str(receipt),
             },
             ensure_ascii=False,
             indent=2,
@@ -1436,9 +1546,20 @@ def run_sync_feishu_official_mappings_from_payload(
             raise OfficialMappingSyncError("Agent原生飞书载荷根节点不是对象。")
         records = payload.get("records")
         metadata = payload.get("metadata")
-        if not isinstance(records, list) or not isinstance(metadata, dict):
+        metadata_after = payload.get("metadata_after")
+        if (
+            not isinstance(records, list)
+            or not isinstance(metadata, dict)
+            or not isinstance(metadata_after, dict)
+        ):
             raise OfficialMappingSyncError(
-                "Agent原生飞书载荷必须包含records列表和metadata对象。"
+                "Agent原生飞书载荷必须包含records列表、metadata首次读取和"
+                "metadata_after末次读取。"
+            )
+        if metadata != metadata_after:
+            raise OfficialMappingSyncError(
+                "Agent原生飞书读取期间正式库版本或发布状态发生变化；"
+                "请重新读取全部正式Sheet。"
             )
         catalog = ProductCatalog.from_files(
             args.catalog,
@@ -1495,12 +1616,20 @@ def run_sync_feishu_official_mappings_from_payload(
                 )
         snapshot = build_official_mapping_snapshot(
             records,
-            metadata,
+            metadata_after,
             catalog,
             manual_store_route_records=manual_store_routes,
             item_expansion_records=item_expansion_records,
         )
         output = write_official_mapping_snapshot(args.output, snapshot)
+        receipt = write_official_mapping_sync_receipt(
+            _sync_receipt_path(args),
+            snapshot_path=output,
+            snapshot=snapshot,
+            provider="agent_native_feishu",
+            read_consistency="agent_native_metadata_double_read",
+            read_attempts=1,
+        )
     except (
         OSError,
         ValueError,
@@ -1525,11 +1654,14 @@ def run_sync_feishu_official_mappings_from_payload(
                 "status": "synced",
                 "provider": "agent_native_feishu",
                 "mapping_revision": snapshot["mapping_revision"],
+                "synced_at": snapshot["synced_at"],
                 "mapping_count": len(snapshot["mappings"]),
                 "manual_store_route_count": len(snapshot["manual_store_routes"]),
                 "item_expansion_count": len(snapshot["item_expansions"]),
                 "snapshot_sha256": snapshot["snapshot_sha256"],
+                "read_attempts": 1,
                 "output": str(output),
+                "sync_receipt": str(receipt),
             },
             ensure_ascii=False,
             indent=2,

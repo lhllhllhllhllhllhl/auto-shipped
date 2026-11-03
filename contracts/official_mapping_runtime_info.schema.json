@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/official-mapping-runtime-info-v1.json",
+  "title": "Shangyu Official Mapping Runtime Info",
+  "type": "object",
+  "required": [
+    "status",
+    "provider",
+    "mapping_revision",
+    "synced_at",
+    "snapshot_sha256",
+    "receipt_id",
+    "receipt_issued_at",
+    "read_consistency",
+    "read_attempts"
+  ],
+  "properties": {
+    "status": {"enum": ["ready", "unavailable"]},
+    "provider": {"type": ["string", "null"]},
+    "mapping_revision": {"type": ["string", "null"]},
+    "synced_at": {"type": ["string", "null"]},
+    "snapshot_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "receipt_id": {"type": ["string", "null"]},
+    "receipt_issued_at": {"type": ["string", "null"]},
+    "read_consistency": {"type": ["string", "null"]},
+    "read_attempts": {"type": "integer", "minimum": 0},
+    "error": {"type": "string"}
+  },
+  "additionalProperties": false
+}

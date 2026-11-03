@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -27,6 +28,15 @@ from .versioned_repository import (
 
 
 ALLOWED_IDENTIFIER_TYPES = {"product_code", "barcode", "product_name"}
+OFFICIAL_MAPPING_SYNC_RECEIPT_SCHEMA_VERSION = (
+    "official-mapping-sync-receipt/1.0"
+)
+OFFICIAL_MAPPING_SYNC_RECEIPT_MAX_AGE_SECONDS = 600
+ALLOWED_SYNC_PROVIDERS = {"agent_native_feishu", "lark_cli"}
+ALLOWED_READ_CONSISTENCY_MODES = {
+    "agent_native_metadata_double_read",
+    "lark_cli_metadata_double_read",
+}
 
 
 class OfficialMappingSyncError(ValueError):
@@ -499,3 +509,182 @@ def write_official_mapping_snapshot(
     )
     os.replace(temporary, destination)
     return destination
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _parse_utc_timestamp(value: Any, *, field_name: str) -> datetime:
+    text = clean_identifier(value)
+    if not text:
+        raise OfficialMappingSyncError(f"正式映射同步凭证缺少{field_name}。")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise OfficialMappingSyncError(
+            f"正式映射同步凭证{field_name}不是有效时间。"
+        ) from exc
+    if parsed.tzinfo is None:
+        raise OfficialMappingSyncError(
+            f"正式映射同步凭证{field_name}必须包含时区。"
+        )
+    return parsed.astimezone(timezone.utc)
+
+
+def write_official_mapping_sync_receipt(
+    path: str | Path,
+    *,
+    snapshot_path: str | Path,
+    snapshot: Mapping[str, Any],
+    provider: str,
+    read_consistency: str,
+    read_attempts: int,
+    issued_at: str | None = None,
+) -> Path:
+    """Sign a short-lived proof that one task performed a fresh, stable read."""
+
+    normalized_provider = clean_identifier(provider)
+    if normalized_provider not in ALLOWED_SYNC_PROVIDERS:
+        raise OfficialMappingSyncError("正式映射同步提供器未登记。")
+    normalized_consistency = clean_identifier(read_consistency)
+    if normalized_consistency not in ALLOWED_READ_CONSISTENCY_MODES:
+        raise OfficialMappingSyncError("正式映射同步缺少版本前后双读证据。")
+    if (
+        isinstance(read_attempts, bool)
+        or not isinstance(read_attempts, int)
+        or read_attempts < 1
+        or read_attempts > 3
+    ):
+        raise OfficialMappingSyncError("正式映射同步读取次数无效。")
+
+    snapshot_file = Path(snapshot_path).expanduser().resolve()
+    if not snapshot_file.is_file():
+        raise OfficialMappingSyncError("正式映射快照不存在，不能签发同步凭证。")
+    timestamp = issued_at or datetime.now(timezone.utc).isoformat()
+    payload = {
+        "schema_version": OFFICIAL_MAPPING_SYNC_RECEIPT_SCHEMA_VERSION,
+        "status": "synced",
+        "receipt_id": uuid.uuid4().hex,
+        "provider": normalized_provider,
+        "issued_at": timestamp,
+        "snapshot": {
+            "file_name": snapshot_file.name,
+            "file_sha256": _file_sha256(snapshot_file),
+            "snapshot_sha256": clean_identifier(snapshot.get("snapshot_sha256")),
+            "mapping_revision": clean_identifier(snapshot.get("mapping_revision")),
+            "synced_at": clean_identifier(snapshot.get("synced_at")),
+        },
+        "read_consistency": {
+            "mode": normalized_consistency,
+            "attempts": read_attempts,
+        },
+        "privacy": "no_order_or_recipient_data",
+    }
+    destination = Path(path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, destination)
+    return destination
+
+
+def validate_official_mapping_sync_receipt(
+    receipt_path: str | Path,
+    snapshot_path: str | Path,
+    catalog: ProductCatalog,
+    *,
+    max_age_seconds: int = OFFICIAL_MAPPING_SYNC_RECEIPT_MAX_AGE_SECONDS,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate freshness and bind a receipt to the exact snapshot bytes."""
+
+    receipt_file = Path(receipt_path).expanduser().resolve()
+    snapshot_file = Path(snapshot_path).expanduser().resolve()
+    try:
+        receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OfficialMappingSyncError(
+            f"无法读取正式映射同步凭证：{exc}"
+        ) from exc
+    if not isinstance(receipt, dict):
+        raise OfficialMappingSyncError("正式映射同步凭证根节点不是对象。")
+    if (
+        clean_identifier(receipt.get("schema_version"))
+        != OFFICIAL_MAPPING_SYNC_RECEIPT_SCHEMA_VERSION
+        or clean_identifier(receipt.get("status")) != "synced"
+        or clean_identifier(receipt.get("privacy"))
+        != "no_order_or_recipient_data"
+    ):
+        raise OfficialMappingSyncError("正式映射同步凭证合同或状态无效。")
+    receipt_id = clean_identifier(receipt.get("receipt_id"))
+    if len(receipt_id) != 32 or any(
+        character not in "0123456789abcdef" for character in receipt_id
+    ):
+        raise OfficialMappingSyncError("正式映射同步凭证ID无效。")
+    provider = clean_identifier(receipt.get("provider"))
+    if provider not in ALLOWED_SYNC_PROVIDERS:
+        raise OfficialMappingSyncError("正式映射同步凭证提供器未登记。")
+    consistency = receipt.get("read_consistency")
+    if not isinstance(consistency, dict):
+        raise OfficialMappingSyncError("正式映射同步凭证缺少双读一致性证据。")
+    consistency_mode = clean_identifier(consistency.get("mode"))
+    if consistency_mode not in ALLOWED_READ_CONSISTENCY_MODES:
+        raise OfficialMappingSyncError("正式映射同步凭证未完成版本前后双读。")
+    attempts = consistency.get("attempts")
+    if (
+        isinstance(attempts, bool)
+        or not isinstance(attempts, int)
+        or attempts < 1
+        or attempts > 3
+    ):
+        raise OfficialMappingSyncError("正式映射同步凭证读取次数无效。")
+
+    snapshot = load_official_mapping_snapshot(snapshot_file, catalog)
+    bound = receipt.get("snapshot")
+    if not isinstance(bound, dict):
+        raise OfficialMappingSyncError("正式映射同步凭证缺少快照绑定。")
+    expected = {
+        "file_sha256": _file_sha256(snapshot_file),
+        "snapshot_sha256": clean_identifier(snapshot.get("snapshot_sha256")),
+        "mapping_revision": clean_identifier(snapshot.get("mapping_revision")),
+        "synced_at": clean_identifier(snapshot.get("synced_at")),
+    }
+    for field_name, expected_value in expected.items():
+        if clean_identifier(bound.get(field_name)) != expected_value:
+            raise OfficialMappingSyncError(
+                f"正式映射同步凭证与当前快照的{field_name}不一致。"
+            )
+
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    issued_at = _parse_utc_timestamp(receipt.get("issued_at"), field_name="issued_at")
+    synced_at = _parse_utc_timestamp(snapshot.get("synced_at"), field_name="synced_at")
+    for field_name, timestamp in (("issued_at", issued_at), ("synced_at", synced_at)):
+        age = (current - timestamp).total_seconds()
+        if age < -60:
+            raise OfficialMappingSyncError(
+                f"正式映射同步凭证{field_name}晚于当前时间。"
+            )
+        if age > max_age_seconds:
+            raise OfficialMappingSyncError(
+                "正式映射同步凭证已过期；必须为当前转换任务重新读取正式库。"
+            )
+
+    return {
+        "status": "ready",
+        "provider": provider,
+        "mapping_revision": expected["mapping_revision"],
+        "synced_at": expected["synced_at"],
+        "snapshot_sha256": expected["snapshot_sha256"],
+        "receipt_id": receipt_id,
+        "receipt_issued_at": clean_identifier(receipt.get("issued_at")),
+        "read_consistency": consistency_mode,
+        "read_attempts": attempts,
+    }

@@ -8,6 +8,7 @@
     "status",
     "delivery_status",
     "converter",
+    "official_mapping",
     "workflow",
     "artifacts",
     "checks",
@@ -23,18 +24,23 @@
         "package",
         "package_version",
         "workflow_schema_version",
+        "release_id",
         "runtime_manifest_sha256"
       ],
       "properties": {
         "package": {"const": "auto-shipped"},
         "package_version": {"type": "string", "minLength": 1},
         "workflow_schema_version": {"const": "conversion-workflow/1.0"},
+        "release_id": {"type": ["string", "null"], "minLength": 1},
         "runtime_manifest_sha256": {
           "type": ["string", "null"],
           "pattern": "^[0-9a-f]{64}$"
         }
       },
       "additionalProperties": false
+    },
+    "official_mapping": {
+      "$ref": "official_mapping_runtime_info.schema.json"
     },
     "workflow": {
       "type": "object",

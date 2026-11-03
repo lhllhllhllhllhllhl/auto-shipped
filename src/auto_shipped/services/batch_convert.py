@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tempfile
 from dataclasses import dataclass, field
@@ -23,7 +24,11 @@ from auto_shipped.platforms.guanyi import (
     preflight_custom_import,
     render_custom_import,
 )
-from auto_shipped.services.convert import PROJECT_ROOT, convert_order_file
+from auto_shipped.services.convert import (
+    PROJECT_ROOT,
+    convert_order_file,
+    official_mapping_result_info,
+)
 from auto_shipped.services.delivery_receipt import (
     DeliveryReceiptError,
     write_delivery_receipt,
@@ -84,6 +89,12 @@ class BatchSourceSummary:
 class BatchConversionResult:
     status: str
     source_count: int
+    release_id: str | None = field(
+        default_factory=lambda: str(
+            os.environ.get("SHANGYU_RELEASE_ID") or ""
+        ).strip()
+        or None
+    )
     order_count: int = 0
     item_row_count: int = 0
     target_platform: str | None = None
@@ -99,6 +110,7 @@ class BatchConversionResult:
     mapping_identity_notices: list[dict[str, Any]] = field(default_factory=list)
     store_assignment_notices: list[dict[str, Any]] = field(default_factory=list)
     package_semantics_notices: list[dict[str, Any]] = field(default_factory=list)
+    official_mapping: dict[str, Any] = field(default_factory=dict)
     workflow_execution: dict[str, Any] | None = None
     errors: list[dict[str, Any]] = field(default_factory=list)
 
@@ -106,6 +118,7 @@ class BatchConversionResult:
         return {
             "status": self.status,
             "source_count": self.source_count,
+            "release_id": self.release_id,
             "order_count": self.order_count,
             "item_row_count": self.item_row_count,
             "target_platform": self.target_platform,
@@ -125,6 +138,7 @@ class BatchConversionResult:
             "mapping_identity_notices": self.mapping_identity_notices,
             "store_assignment_notices": self.store_assignment_notices,
             "package_semantics_notices": self.package_semantics_notices,
+            "official_mapping": self.official_mapping,
             "workflow_execution": self.workflow_execution,
             "errors": self.errors,
         }
@@ -267,10 +281,19 @@ def convert_order_batch(
     mapping_replacement_paths: tuple[str | Path, ...] = (),
     official_mapping_ready: bool = True,
     official_mapping_error: str = "",
+    official_mapping_info: dict[str, Any] | None = None,
     batch_name: str = "批量订单",
 ) -> BatchConversionResult:
     sources = [Path(value).expanduser().resolve() for value in source_paths]
-    result = BatchConversionResult(status="blocked", source_count=len(sources))
+    result = BatchConversionResult(
+        status="blocked",
+        source_count=len(sources),
+        official_mapping=official_mapping_result_info(
+            official_mapping_info,
+            ready=official_mapping_ready,
+            error=official_mapping_error,
+        ),
+    )
     hints = source_profile_hints or {}
     companies = company_hints or {}
     adaptive_plans = adaptive_plan_hints or {}
@@ -340,6 +363,7 @@ def convert_order_batch(
                 mapping_replacement_paths=mapping_replacement_paths,
                 official_mapping_ready=official_mapping_ready,
                 official_mapping_error=official_mapping_error,
+                official_mapping_info=official_mapping_info,
             )
             summary = _summarize_conversion(source, digest, conversion)
             result.sources.append(summary)

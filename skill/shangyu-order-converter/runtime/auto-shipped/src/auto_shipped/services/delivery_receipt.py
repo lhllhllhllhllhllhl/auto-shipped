@@ -96,6 +96,24 @@ def _release_identity() -> dict[str, Any]:
     }
 
 
+def _official_mapping_identity(report_payload: dict[str, Any]) -> dict[str, Any]:
+    value = report_payload.get("official_mapping")
+    if isinstance(value, dict) and value:
+        return dict(value)
+    return {
+        "status": "unavailable",
+        "provider": None,
+        "mapping_revision": None,
+        "synced_at": None,
+        "snapshot_sha256": None,
+        "receipt_id": None,
+        "receipt_issued_at": None,
+        "read_consistency": None,
+        "read_attempts": 0,
+        "error": "处理报告未携带当前任务正式映射同步证据。",
+    }
+
+
 def write_delivery_receipt(
     output_path: str | Path,
     *,
@@ -191,6 +209,7 @@ def write_delivery_receipt(
         "status": "verified",
         "delivery_status": delivery_status,
         "converter": _release_identity(),
+        "official_mapping": _official_mapping_identity(report_payload),
         "workflow": {
             "workflow_id": workflow_execution.get("workflow_id"),
             "status": workflow_execution.get("status"),
@@ -281,6 +300,7 @@ def verify_delivery_receipt(path: str | Path) -> dict[str, Any]:
     report_payload = _read_json(report_path, artifact_name="处理报告")
     report_workflow = report_payload.get("workflow_execution") or {}
     receipt_workflow = receipt.get("workflow") or {}
+    report_official_mapping = _official_mapping_identity(report_payload)
     report_receipt_value = str(report_payload.get("delivery_receipt") or "").strip()
     if (
         report_payload.get("status") != delivery_status
@@ -289,6 +309,7 @@ def verify_delivery_receipt(path: str | Path) -> dict[str, Any]:
         or _output_sha256(report_workflow) != workbook_artifact.get("sha256")
         or not report_receipt_value
         or Path(report_receipt_value).expanduser().resolve() != receipt_path
+        or receipt.get("official_mapping") != report_official_mapping
     ):
         raise DeliveryReceiptError(
             "DELIVERY_RECEIPT_REPORT_MISMATCH",
@@ -352,4 +373,5 @@ def verify_delivery_receipt(path: str | Path) -> dict[str, Any]:
         ),
         "workflow_id": (receipt.get("workflow") or {}).get("workflow_id"),
         "converter": receipt.get("converter"),
+        "official_mapping": receipt.get("official_mapping"),
     }

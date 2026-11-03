@@ -75,6 +75,10 @@ class DeliveryReceiptTests(unittest.TestCase):
         self.assertEqual(verified["status"], "verified")
         self.assertEqual(verified["delivery_status"], "ready")
         self.assertEqual(verified["workflow_id"], "0123456789abcdef")
+        self.assertEqual(
+            verified["official_mapping"]["status"],
+            "unavailable",
+        )
 
     def test_receipt_rejects_workbook_modified_after_delivery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

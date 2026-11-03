@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shangyu.local/schemas/official-mapping-sync-receipt-v1.json",
+  "title": "Shangyu Official Mapping Sync Receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "receipt_id",
+    "provider",
+    "issued_at",
+    "snapshot",
+    "read_consistency",
+    "privacy"
+  ],
+  "properties": {
+    "schema_version": {"const": "official-mapping-sync-receipt/1.0"},
+    "status": {"const": "synced"},
+    "receipt_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "provider": {"enum": ["agent_native_feishu", "lark_cli"]},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "file_name",
+        "file_sha256",
+        "snapshot_sha256",
+        "mapping_revision",
+        "synced_at"
+      ],
+      "properties": {
+        "file_name": {"type": "string", "minLength": 1},
+        "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mapping_revision": {"type": "string", "minLength": 1},
+        "synced_at": {"type": "string", "format": "date-time"}
+      },
+      "additionalProperties": false
+    },
+    "read_consistency": {
+      "type": "object",
+      "required": ["mode", "attempts"],
+      "properties": {
+        "mode": {
+          "enum": [
+            "agent_native_metadata_double_read",
+            "lark_cli_metadata_double_read"
+          ]
+        },
+        "attempts": {"type": "integer", "minimum": 1, "maximum": 3}
+      },
+      "additionalProperties": false
+    },
+    "privacy": {"const": "no_order_or_recipient_data"}
+  },
+  "additionalProperties": false
+}

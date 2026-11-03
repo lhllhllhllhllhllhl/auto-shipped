@@ -4,9 +4,19 @@ import hashlib
 import unittest
 import tempfile
 import json
+import argparse
+import io
+from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from auto_shipped.catalog import ProductCatalog, ProductPhraseNormalizer, ProductRecord
+from auto_shipped.cli import (
+    _official_mapping_runtime_state,
+    _read_consistent_official_repository,
+    run_sync_feishu_official_mappings_from_payload,
+)
 from auto_shipped.integrations.feishu import (
     OfficialMappingSyncError,
     build_item_expansion_rule_key,
@@ -14,7 +24,9 @@ from auto_shipped.integrations.feishu import (
     build_manual_store_route_key,
     build_official_mapping_snapshot,
     load_official_mapping_snapshot,
+    validate_official_mapping_sync_receipt,
     validate_official_mapping_snapshot,
+    write_official_mapping_sync_receipt,
     write_official_mapping_snapshot,
 )
 
@@ -135,7 +147,183 @@ def item_expansion_rows() -> list[dict[str, str]]:
     ]
 
 
+class ChangingRevisionGateway:
+    def __init__(self, metadata_reads: list[dict[str, str]]) -> None:
+        self.metadata_reads = list(metadata_reads)
+
+    def get_official_repository_metadata(self) -> dict[str, str]:
+        return self.metadata_reads.pop(0)
+
+    def list_official_mapping_records(self) -> list[dict[str, str]]:
+        return [record()]
+
+    def list_manual_store_route_records(self) -> list[dict[str, str]]:
+        return []
+
+    def list_item_expansion_component_records(self) -> list[dict[str, str]]:
+        return []
+
+
 class FeishuOfficialMappingTests(unittest.TestCase):
+    def test_native_sync_rejects_metadata_change_during_sheet_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload_path = root / "payload.json"
+            payload_path.write_text(
+                json.dumps(
+                    {
+                        "metadata": {
+                            "repository_status": "active",
+                            "mapping_revision": "1",
+                        },
+                        "records": [record()],
+                        "metadata_after": {
+                            "repository_status": "active",
+                            "mapping_revision": "2",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                payload=str(payload_path),
+                catalog=str(root / "catalog.csv"),
+                mappings=str(root / "mappings.json"),
+                preferred_catalog=[],
+                output=str(root / "snapshot.json"),
+                receipt_output=None,
+            )
+            rendered = io.StringIO()
+            with redirect_stdout(rendered):
+                status = run_sync_feishu_official_mappings_from_payload(args)
+
+        self.assertEqual(status, 2)
+        self.assertIn("读取期间正式库版本或发布状态发生变化", rendered.getvalue())
+
+    def test_native_sync_emits_snapshot_and_task_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload_path = root / "payload.json"
+            metadata = {"repository_status": "active", "mapping_revision": "1"}
+            payload_path.write_text(
+                json.dumps(
+                    {
+                        "metadata": metadata,
+                        "records": [record()],
+                        "metadata_after": metadata,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                payload=str(payload_path),
+                catalog=str(root / "catalog.csv"),
+                mappings=str(root / "mappings.json"),
+                preferred_catalog=[],
+                output=str(root / "snapshot.json"),
+                receipt_output=None,
+            )
+            rendered = io.StringIO()
+            with (
+                patch(
+                    "auto_shipped.cli.ProductCatalog.from_files",
+                    return_value=catalog(),
+                ),
+                redirect_stdout(rendered),
+            ):
+                status = run_sync_feishu_official_mappings_from_payload(args)
+            result = json.loads(rendered.getvalue())
+
+            self.assertEqual(status, 0)
+            self.assertTrue(Path(result["output"]).is_file())
+            self.assertTrue(Path(result["sync_receipt"]).is_file())
+            info = validate_official_mapping_sync_receipt(
+                result["sync_receipt"],
+                result["output"],
+                catalog(),
+            )
+
+        self.assertEqual(info["provider"], "agent_native_feishu")
+
+    def test_conversion_runtime_requires_receipt_and_exposes_revision(self) -> None:
+        now = datetime.now(timezone.utc)
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "23"},
+            catalog(),
+            synced_at=now.isoformat(),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot_path = write_official_mapping_snapshot(
+                root / "official.json",
+                snapshot,
+            )
+            receipt_path = write_official_mapping_sync_receipt(
+                root / "official.sync-receipt.json",
+                snapshot_path=snapshot_path,
+                snapshot=snapshot,
+                provider="lark_cli",
+                read_consistency="lark_cli_metadata_double_read",
+                read_attempts=2,
+                issued_at=now.isoformat(),
+            )
+            args = argparse.Namespace(
+                official_mapping_status="auto",
+                official_mapping_error="",
+                official_mapping_receipt=str(receipt_path),
+                catalog=str(root / "catalog.csv"),
+                mappings=str(root / "mappings.json"),
+                preferred_catalog=[],
+                mapping_overlay=[str(snapshot_path)],
+            )
+            with patch(
+                "auto_shipped.cli.ProductCatalog.from_files",
+                return_value=catalog(),
+            ):
+                ready, error, info = _official_mapping_runtime_state(args)
+                args.official_mapping_receipt = None
+                missing_ready, missing_error, missing_info = (
+                    _official_mapping_runtime_state(args)
+                )
+
+        self.assertTrue(ready)
+        self.assertEqual(error, "")
+        self.assertEqual(info["mapping_revision"], "23")
+        self.assertEqual(info["read_attempts"], 2)
+        self.assertFalse(missing_ready)
+        self.assertIn("缺少当前任务", missing_error)
+        self.assertEqual(missing_info["status"], "unavailable")
+
+    def test_consistent_repository_read_retries_after_revision_switch(self) -> None:
+        revision_1 = {"repository_status": "active", "mapping_revision": "1"}
+        revision_2 = {"repository_status": "active", "mapping_revision": "2"}
+        gateway = ChangingRevisionGateway(
+            [revision_1, revision_2, revision_2, revision_2]
+        )
+
+        _, _, _, metadata, attempts = _read_consistent_official_repository(
+            gateway  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(metadata["mapping_revision"], "2")
+        self.assertEqual(attempts, 2)
+
+    def test_consistent_repository_read_fails_after_three_changes(self) -> None:
+        gateway = ChangingRevisionGateway(
+            [
+                {"mapping_revision": "1"},
+                {"mapping_revision": "2"},
+                {"mapping_revision": "2"},
+                {"mapping_revision": "3"},
+                {"mapping_revision": "3"},
+                {"mapping_revision": "4"},
+            ]
+        )
+
+        with self.assertRaisesRegex(OfficialMappingSyncError, "重试3次"):
+            _read_consistent_official_repository(gateway)  # type: ignore[arg-type]
+
     def test_staged_next_revision_is_invisible_until_revision_switch(self) -> None:
         committed = record()
         staged = record()
@@ -571,6 +759,10 @@ class FeishuOfficialMappingTests(unittest.TestCase):
         payload = {
             "metadata": {"repository_status": "active", "mapping_revision": "1"},
             "records": [record()],
+            "metadata_after": {
+                "repository_status": "active",
+                "mapping_revision": "1",
+            },
         }
         restored = json.loads(json.dumps(payload, ensure_ascii=False))
         snapshot = build_official_mapping_snapshot(
@@ -579,6 +771,113 @@ class FeishuOfficialMappingTests(unittest.TestCase):
             catalog(),
         )
         self.assertEqual(snapshot["mappings"][0]["source_value"], "2026DFYUMI001")
+
+    def test_sync_receipt_binds_fresh_snapshot_version_and_bytes(self) -> None:
+        now = datetime(2026, 11, 3, 5, 0, tzinfo=timezone.utc)
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            synced_at=now.isoformat(),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot_path = write_official_mapping_snapshot(
+                root / "official.json",
+                snapshot,
+            )
+            receipt_path = write_official_mapping_sync_receipt(
+                root / "official.sync-receipt.json",
+                snapshot_path=snapshot_path,
+                snapshot=snapshot,
+                provider="agent_native_feishu",
+                read_consistency="agent_native_metadata_double_read",
+                read_attempts=1,
+                issued_at=now.isoformat(),
+            )
+
+            info = validate_official_mapping_sync_receipt(
+                receipt_path,
+                snapshot_path,
+                catalog(),
+                now=now + timedelta(minutes=5),
+            )
+
+        self.assertEqual(info["status"], "ready")
+        self.assertEqual(info["provider"], "agent_native_feishu")
+        self.assertEqual(info["mapping_revision"], "1")
+        self.assertEqual(info["snapshot_sha256"], snapshot["snapshot_sha256"])
+
+    def test_expired_sync_receipt_is_rejected(self) -> None:
+        now = datetime(2026, 11, 3, 5, 0, tzinfo=timezone.utc)
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            synced_at=now.isoformat(),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot_path = write_official_mapping_snapshot(
+                root / "official.json",
+                snapshot,
+            )
+            receipt_path = write_official_mapping_sync_receipt(
+                root / "official.sync-receipt.json",
+                snapshot_path=snapshot_path,
+                snapshot=snapshot,
+                provider="lark_cli",
+                read_consistency="lark_cli_metadata_double_read",
+                read_attempts=1,
+                issued_at=now.isoformat(),
+            )
+
+            with self.assertRaisesRegex(
+                OfficialMappingSyncError,
+                "已过期",
+            ):
+                validate_official_mapping_sync_receipt(
+                    receipt_path,
+                    snapshot_path,
+                    catalog(),
+                    now=now + timedelta(minutes=11),
+                )
+
+    def test_sync_receipt_rejects_snapshot_bytes_changed_after_sync(self) -> None:
+        now = datetime.now(timezone.utc)
+        snapshot = build_official_mapping_snapshot(
+            [record()],
+            {"repository_status": "active", "mapping_revision": "1"},
+            catalog(),
+            synced_at=now.isoformat(),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            snapshot_path = write_official_mapping_snapshot(
+                root / "official.json",
+                snapshot,
+            )
+            receipt_path = write_official_mapping_sync_receipt(
+                root / "official.sync-receipt.json",
+                snapshot_path=snapshot_path,
+                snapshot=snapshot,
+                provider="lark_cli",
+                read_consistency="lark_cli_metadata_double_read",
+                read_attempts=1,
+                issued_at=now.isoformat(),
+            )
+            snapshot_path.write_text(
+                snapshot_path.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(OfficialMappingSyncError, "file_sha256"):
+                validate_official_mapping_sync_receipt(
+                    receipt_path,
+                    snapshot_path,
+                    catalog(),
+                    now=now,
+                )
 
 
 if __name__ == "__main__":
